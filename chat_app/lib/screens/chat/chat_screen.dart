@@ -33,54 +33,64 @@ class _ChatScreenState extends State<ChatScreen> {
     final now = DateTime.now();
     final currentUser = User(
       id: 'current',
-      name: '我',
+      username: 'me',
       email: 'me@example.com',
+      displayName: '我',
       createdAt: now,
-      updatedAt: now,
     );
 
     _messages = [
       Message(
         id: '1',
-        chatId: _chat.id,
-        sender: _chat.participants.first,
         content: '你好，今天有空吗？',
+        senderId: _chat.participants.first.id,
+        senderName: _chat.participants.first.displayName,
+        senderAvatar: _chat.participants.first.avatarUrl,
+        chatRoomId: _chat.id,
         type: MessageType.text,
         status: MessageStatus.read,
         timestamp: now.subtract(const Duration(hours: 2)),
       ),
       Message(
         id: '2',
-        chatId: _chat.id,
-        sender: currentUser,
         content: '有空的，什么事？',
+        senderId: currentUser.id,
+        senderName: currentUser.displayName,
+        senderAvatar: currentUser.avatarUrl,
+        chatRoomId: _chat.id,
         type: MessageType.text,
         status: MessageStatus.delivered,
         timestamp: now.subtract(const Duration(hours: 1, minutes: 50)),
       ),
       Message(
         id: '3',
-        chatId: _chat.id,
-        sender: _chat.participants.first,
         content: '想约你一起吃饭，你觉得怎么样？',
+        senderId: _chat.participants.first.id,
+        senderName: _chat.participants.first.displayName,
+        senderAvatar: _chat.participants.first.avatarUrl,
+        chatRoomId: _chat.id,
         type: MessageType.text,
         status: MessageStatus.read,
         timestamp: now.subtract(const Duration(hours: 1, minutes: 30)),
       ),
       Message(
         id: '4',
-        chatId: _chat.id,
-        sender: currentUser,
         content: '好啊！什么时候？',
+        senderId: currentUser.id,
+        senderName: currentUser.displayName,
+        senderAvatar: currentUser.avatarUrl,
+        chatRoomId: _chat.id,
         type: MessageType.text,
         status: MessageStatus.delivered,
         timestamp: now.subtract(const Duration(hours: 1, minutes: 20)),
       ),
       Message(
         id: '5',
-        chatId: _chat.id,
-        sender: _chat.participants.first,
         content: '晚上7点怎么样？我们在市中心的那家餐厅见面',
+        senderId: _chat.participants.first.id,
+        senderName: _chat.participants.first.displayName,
+        senderAvatar: _chat.participants.first.avatarUrl,
+        chatRoomId: _chat.id,
         type: MessageType.text,
         status: MessageStatus.read,
         timestamp: now.subtract(const Duration(minutes: 30)),
@@ -102,15 +112,11 @@ class _ChatScreenState extends State<ChatScreen> {
 
     final newMessage = Message(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
-      chatId: _chat.id,
-      sender: User(
-        id: 'current',
-        name: '我',
-        email: 'me@example.com',
-        createdAt: DateTime.now(),
-        updatedAt: DateTime.now(),
-      ),
       content: content,
+      senderId: 'current',
+      senderName: '我',
+      senderAvatar: null,
+      chatRoomId: _chat.id,
       type: MessageType.text,
       status: MessageStatus.sending,
       timestamp: DateTime.now(),
@@ -171,15 +177,15 @@ class _ChatScreenState extends State<ChatScreen> {
                 CircleAvatar(
                   radius: 20,
                   backgroundColor: AppColors.primary.withOpacity(0.1),
-                  backgroundImage: _chat.displayAvatar != null 
-                      ? NetworkImage(_chat.displayAvatar!) 
+                  backgroundImage: _chat.avatarUrl != null 
+                      ? NetworkImage(_chat.avatarUrl!) 
                       : null,
-                  child: _chat.displayAvatar == null
+                  child: _chat.avatarUrl == null
                       ? Text(
                           _chat.type == ChatType.group 
                               ? '群' 
-                              : _chat.displayName.isNotEmpty 
-                                  ? _chat.displayName[0].toUpperCase()
+                              : _chat.name.isNotEmpty 
+                                  ? _chat.name[0].toUpperCase()
                                   : '?',
                           style: const TextStyle(
                             color: AppColors.primary,
@@ -190,7 +196,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 ),
                 if (_chat.type == ChatType.private && 
                     _chat.participants.isNotEmpty && 
-                    _chat.participants.first.isOnline)
+                    _chat.participants.first.onlineStatus == OnlineStatus.online)
                   Positioned(
                     right: 0,
                     bottom: 0,
@@ -212,7 +218,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    _chat.displayName,
+                    _chat.name,
                     style: const TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.w600,
@@ -220,14 +226,14 @@ class _ChatScreenState extends State<ChatScreen> {
                   ),
                   if (_chat.type == ChatType.private && _chat.participants.isNotEmpty)
                     Text(
-                      _chat.participants.first.isOnline 
-                          ? '在线' 
+                      _chat.participants.first.onlineStatus == OnlineStatus.online
+                          ? '在线'
                           : _chat.participants.first.lastSeen != null
                               ? '最后在线 ${timeago.format(_chat.participants.first.lastSeen!, locale: 'zh')}'
                               : '离线',
                       style: TextStyle(
                         fontSize: 12,
-                        color: _chat.participants.first.isOnline 
+                        color: _chat.participants.first.onlineStatus == OnlineStatus.online
                             ? AppColors.online 
                             : AppColors.textSecondary,
                       ),
@@ -276,7 +282,7 @@ class _ChatScreenState extends State<ChatScreen> {
               itemCount: _messages.length,
               itemBuilder: (context, index) {
                 final message = _messages[index];
-                final isMe = message.sender.id == 'current';
+                final isMe = message.senderId == 'current';
                 final showTime = index == 0 || 
                     _messages[index - 1].timestamp.difference(message.timestamp).inMinutes.abs() > 5;
                 

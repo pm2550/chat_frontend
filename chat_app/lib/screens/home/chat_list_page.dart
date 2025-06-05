@@ -32,29 +32,32 @@ class _ChatListPageState extends State<ChatListPage> {
     final users = [
       User(
         id: '1',
-        name: '张三',
+        username: 'zhangsan',
         email: 'zhangsan@example.com',
-        avatar: null,
-        isOnline: true,
+        displayName: '张三',
+        avatarUrl: null,
+        onlineStatus: OnlineStatus.online,
         createdAt: now.subtract(const Duration(days: 30)),
         updatedAt: now,
       ),
       User(
         id: '2',
-        name: '李四',
+        username: 'lisi',
         email: 'lisi@example.com',
-        avatar: null,
-        isOnline: false,
+        displayName: '李四',
+        avatarUrl: null,
+        onlineStatus: OnlineStatus.offline,
         lastSeen: now.subtract(const Duration(minutes: 30)),
         createdAt: now.subtract(const Duration(days: 20)),
         updatedAt: now,
       ),
       User(
         id: '3',
-        name: '产品讨论组',
+        username: 'group',
         email: 'group@example.com',
-        avatar: null,
-        isOnline: true,
+        displayName: '产品讨论组',
+        avatarUrl: null,
+        onlineStatus: OnlineStatus.online,
         createdAt: now.subtract(const Duration(days: 10)),
         updatedAt: now,
       ),
@@ -68,9 +71,11 @@ class _ChatListPageState extends State<ChatListPage> {
         participants: [users[0]],
         lastMessage: Message(
           id: '1',
-          chatId: '1',
-          sender: users[0],
           content: '你好，今天有空吗？',
+          senderId: users[0].id,
+          senderName: users[0].displayName,
+          senderAvatar: users[0].avatarUrl,
+          chatRoomId: '1',
           type: MessageType.text,
           status: MessageStatus.delivered,
           timestamp: now.subtract(const Duration(minutes: 5)),
@@ -86,9 +91,11 @@ class _ChatListPageState extends State<ChatListPage> {
         participants: [users[1]],
         lastMessage: Message(
           id: '2',
-          chatId: '2',
-          sender: users[1],
           content: '收到，谢谢！',
+          senderId: users[1].id,
+          senderName: users[1].displayName,
+          senderAvatar: users[1].avatarUrl,
+          chatRoomId: '2',
           type: MessageType.text,
           status: MessageStatus.read,
           timestamp: now.subtract(const Duration(hours: 2)),
@@ -104,9 +111,11 @@ class _ChatListPageState extends State<ChatListPage> {
         participants: [users[0], users[1], users[2]],
         lastMessage: Message(
           id: '3',
-          chatId: '3',
-          sender: users[2],
           content: '明天的会议改到下午3点',
+          senderId: users[2].id,
+          senderName: users[2].displayName,
+          senderAvatar: users[2].avatarUrl,
+          chatRoomId: '3',
           type: MessageType.text,
           status: MessageStatus.delivered,
           timestamp: now.subtract(const Duration(hours: 1)),
@@ -271,15 +280,15 @@ class _ChatListPageState extends State<ChatListPage> {
             CircleAvatar(
               radius: 28,
               backgroundColor: AppColors.primary.withOpacity(0.1),
-              backgroundImage: chat.displayAvatar != null 
-                  ? NetworkImage(chat.displayAvatar!) 
+              backgroundImage: chat.avatarUrl != null 
+                  ? NetworkImage(chat.avatarUrl!) 
                   : null,
-              child: chat.displayAvatar == null
+              child: chat.avatarUrl == null
                   ? Text(
                       chat.type == ChatType.group 
                           ? '群' 
-                          : chat.displayName.isNotEmpty 
-                              ? chat.displayName[0].toUpperCase()
+                          : chat.name.isNotEmpty 
+                              ? chat.name[0].toUpperCase()
                               : '?',
                       style: const TextStyle(
                         color: AppColors.primary,
@@ -291,7 +300,7 @@ class _ChatListPageState extends State<ChatListPage> {
             ),
             if (chat.type == ChatType.private && 
                 chat.participants.isNotEmpty && 
-                chat.participants.first.isOnline)
+                chat.participants.first.onlineStatus == OnlineStatus.online)
               Positioned(
                 right: 2,
                 bottom: 2,
@@ -328,7 +337,7 @@ class _ChatListPageState extends State<ChatListPage> {
           children: [
             Expanded(
               child: Text(
-                chat.displayName,
+                chat.name,
                 style: const TextStyle(
                   fontWeight: FontWeight.w600,
                   fontSize: 16,

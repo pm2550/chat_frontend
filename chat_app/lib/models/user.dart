@@ -1,75 +1,107 @@
 class User {
   final String id;
-  final String name;
+  final String username;
   final String email;
-  final String? avatar;
   final String? phone;
-  final bool isOnline;
+  final String displayName;
+  final String? avatarUrl;
+  final String? bio;
+  final OnlineStatus onlineStatus;
   final DateTime? lastSeen;
+  final bool isActive;
   final DateTime createdAt;
-  final DateTime updatedAt;
+  final DateTime? updatedAt;
+  final List<UserRole> roles;
 
-  User({
+  const User({
     required this.id,
-    required this.name,
+    required this.username,
     required this.email,
-    this.avatar,
     this.phone,
-    this.isOnline = false,
+    required this.displayName,
+    this.avatarUrl,
+    this.bio,
+    this.onlineStatus = OnlineStatus.offline,
     this.lastSeen,
+    this.isActive = true,
     required this.createdAt,
-    required this.updatedAt,
+    this.updatedAt,
+    this.roles = const [UserRole.user],
   });
 
   factory User.fromJson(Map<String, dynamic> json) {
     return User(
-      id: json['id'] as String,
-      name: json['name'] as String,
-      email: json['email'] as String,
-      avatar: json['avatar'] as String?,
-      phone: json['phone'] as String?,
-      isOnline: json['isOnline'] as bool? ?? false,
+      id: json['id'].toString(),
+      username: json['username'] ?? '',
+      email: json['email'] ?? '',
+      phone: json['phone'],
+      displayName: json['displayName'] ?? json['username'] ?? '',
+      avatarUrl: json['avatarUrl'],
+      bio: json['bio'],
+      onlineStatus: OnlineStatus.values.firstWhere(
+        (status) => status.name == (json['onlineStatus'] ?? 'offline').toLowerCase(),
+        orElse: () => OnlineStatus.offline,
+      ),
       lastSeen: json['lastSeen'] != null ? DateTime.parse(json['lastSeen']) : null,
+      isActive: json['isActive'] ?? true,
       createdAt: DateTime.parse(json['createdAt']),
-      updatedAt: DateTime.parse(json['updatedAt']),
+      updatedAt: json['updatedAt'] != null ? DateTime.parse(json['updatedAt']) : null,
+      roles: (json['roles'] as List<dynamic>?)
+          ?.map((role) => UserRole.values.firstWhere(
+                (r) => r.name == role.toString().toLowerCase(),
+                orElse: () => UserRole.user,
+              ))
+          .toList() ?? [UserRole.user],
     );
   }
 
   Map<String, dynamic> toJson() {
     return {
       'id': id,
-      'name': name,
+      'username': username,
       'email': email,
-      'avatar': avatar,
       'phone': phone,
-      'isOnline': isOnline,
+      'displayName': displayName,
+      'avatarUrl': avatarUrl,
+      'bio': bio,
+      'onlineStatus': onlineStatus.name.toUpperCase(),
       'lastSeen': lastSeen?.toIso8601String(),
+      'isActive': isActive,
       'createdAt': createdAt.toIso8601String(),
-      'updatedAt': updatedAt.toIso8601String(),
+      'updatedAt': updatedAt?.toIso8601String(),
+      'roles': roles.map((role) => role.name.toUpperCase()).toList(),
     };
   }
 
   User copyWith({
     String? id,
-    String? name,
+    String? username,
     String? email,
-    String? avatar,
     String? phone,
-    bool? isOnline,
+    String? displayName,
+    String? avatarUrl,
+    String? bio,
+    OnlineStatus? onlineStatus,
     DateTime? lastSeen,
+    bool? isActive,
     DateTime? createdAt,
     DateTime? updatedAt,
+    List<UserRole>? roles,
   }) {
     return User(
       id: id ?? this.id,
-      name: name ?? this.name,
+      username: username ?? this.username,
       email: email ?? this.email,
-      avatar: avatar ?? this.avatar,
       phone: phone ?? this.phone,
-      isOnline: isOnline ?? this.isOnline,
+      displayName: displayName ?? this.displayName,
+      avatarUrl: avatarUrl ?? this.avatarUrl,
+      bio: bio ?? this.bio,
+      onlineStatus: onlineStatus ?? this.onlineStatus,
       lastSeen: lastSeen ?? this.lastSeen,
+      isActive: isActive ?? this.isActive,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
+      roles: roles ?? this.roles,
     );
   }
 
@@ -84,6 +116,25 @@ class User {
 
   @override
   String toString() {
-    return 'User(id: $id, name: $name, email: $email, isOnline: $isOnline)';
+    return 'User(id: $id, username: $username, displayName: $displayName)';
   }
+}
+
+enum OnlineStatus {
+  online('在线'),
+  away('离开'),
+  busy('忙碌'),
+  offline('离线');
+
+  const OnlineStatus(this.description);
+  final String description;
+}
+
+enum UserRole {
+  user('普通用户'),
+  admin('管理员'),
+  moderator('版主');
+
+  const UserRole(this.description);
+  final String description;
 } 

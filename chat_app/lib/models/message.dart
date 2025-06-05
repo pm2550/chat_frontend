@@ -1,115 +1,138 @@
 import 'user.dart';
 
 enum MessageType {
-  text,
-  image,
-  file,
-  voice,
-  video,
-  location,
-  system,
+  text('文本'),
+  image('图片'),
+  file('文件'),
+  voice('语音'),
+  video('视频'),
+  location('位置'),
+  system('系统消息');
+
+  const MessageType(this.description);
+  final String description;
 }
 
 enum MessageStatus {
-  sending,
-  sent,
-  delivered,
-  read,
-  failed,
+  sending('发送中'),
+  sent('已发送'),
+  delivered('已送达'),
+  read('已读'),
+  failed('发送失败');
+
+  const MessageStatus(this.description);
+  final String description;
 }
 
 class Message {
   final String id;
-  final String chatId;
-  final User sender;
   final String content;
+  final String senderId;
+  final String senderName;
+  final String? senderAvatar;
+  final String chatRoomId;
   final MessageType type;
   final MessageStatus status;
   final DateTime timestamp;
   final DateTime? editedAt;
   final String? replyToId;
+  final Message? replyToMessage;
   final Map<String, dynamic>? metadata;
-  final bool isDeleted;
 
-  Message({
+  const Message({
     required this.id,
-    required this.chatId,
-    required this.sender,
     required this.content,
-    required this.type,
-    required this.status,
+    required this.senderId,
+    required this.senderName,
+    this.senderAvatar,
+    required this.chatRoomId,
+    this.type = MessageType.text,
+    this.status = MessageStatus.sending,
     required this.timestamp,
     this.editedAt,
     this.replyToId,
+    this.replyToMessage,
     this.metadata,
-    this.isDeleted = false,
   });
 
   factory Message.fromJson(Map<String, dynamic> json) {
     return Message(
-      id: json['id'] as String,
-      chatId: json['chatId'] as String,
-      sender: User.fromJson(json['sender'] as Map<String, dynamic>),
-      content: json['content'] as String,
+      id: json['id'].toString(),
+      content: json['content'] ?? '',
+      senderId: json['senderId'].toString(),
+      senderName: json['senderName'] ?? 'Unknown',
+      senderAvatar: json['senderAvatar'],
+      chatRoomId: json['chatRoomId'].toString(),
       type: MessageType.values.firstWhere(
-        (e) => e.toString().split('.').last == json['type'],
+        (type) => type.name == (json['type'] ?? 'text').toLowerCase(),
         orElse: () => MessageType.text,
       ),
       status: MessageStatus.values.firstWhere(
-        (e) => e.toString().split('.').last == json['status'],
+        (status) => status.name == (json['status'] ?? 'sent').toLowerCase(),
         orElse: () => MessageStatus.sent,
       ),
       timestamp: DateTime.parse(json['timestamp']),
       editedAt: json['editedAt'] != null ? DateTime.parse(json['editedAt']) : null,
-      replyToId: json['replyToId'] as String?,
+      replyToId: json['replyToId']?.toString(),
+      replyToMessage: json['replyToMessage'] != null 
+          ? Message.fromJson(json['replyToMessage']) 
+          : null,
       metadata: json['metadata'] as Map<String, dynamic>?,
-      isDeleted: json['isDeleted'] as bool? ?? false,
     );
   }
 
   Map<String, dynamic> toJson() {
     return {
       'id': id,
-      'chatId': chatId,
-      'sender': sender.toJson(),
       'content': content,
-      'type': type.toString().split('.').last,
-      'status': status.toString().split('.').last,
+      'senderId': senderId,
+      'senderName': senderName,
+      'senderAvatar': senderAvatar,
+      'chatRoomId': chatRoomId,
+      'type': type.name.toUpperCase(),
+      'status': status.name.toUpperCase(),
       'timestamp': timestamp.toIso8601String(),
       'editedAt': editedAt?.toIso8601String(),
       'replyToId': replyToId,
+      'replyToMessage': replyToMessage?.toJson(),
       'metadata': metadata,
-      'isDeleted': isDeleted,
     };
   }
 
   Message copyWith({
     String? id,
-    String? chatId,
-    User? sender,
     String? content,
+    String? senderId,
+    String? senderName,
+    String? senderAvatar,
+    String? chatRoomId,
     MessageType? type,
     MessageStatus? status,
     DateTime? timestamp,
     DateTime? editedAt,
     String? replyToId,
+    Message? replyToMessage,
     Map<String, dynamic>? metadata,
-    bool? isDeleted,
   }) {
     return Message(
       id: id ?? this.id,
-      chatId: chatId ?? this.chatId,
-      sender: sender ?? this.sender,
       content: content ?? this.content,
+      senderId: senderId ?? this.senderId,
+      senderName: senderName ?? this.senderName,
+      senderAvatar: senderAvatar ?? this.senderAvatar,
+      chatRoomId: chatRoomId ?? this.chatRoomId,
       type: type ?? this.type,
       status: status ?? this.status,
       timestamp: timestamp ?? this.timestamp,
       editedAt: editedAt ?? this.editedAt,
       replyToId: replyToId ?? this.replyToId,
+      replyToMessage: replyToMessage ?? this.replyToMessage,
       metadata: metadata ?? this.metadata,
-      isDeleted: isDeleted ?? this.isDeleted,
     );
   }
+
+  bool get isEdited => editedAt != null;
+  bool get hasReply => replyToMessage != null;
 
   @override
   bool operator ==(Object other) {
@@ -122,6 +145,6 @@ class Message {
 
   @override
   String toString() {
-    return 'Message(id: $id, sender: ${sender.name}, content: $content, type: $type)';
+    return 'Message(id: $id, senderId: $senderId, type: $type, content: ${content.length > 50 ? content.substring(0, 50) + '...' : content})';
   }
 } 

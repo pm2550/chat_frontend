@@ -28,38 +28,46 @@ class _ContactsPageState extends State<ContactsPage> {
     _contacts = [
       User(
         id: '1',
-        name: '张三',
+        username: 'zhangsan',
         email: 'zhangsan@example.com',
         phone: '13800138001',
-        isOnline: true,
+        displayName: '张三',
+        avatarUrl: null,
+        onlineStatus: OnlineStatus.online,
         createdAt: now.subtract(const Duration(days: 30)),
         updatedAt: now,
       ),
       User(
         id: '2',
-        name: '李四',
+        username: 'lisi',
         email: 'lisi@example.com',
         phone: '13800138002',
-        isOnline: false,
+        displayName: '李四',
+        avatarUrl: null,
+        onlineStatus: OnlineStatus.offline,
         lastSeen: now.subtract(const Duration(minutes: 30)),
         createdAt: now.subtract(const Duration(days: 20)),
         updatedAt: now,
       ),
       User(
         id: '3',
-        name: '王五',
+        username: 'wangwu',
         email: 'wangwu@example.com',
         phone: '13800138003',
-        isOnline: true,
+        displayName: '王五',
+        avatarUrl: null,
+        onlineStatus: OnlineStatus.online,
         createdAt: now.subtract(const Duration(days: 10)),
         updatedAt: now,
       ),
       User(
         id: '4',
-        name: '赵六',
+        username: 'zhaoliu',
         email: 'zhaoliu@example.com',
         phone: '13800138004',
-        isOnline: false,
+        displayName: '赵六',
+        avatarUrl: null,
+        onlineStatus: OnlineStatus.offline,
         lastSeen: now.subtract(const Duration(hours: 2)),
         createdAt: now.subtract(const Duration(days: 5)),
         updatedAt: now,
@@ -72,7 +80,7 @@ class _ContactsPageState extends State<ContactsPage> {
       return _contacts;
     }
     return _contacts.where((contact) {
-      return contact.name.toLowerCase().contains(_searchQuery.toLowerCase()) ||
+      return contact.displayName.toLowerCase().contains(_searchQuery.toLowerCase()) ||
           contact.email.toLowerCase().contains(_searchQuery.toLowerCase()) ||
           (contact.phone?.contains(_searchQuery) ?? false);
     }).toList();
@@ -85,6 +93,12 @@ class _ContactsPageState extends State<ContactsPage> {
       appBar: AppBar(
         title: const Text('联系人'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.search),
+            onPressed: () {
+              // TODO: 实现搜索功能
+            },
+          ),
           IconButton(
             icon: const Icon(Icons.person_add),
             onPressed: () {
@@ -296,13 +310,13 @@ class _ContactsPageState extends State<ContactsPage> {
             CircleAvatar(
               radius: 28,
               backgroundColor: AppColors.primary.withOpacity(0.1),
-              backgroundImage: contact.avatar != null 
-                  ? NetworkImage(contact.avatar!) 
+              backgroundImage: contact.avatarUrl != null 
+                  ? NetworkImage(contact.avatarUrl!) 
                   : null,
-              child: contact.avatar == null
+              child: contact.avatarUrl == null
                   ? Text(
-                      contact.name.isNotEmpty 
-                          ? contact.name[0].toUpperCase()
+                      contact.displayName.isNotEmpty 
+                          ? contact.displayName[0].toUpperCase()
                           : '?',
                       style: const TextStyle(
                         color: AppColors.primary,
@@ -312,7 +326,7 @@ class _ContactsPageState extends State<ContactsPage> {
                     )
                   : null,
             ),
-            if (contact.isOnline)
+            if (contact.onlineStatus == OnlineStatus.online)
               Positioned(
                 right: 2,
                 bottom: 2,
@@ -329,7 +343,7 @@ class _ContactsPageState extends State<ContactsPage> {
           ],
         ),
         title: Text(
-          contact.name,
+          contact.displayName,
           style: const TextStyle(
             fontWeight: FontWeight.w600,
             fontSize: 16,
@@ -358,13 +372,13 @@ class _ContactsPageState extends State<ContactsPage> {
           ],
         ),
         trailing: Text(
-          contact.isOnline 
-              ? '在线' 
+          contact.onlineStatus == OnlineStatus.online
+              ? '在线'
               : contact.lastSeen != null 
                   ? '${_formatLastSeen(contact.lastSeen!)}'
                   : '离线',
           style: TextStyle(
-            color: contact.isOnline ? AppColors.online : AppColors.textSecondary,
+            color: contact.onlineStatus == OnlineStatus.online ? AppColors.online : AppColors.textSecondary,
             fontSize: 12,
           ),
         ),
@@ -417,13 +431,13 @@ class _ContactsPageState extends State<ContactsPage> {
                     CircleAvatar(
                       radius: 40,
                       backgroundColor: AppColors.primary.withOpacity(0.1),
-                      backgroundImage: contact.avatar != null 
-                          ? NetworkImage(contact.avatar!) 
+                      backgroundImage: contact.avatarUrl != null 
+                          ? NetworkImage(contact.avatarUrl!) 
                           : null,
-                      child: contact.avatar == null
+                      child: contact.avatarUrl == null
                           ? Text(
-                              contact.name.isNotEmpty 
-                                  ? contact.name[0].toUpperCase()
+                              contact.displayName.isNotEmpty 
+                                  ? contact.displayName[0].toUpperCase()
                                   : '?',
                               style: const TextStyle(
                                 color: AppColors.primary,
@@ -435,16 +449,16 @@ class _ContactsPageState extends State<ContactsPage> {
                     ),
                     const SizedBox(height: 16),
                     Text(
-                      contact.name,
+                      contact.displayName,
                       style: Theme.of(context).textTheme.titleLarge?.copyWith(
                         fontWeight: FontWeight.bold,
                       ),
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      contact.isOnline ? '在线' : '离线',
+                      contact.onlineStatus == OnlineStatus.online ? '在线' : '离线',
                       style: TextStyle(
-                        color: contact.isOnline ? AppColors.online : AppColors.textSecondary,
+                        color: contact.onlineStatus == OnlineStatus.online ? AppColors.online : AppColors.textSecondary,
                       ),
                     ),
                     const SizedBox(height: 24),

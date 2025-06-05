@@ -1,65 +1,59 @@
 import 'user.dart';
 import 'message.dart';
 
-enum ChatType {
-  private,
-  group,
-  channel,
-}
-
 class Chat {
   final String id;
   final String name;
   final String? description;
-  final String? avatar;
   final ChatType type;
+  final String? avatarUrl;
   final List<User> participants;
   final Message? lastMessage;
   final int unreadCount;
   final bool isPinned;
   final bool isMuted;
   final DateTime createdAt;
-  final DateTime updatedAt;
-  final String? createdBy;
+  final DateTime? updatedAt;
+  final Map<String, dynamic>? metadata;
 
-  Chat({
+  const Chat({
     required this.id,
     required this.name,
     this.description,
-    this.avatar,
-    required this.type,
-    required this.participants,
+    this.type = ChatType.private,
+    this.avatarUrl,
+    this.participants = const [],
     this.lastMessage,
     this.unreadCount = 0,
     this.isPinned = false,
     this.isMuted = false,
     required this.createdAt,
-    required this.updatedAt,
-    this.createdBy,
+    this.updatedAt,
+    this.metadata,
   });
 
   factory Chat.fromJson(Map<String, dynamic> json) {
     return Chat(
-      id: json['id'] as String,
-      name: json['name'] as String,
-      description: json['description'] as String?,
-      avatar: json['avatar'] as String?,
+      id: json['id'].toString(),
+      name: json['name'] ?? '',
+      description: json['description'],
       type: ChatType.values.firstWhere(
-        (e) => e.toString().split('.').last == json['type'],
+        (type) => type.name == (json['type'] ?? 'private').toLowerCase(),
         orElse: () => ChatType.private,
       ),
-      participants: (json['participants'] as List)
-          .map((p) => User.fromJson(p as Map<String, dynamic>))
-          .toList(),
-      lastMessage: json['lastMessage'] != null
-          ? Message.fromJson(json['lastMessage'] as Map<String, dynamic>)
+      avatarUrl: json['avatarUrl'],
+      participants: (json['participants'] as List<dynamic>?)
+          ?.map((participant) => User.fromJson(participant))
+          .toList() ?? [],
+      lastMessage: json['lastMessage'] != null 
+          ? Message.fromJson(json['lastMessage'])
           : null,
-      unreadCount: json['unreadCount'] as int? ?? 0,
-      isPinned: json['isPinned'] as bool? ?? false,
-      isMuted: json['isMuted'] as bool? ?? false,
+      unreadCount: json['unreadCount'] ?? 0,
+      isPinned: json['isPinned'] ?? false,
+      isMuted: json['isMuted'] ?? false,
       createdAt: DateTime.parse(json['createdAt']),
-      updatedAt: DateTime.parse(json['updatedAt']),
-      createdBy: json['createdBy'] as String?,
+      updatedAt: json['updatedAt'] != null ? DateTime.parse(json['updatedAt']) : null,
+      metadata: json['metadata'] as Map<String, dynamic>?,
     );
   }
 
@@ -68,16 +62,16 @@ class Chat {
       'id': id,
       'name': name,
       'description': description,
-      'avatar': avatar,
-      'type': type.toString().split('.').last,
-      'participants': participants.map((p) => p.toJson()).toList(),
+      'type': type.name.toUpperCase(),
+      'avatarUrl': avatarUrl,
+      'participants': participants.map((user) => user.toJson()).toList(),
       'lastMessage': lastMessage?.toJson(),
       'unreadCount': unreadCount,
       'isPinned': isPinned,
       'isMuted': isMuted,
       'createdAt': createdAt.toIso8601String(),
-      'updatedAt': updatedAt.toIso8601String(),
-      'createdBy': createdBy,
+      'updatedAt': updatedAt?.toIso8601String(),
+      'metadata': metadata,
     };
   }
 
@@ -85,8 +79,8 @@ class Chat {
     String? id,
     String? name,
     String? description,
-    String? avatar,
     ChatType? type,
+    String? avatarUrl,
     List<User>? participants,
     Message? lastMessage,
     int? unreadCount,
@@ -94,14 +88,14 @@ class Chat {
     bool? isMuted,
     DateTime? createdAt,
     DateTime? updatedAt,
-    String? createdBy,
+    Map<String, dynamic>? metadata,
   }) {
     return Chat(
       id: id ?? this.id,
       name: name ?? this.name,
       description: description ?? this.description,
-      avatar: avatar ?? this.avatar,
       type: type ?? this.type,
+      avatarUrl: avatarUrl ?? this.avatarUrl,
       participants: participants ?? this.participants,
       lastMessage: lastMessage ?? this.lastMessage,
       unreadCount: unreadCount ?? this.unreadCount,
@@ -109,25 +103,58 @@ class Chat {
       isMuted: isMuted ?? this.isMuted,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
-      createdBy: createdBy ?? this.createdBy,
+      metadata: metadata ?? this.metadata,
     );
   }
 
-  String get displayName {
-    if (type == ChatType.private && participants.length == 2) {
-      // 对于私聊，显示对方的名字
-      return participants.firstWhere((u) => u.id != createdBy).name;
+  // 获取聊天显示名称
+  String getDisplayName(String currentUserId) {
+    if (type == ChatType.group || type == ChatType.channel) {
+      return name;
     }
-    return name;
+    
+    // 私聊显示对方用户名
+    final otherUser = participants.firstWhere(
+      (user) => user.id != currentUserId,
+      orElse: () => participants.isNotEmpty ? participants.first : User(
+        id: '',
+        username: 'Unknown',
+        email: '',
+        displayName: 'Unknown User',
+        createdAt: DateTime.now(),
+      ),
+    );
+    return otherUser.displayName;
   }
 
-  String? get displayAvatar {
-    if (type == ChatType.private && participants.length == 2) {
-      // 对于私聊，显示对方的头像
-      return participants.firstWhere((u) => u.id != createdBy).avatar;
+  // 获取聊天头像
+  String? getDisplayAvatar(String currentUserId) {
+    if (avatarUrl != null) return avatarUrl;
+    
+    if (type == ChatType.private) {
+      final otherUser = participants.firstWhere(
+        (user) => user.id != currentUserId,
+        orElse: () => participants.isNotEmpty ? participants.first : User(
+          id: '',
+          username: 'Unknown',
+          email: '',
+          displayName: 'Unknown User',
+          createdAt: DateTime.now(),
+        ),
+      );
+      return otherUser.avatarUrl;
     }
-    return avatar;
+    
+    return null;
   }
+
+  // 获取在线参与者数量
+  int get onlineParticipantCount {
+    return participants.where((user) => user.onlineStatus == OnlineStatus.online).length;
+  }
+
+  // 是否有未读消息
+  bool get hasUnreadMessages => unreadCount > 0;
 
   @override
   bool operator ==(Object other) {
@@ -142,4 +169,13 @@ class Chat {
   String toString() {
     return 'Chat(id: $id, name: $name, type: $type, participants: ${participants.length})';
   }
+}
+
+enum ChatType {
+  private('私聊'),
+  group('群聊'),
+  channel('频道');
+
+  const ChatType(this.description);
+  final String description;
 } 
