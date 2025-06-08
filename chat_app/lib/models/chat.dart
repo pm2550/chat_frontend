@@ -15,6 +15,10 @@ class Chat {
   final DateTime createdAt;
   final DateTime? updatedAt;
   final Map<String, dynamic>? metadata;
+  final String? createdBy;
+  final bool isActive;
+  final bool isPrivate;
+  final int maxMembers;
 
   const Chat({
     required this.id,
@@ -30,30 +34,38 @@ class Chat {
     required this.createdAt,
     this.updatedAt,
     this.metadata,
+    this.createdBy,
+    this.isActive = true,
+    this.isPrivate = true,
+    this.maxMembers = 500,
   });
 
   factory Chat.fromJson(Map<String, dynamic> json) {
     return Chat(
-      id: json['id'].toString(),
+      id: json['id']?.toString() ?? '',
       name: json['name'] ?? '',
       description: json['description'],
       type: ChatType.values.firstWhere(
-        (type) => type.name == (json['type'] ?? 'private').toLowerCase(),
+        (e) => e.name.toUpperCase() == (json['type'] ?? json['room_type'] ?? 'PRIVATE').toString().toUpperCase(),
         orElse: () => ChatType.private,
       ),
-      avatarUrl: json['avatarUrl'],
+      avatarUrl: json['avatarUrl'] ?? json['avatar_url'],
       participants: (json['participants'] as List<dynamic>?)
-          ?.map((participant) => User.fromJson(participant))
-          .toList() ?? [],
-      lastMessage: json['lastMessage'] != null 
-          ? Message.fromJson(json['lastMessage'])
+              ?.map((userJson) => User.fromJson(userJson as Map<String, dynamic>))
+              .toList() ??
+          [],
+      createdBy: json['createdBy']?.toString() ?? json['created_by']?.toString(),
+      isActive: json['isActive'] ?? json['is_active'] ?? true,
+      isPrivate: json['isPrivate'] ?? json['is_private'] ?? (json['type'] == 'PRIVATE'),
+      maxMembers: json['maxMembers'] ?? json['max_members'] ?? 500,
+      createdAt: DateTime.tryParse((json['createdAt'] ?? json['created_at']).toString()) ?? DateTime.now(),
+      updatedAt: json['updatedAt'] != null || json['updated_at'] != null
+          ? DateTime.tryParse((json['updatedAt'] ?? json['updated_at']).toString())
           : null,
-      unreadCount: json['unreadCount'] ?? 0,
-      isPinned: json['isPinned'] ?? false,
-      isMuted: json['isMuted'] ?? false,
-      createdAt: DateTime.parse(json['createdAt']),
-      updatedAt: json['updatedAt'] != null ? DateTime.parse(json['updatedAt']) : null,
-      metadata: json['metadata'] as Map<String, dynamic>?,
+      lastMessage: json['lastMessage'] != null
+          ? Message.fromJson(json['lastMessage'] as Map<String, dynamic>)
+          : null,
+      unreadCount: json['unreadCount'] ?? json['unread_count'] ?? 0,
     );
   }
 
@@ -65,13 +77,14 @@ class Chat {
       'type': type.name.toUpperCase(),
       'avatarUrl': avatarUrl,
       'participants': participants.map((user) => user.toJson()).toList(),
-      'lastMessage': lastMessage?.toJson(),
-      'unreadCount': unreadCount,
-      'isPinned': isPinned,
-      'isMuted': isMuted,
+      'createdBy': createdBy,
+      'isActive': isActive,
+      'isPrivate': isPrivate,
+      'maxMembers': maxMembers,
       'createdAt': createdAt.toIso8601String(),
       'updatedAt': updatedAt?.toIso8601String(),
-      'metadata': metadata,
+      'lastMessage': lastMessage?.toJson(),
+      'unreadCount': unreadCount,
     };
   }
 
@@ -82,13 +95,14 @@ class Chat {
     ChatType? type,
     String? avatarUrl,
     List<User>? participants,
-    Message? lastMessage,
-    int? unreadCount,
-    bool? isPinned,
-    bool? isMuted,
+    String? createdBy,
+    bool? isActive,
+    bool? isPrivate,
+    int? maxMembers,
     DateTime? createdAt,
     DateTime? updatedAt,
-    Map<String, dynamic>? metadata,
+    Message? lastMessage,
+    int? unreadCount,
   }) {
     return Chat(
       id: id ?? this.id,
@@ -97,13 +111,14 @@ class Chat {
       type: type ?? this.type,
       avatarUrl: avatarUrl ?? this.avatarUrl,
       participants: participants ?? this.participants,
-      lastMessage: lastMessage ?? this.lastMessage,
-      unreadCount: unreadCount ?? this.unreadCount,
-      isPinned: isPinned ?? this.isPinned,
-      isMuted: isMuted ?? this.isMuted,
+      createdBy: createdBy ?? this.createdBy,
+      isActive: isActive ?? this.isActive,
+      isPrivate: isPrivate ?? this.isPrivate,
+      maxMembers: maxMembers ?? this.maxMembers,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
-      metadata: metadata ?? this.metadata,
+      lastMessage: lastMessage ?? this.lastMessage,
+      unreadCount: unreadCount ?? this.unreadCount,
     );
   }
 

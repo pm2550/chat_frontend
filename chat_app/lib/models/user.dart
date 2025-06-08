@@ -26,32 +26,37 @@ class User {
     this.isActive = true,
     required this.createdAt,
     this.updatedAt,
-    this.roles = const [UserRole.user],
+    this.roles = const [],
   });
 
   factory User.fromJson(Map<String, dynamic> json) {
     return User(
-      id: json['id'].toString(),
+      id: json['id']?.toString() ?? '',
       username: json['username'] ?? '',
       email: json['email'] ?? '',
       phone: json['phone'],
-      displayName: json['displayName'] ?? json['username'] ?? '',
-      avatarUrl: json['avatarUrl'],
+      displayName: json['displayName'] ?? json['display_name'] ?? '',
+      avatarUrl: json['avatarUrl'] ?? json['avatar_url'],
       bio: json['bio'],
       onlineStatus: OnlineStatus.values.firstWhere(
-        (status) => status.name == (json['onlineStatus'] ?? 'offline').toLowerCase(),
+        (e) => e.name.toUpperCase() == (json['onlineStatus'] ?? json['online_status'] ?? 'OFFLINE').toString().toUpperCase(),
         orElse: () => OnlineStatus.offline,
       ),
-      lastSeen: json['lastSeen'] != null ? DateTime.parse(json['lastSeen']) : null,
-      isActive: json['isActive'] ?? true,
-      createdAt: DateTime.parse(json['createdAt']),
-      updatedAt: json['updatedAt'] != null ? DateTime.parse(json['updatedAt']) : null,
+      lastSeen: json['lastSeen'] != null || json['last_seen'] != null
+          ? DateTime.tryParse((json['lastSeen'] ?? json['last_seen']).toString())
+          : null,
+      isActive: json['isActive'] ?? json['is_active'] ?? true,
+      createdAt: DateTime.tryParse((json['createdAt'] ?? json['created_at']).toString()) ?? DateTime.now(),
+      updatedAt: json['updatedAt'] != null || json['updated_at'] != null
+          ? DateTime.tryParse((json['updatedAt'] ?? json['updated_at']).toString())
+          : null,
       roles: (json['roles'] as List<dynamic>?)
-          ?.map((role) => UserRole.values.firstWhere(
-                (r) => r.name == role.toString().toLowerCase(),
-                orElse: () => UserRole.user,
-              ))
-          .toList() ?? [UserRole.user],
+              ?.map((role) => UserRole.values.firstWhere(
+                    (e) => e.name.toUpperCase() == role.toString().toUpperCase(),
+                    orElse: () => UserRole.user,
+                  ))
+              .toList() ??
+          [],
     );
   }
 

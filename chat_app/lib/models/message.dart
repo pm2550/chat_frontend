@@ -38,6 +38,11 @@ class Message {
   final String? replyToId;
   final Message? replyToMessage;
   final Map<String, dynamic>? metadata;
+  final String? replyToMessageId;
+  final String? fileUrl;
+  final String? fileName;
+  final int? fileSize;
+  final String? fileType;
 
   const Message({
     required this.id,
@@ -53,31 +58,41 @@ class Message {
     this.replyToId,
     this.replyToMessage,
     this.metadata,
+    this.replyToMessageId,
+    this.fileUrl,
+    this.fileName,
+    this.fileSize,
+    this.fileType,
   });
 
   factory Message.fromJson(Map<String, dynamic> json) {
     return Message(
-      id: json['id'].toString(),
+      id: json['id']?.toString() ?? '',
       content: json['content'] ?? '',
-      senderId: json['senderId'].toString(),
-      senderName: json['senderName'] ?? 'Unknown',
-      senderAvatar: json['senderAvatar'],
-      chatRoomId: json['chatRoomId'].toString(),
+      senderId: json['senderId']?.toString() ?? json['sender_id']?.toString() ?? '',
+      senderName: json['senderName'] ?? json['sender_name'] ?? '',
+      senderAvatar: json['senderAvatar'] ?? json['sender_avatar'],
+      chatRoomId: json['chatRoomId']?.toString() ?? json['chat_room_id']?.toString() ?? '',
       type: MessageType.values.firstWhere(
-        (type) => type.name == (json['type'] ?? 'text').toLowerCase(),
+        (e) => e.name.toUpperCase() == (json['type'] ?? json['message_type'] ?? 'TEXT').toString().toUpperCase(),
         orElse: () => MessageType.text,
       ),
       status: MessageStatus.values.firstWhere(
-        (status) => status.name == (json['status'] ?? 'sent').toLowerCase(),
+        (e) => e.name.toUpperCase() == (json['status'] ?? json['message_status'] ?? 'SENT').toString().toUpperCase(),
         orElse: () => MessageStatus.sent,
       ),
-      timestamp: DateTime.parse(json['timestamp']),
+      timestamp: DateTime.tryParse((json['timestamp'] ?? json['created_at']).toString()) ?? DateTime.now(),
       editedAt: json['editedAt'] != null ? DateTime.parse(json['editedAt']) : null,
       replyToId: json['replyToId']?.toString(),
       replyToMessage: json['replyToMessage'] != null 
           ? Message.fromJson(json['replyToMessage']) 
           : null,
       metadata: json['metadata'] as Map<String, dynamic>?,
+      replyToMessageId: json['replyToMessageId']?.toString() ?? json['reply_to_message_id']?.toString(),
+      fileUrl: json['fileUrl'] ?? json['file_url'],
+      fileName: json['fileName'] ?? json['file_name'],
+      fileSize: json['fileSize'] ?? json['file_size'],
+      fileType: json['fileType'] ?? json['file_type'],
     );
   }
 
@@ -96,6 +111,11 @@ class Message {
       'replyToId': replyToId,
       'replyToMessage': replyToMessage?.toJson(),
       'metadata': metadata,
+      'replyToMessageId': replyToMessageId,
+      'fileUrl': fileUrl,
+      'fileName': fileName,
+      'fileSize': fileSize,
+      'fileType': fileType,
     };
   }
 
@@ -113,6 +133,11 @@ class Message {
     String? replyToId,
     Message? replyToMessage,
     Map<String, dynamic>? metadata,
+    String? replyToMessageId,
+    String? fileUrl,
+    String? fileName,
+    int? fileSize,
+    String? fileType,
   }) {
     return Message(
       id: id ?? this.id,
@@ -128,6 +153,11 @@ class Message {
       replyToId: replyToId ?? this.replyToId,
       replyToMessage: replyToMessage ?? this.replyToMessage,
       metadata: metadata ?? this.metadata,
+      replyToMessageId: replyToMessageId ?? this.replyToMessageId,
+      fileUrl: fileUrl ?? this.fileUrl,
+      fileName: fileName ?? this.fileName,
+      fileSize: fileSize ?? this.fileSize,
+      fileType: fileType ?? this.fileType,
     );
   }
 
@@ -145,6 +175,6 @@ class Message {
 
   @override
   String toString() {
-    return 'Message(id: $id, senderId: $senderId, type: $type, content: ${content.length > 50 ? content.substring(0, 50) + '...' : content})';
+    return 'Message(id: $id, senderId: $senderId, content: $content)';
   }
 } 
