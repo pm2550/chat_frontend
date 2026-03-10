@@ -1,172 +1,321 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
+import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import '../constants/api_constants.dart';
 import '../models/user.dart';
-import 'api_service.dart';
 
-class AuthService {
-  static const String _tokenKey = 'auth_token';
-  static const String _userKey = 'current_user';
-  
-  final ApiService _apiService = ApiService();
-  User? _currentUser;
-  String? _authToken;
-
-  // 单例模式
+class AuthService extends ChangeNotifier {
   static final AuthService _instance = AuthService._internal();
   factory AuthService() => _instance;
   AuthService._internal();
 
-  // 获取当前用户
+  User? _currentUser;
+  String? _accessToken;
+  String? _refreshToken;
+  bool _isLoading = false;
+
   User? get currentUser => _currentUser;
-  
-  // 获取认证令牌
-  String? get authToken => _authToken;
-  
-  // 是否已登录
-  bool get isLoggedIn => _authToken != null && _currentUser != null;
+  String? get accessToken => _accessToken;
+  String? get refreshToken => _refreshToken;
+  bool get isLoading => _isLoading;
+  bool get isAuthenticated => _accessToken != null && _currentUser != null;
 
-  // 登录
-  Future<User> login(String username, String password) async {
-    final result = await _apiService.login(username, password);
-    
-    _authToken = result['token'] ?? result['accessToken'];
-    if (_authToken != null) {
-      _apiService.setAuthToken(_authToken!);
-      
-      // 获取用户信息
-      try {
-        _currentUser = await _apiService.getCurrentUser();
-      } catch (e) {
-        // 如果无法获取用户信息，使用响应中的用户数据
-        if (result['user'] != null) {
-          _currentUser = User.fromJson(result['user']);
-        } else {
-          throw Exception('无法获取用户信息');
+  // Keys for SharedPreferences
+  static const String _keyAccessToken = 'access_token';
+  static const String _keyRefreshToken = 'refresh_token';
+  static const String _keyUserData = 'user_data';
+
+  /// Initialize auth state from local storage
+  Future<bool> initialize() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      _accessToken = prefs.getString(_keyAccessToken);
+      _refreshToken = prefs.getString(_keyRefreshToken);
+      final userData = prefs.getString(_keyUserData);
+
+      if (_accessToken != null && userData != null) {
+        _currentUser = User.fromJson(jsonDecode(userData));
+
+        // Validate token with server
+        final isValid = await validateToken();
+        if (!isValid) {
+          // Try refresh
+          final refreshed = await refreshAccessToken();
+          if (!refreshed) {
+            await _clearAuthData();
+            return false;
+          }
         }
+        notifyListeners();
+        return true;
       }
-      
-      // 保存到本地存储
-      await _saveToStorage();
-      
-      return _currentUser!;
-    } else {
-      throw Exception('登录失败：未获取到认证令牌');
+    } catch (e) {
+      debugPrint('Auth init error: $e');
+      await _clearAuthData();
+    }
+    return false;
+  }
+
+  /// Login with username and password
+  Future<bool> login(String username, String password) async {
+    _isLoading = true;
+    notifyListeners();
+
+    try {
+      final response = await http.post(
+        Uri.parse(ApiConstants.login),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'username': username, 'password': password}),
+      ).timeout(ApiConstants.requestTimeout);
+
+      final data = jsonDecode(utf8.decode(response.bodyBytes));
+
+      if (response.statusCode == 200 && data['code'] == 200) {
+        final responseData = data['data'];
+        _accessToken = responseData['accessToken'] ?? responseData['token'];
+        _refreshToken = responseData['refreshToken'];
+        _currentUser = User.fromJson(responseData['user']);
+
+        await _saveAuthData();
+        _isLoading = false;
+        notifyListeners();
+        return true;
+      }
+    } catch (e) {
+      debugPrint('Login error: $e');
+    }
+
+    _isLoading = false;
+    notifyListeners();
+    return false;
+  }
+
+  /// Register new account
+  Future<Map<String, dynamic>> register({
+    required String username,
+    required String password,
+    required String email,
+    String? phone,
+    String? displayName,
+  }) async {
+    _isLoading = true;
+    notifyListeners();
+
+    try {
+      final response = await http.post(
+        Uri.parse(ApiConstants.register),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'username': username,
+          'password': password,
+          'email': email,
+          if (phone != null) 'phone': phone,
+          if (displayName != null) 'displayName': displayName,
+        }),
+      ).timeout(ApiConstants.requestTimeout);
+
+      final data = jsonDecode(utf8.decode(response.bodyBytes));
+      _isLoading = false;
+      notifyListeners();
+
+      if (response.statusCode == 200 && data['code'] == 200) {
+        return {'success': true, 'message': data['message'] ?? '注册成功'};
+      } else {
+        return {'success': false, 'message': data['message'] ?? '注册失败'};
+      }
+    } catch (e) {
+      _isLoading = false;
+      notifyListeners();
+      return {'success': false, 'message': '网络错误: $e'};
     }
   }
 
-  // 注册
-  Future<User> register(Map<String, dynamic> userData) async {
-    final result = await _apiService.register(userData);
-    
-    // 注册成功后自动登录
-    if (result['token'] != null || result['user'] != null) {
-      _authToken = result['token'] ?? result['accessToken'];
-      if (_authToken != null) {
-        _apiService.setAuthToken(_authToken!);
+  /// Refresh access token using refresh token
+  Future<bool> refreshAccessToken() async {
+    if (_refreshToken == null) return false;
+
+    try {
+      final response = await http.post(
+        Uri.parse(ApiConstants.refreshToken),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $_refreshToken',
+        },
+      ).timeout(ApiConstants.requestTimeout);
+
+      final data = jsonDecode(utf8.decode(response.bodyBytes));
+
+      if (response.statusCode == 200 && data['code'] == 200) {
+        final responseData = data['data'];
+        _accessToken = responseData['accessToken'] ?? responseData['token'];
+        if (responseData['refreshToken'] != null) {
+          _refreshToken = responseData['refreshToken'];
+        }
+        _currentUser = User.fromJson(responseData['user']);
+        await _saveAuthData();
+        notifyListeners();
+        return true;
       }
-      
-      _currentUser = User.fromJson(result['user'] ?? result);
-      
-      // 保存到本地存储
-      await _saveToStorage();
-      
-      return _currentUser!;
-    } else {
-      throw Exception('注册失败');
+    } catch (e) {
+      debugPrint('Token refresh error: $e');
+    }
+    return false;
+  }
+
+  /// Validate current token
+  Future<bool> validateToken() async {
+    if (_accessToken == null) return false;
+
+    try {
+      final response = await http.get(
+        Uri.parse(ApiConstants.validateToken),
+        headers: {'Authorization': 'Bearer $_accessToken'},
+      ).timeout(ApiConstants.requestTimeout);
+
+      return response.statusCode == 200;
+    } catch (e) {
+      return false;
     }
   }
 
-  // 登出
+  /// Logout
   Future<void> logout() async {
     try {
-      await _apiService.logout();
+      if (_accessToken != null) {
+        await http.post(
+          Uri.parse(ApiConstants.logout),
+          headers: {'Authorization': 'Bearer $_accessToken'},
+        ).timeout(ApiConstants.requestTimeout);
+      }
     } catch (e) {
-      // 即使API调用失败，也要清除本地数据
-      print('登出API调用失败: $e');
+      debugPrint('Logout error: $e');
+    } finally {
+      await _clearAuthData();
+      notifyListeners();
     }
-    
-    await _clearStorage();
-    _authToken = null;
-    _currentUser = null;
-    _apiService.clearAuthToken();
   }
 
-  // 从本地存储恢复登录状态
-  Future<void> restoreAuthState() async {
+  /// Update user profile
+  Future<bool> updateProfile({
+    String? displayName,
+    String? bio,
+    String? phone,
+  }) async {
+    if (_accessToken == null) return false;
+
     try {
-      final prefs = await SharedPreferences.getInstance();
-      
-      _authToken = prefs.getString(_tokenKey);
-      final userJson = prefs.getString(_userKey);
-      
-      if (_authToken != null && userJson != null) {
-        _apiService.setAuthToken(_authToken!);
-        _currentUser = User.fromJson(json.decode(userJson));
-        
-        // 验证令牌是否仍然有效
-        try {
-          final updatedUser = await _apiService.getCurrentUser();
-          _currentUser = updatedUser;
-          await _saveToStorage(); // 更新保存的用户信息
-        } catch (e) {
-          // 令牌无效，清除登录状态
-          print('令牌无效，清除登录状态: $e');
-          await logout();
+      final response = await http.put(
+        Uri.parse(ApiConstants.userProfile),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $_accessToken',
+        },
+        body: jsonEncode({
+          if (displayName != null) 'displayName': displayName,
+          if (bio != null) 'bio': bio,
+          if (phone != null) 'phone': phone,
+        }),
+      ).timeout(ApiConstants.requestTimeout);
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(utf8.decode(response.bodyBytes));
+        if (data['data'] != null) {
+          _currentUser = User.fromJson(data['data']);
+          await _saveAuthData();
+          notifyListeners();
+        }
+        return true;
+      }
+    } catch (e) {
+      debugPrint('Profile update error: $e');
+    }
+    return false;
+  }
+
+  /// Make authenticated API request with auto token refresh
+  Future<http.Response> authenticatedRequest(
+    String method,
+    String url, {
+    Map<String, String>? headers,
+    Object? body,
+  }) async {
+    headers ??= {};
+    headers['Authorization'] = 'Bearer $_accessToken';
+    headers['Content-Type'] = 'application/json';
+
+    http.Response response;
+
+    switch (method.toUpperCase()) {
+      case 'GET':
+        response = await http.get(Uri.parse(url), headers: headers)
+            .timeout(ApiConstants.requestTimeout);
+        break;
+      case 'POST':
+        response = await http.post(Uri.parse(url), headers: headers,
+            body: body is String ? body : jsonEncode(body))
+            .timeout(ApiConstants.requestTimeout);
+        break;
+      case 'PUT':
+        response = await http.put(Uri.parse(url), headers: headers,
+            body: body is String ? body : jsonEncode(body))
+            .timeout(ApiConstants.requestTimeout);
+        break;
+      case 'DELETE':
+        response = await http.delete(Uri.parse(url), headers: headers)
+            .timeout(ApiConstants.requestTimeout);
+        break;
+      default:
+        throw Exception('Unsupported HTTP method: $method');
+    }
+
+    // Auto refresh on 401
+    if (response.statusCode == 401) {
+      final refreshed = await refreshAccessToken();
+      if (refreshed) {
+        headers['Authorization'] = 'Bearer $_accessToken';
+        switch (method.toUpperCase()) {
+          case 'GET':
+            response = await http.get(Uri.parse(url), headers: headers)
+                .timeout(ApiConstants.requestTimeout);
+            break;
+          case 'POST':
+            response = await http.post(Uri.parse(url), headers: headers,
+                body: body is String ? body : jsonEncode(body))
+                .timeout(ApiConstants.requestTimeout);
+            break;
+          case 'PUT':
+            response = await http.put(Uri.parse(url), headers: headers,
+                body: body is String ? body : jsonEncode(body))
+                .timeout(ApiConstants.requestTimeout);
+            break;
+          case 'DELETE':
+            response = await http.delete(Uri.parse(url), headers: headers)
+                .timeout(ApiConstants.requestTimeout);
+            break;
         }
       }
-    } catch (e) {
-      print('恢复登录状态失败: $e');
-      await _clearStorage();
     }
+
+    return response;
   }
 
-  // 更新用户信息
-  Future<User> updateProfile(Map<String, dynamic> userData) async {
-    if (!isLoggedIn) {
-      throw Exception('用户未登录');
-    }
-    
-    _currentUser = await _apiService.updateProfile(userData);
-    await _saveToStorage();
-    return _currentUser!;
+  /// Save auth data to SharedPreferences
+  Future<void> _saveAuthData() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (_accessToken != null) prefs.setString(_keyAccessToken, _accessToken!);
+    if (_refreshToken != null) prefs.setString(_keyRefreshToken, _refreshToken!);
+    if (_currentUser != null) prefs.setString(_keyUserData, jsonEncode(_currentUser!.toJson()));
   }
 
-  // 刷新用户信息
-  Future<User> refreshUserInfo() async {
-    if (!isLoggedIn) {
-      throw Exception('用户未登录');
-    }
-    
-    _currentUser = await _apiService.getCurrentUser();
-    await _saveToStorage();
-    return _currentUser!;
+  /// Clear auth data from SharedPreferences
+  Future<void> _clearAuthData() async {
+    _accessToken = null;
+    _refreshToken = null;
+    _currentUser = null;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_keyAccessToken);
+    await prefs.remove(_keyRefreshToken);
+    await prefs.remove(_keyUserData);
   }
-
-  // 保存到本地存储
-  Future<void> _saveToStorage() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      
-      if (_authToken != null) {
-        await prefs.setString(_tokenKey, _authToken!);
-      }
-      
-      if (_currentUser != null) {
-        await prefs.setString(_userKey, json.encode(_currentUser!.toJson()));
-      }
-    } catch (e) {
-      print('保存到本地存储失败: $e');
-    }
-  }
-
-  // 清除本地存储
-  Future<void> _clearStorage() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.remove(_tokenKey);
-      await prefs.remove(_userKey);
-    } catch (e) {
-      print('清除本地存储失败: $e');
-    }
-  }
-} 
+}
