@@ -74,7 +74,7 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
     });
 
     try {
-      final token = await AuthService.getToken();
+      final token = AuthService().accessToken;
       if (token == null) {
         throw Exception('请先登录');
       }
@@ -96,7 +96,7 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
 
   Future<void> _deleteAvatar() async {
     try {
-      final token = await AuthService.getToken();
+      final token = AuthService().accessToken;
       if (token == null) {
         throw Exception('请先登录');
       }
@@ -118,7 +118,7 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
     });
 
     try {
-      final token = await AuthService.getToken();
+      final token = AuthService().accessToken;
       if (token == null) {
         throw Exception('请先登录');
       }

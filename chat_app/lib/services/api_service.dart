@@ -22,7 +22,7 @@ class ApiService {
 
   // 获取请求头
   Map<String, String> _getHeaders({bool includeAuth = true}) {
-    Map<String, String> headers = Map.from(ApiConstants.defaultHeaders);
+    Map<String, String> headers = Map.from({'Content-Type': 'application/json'});
     if (includeAuth && _authToken != null) {
       headers['Authorization'] = 'Bearer $_authToken';
     }
@@ -44,7 +44,7 @@ class ApiService {
   // 认证相关API
   Future<Map<String, dynamic>> login(String username, String password) async {
     final response = await http.post(
-      Uri.parse('${ApiConstants.apiBaseUrl}${ApiConstants.login}'),
+      Uri.parse(ApiConstants.login),
       headers: _getHeaders(includeAuth: false),
       body: json.encode({
         'username': username,
@@ -61,7 +61,7 @@ class ApiService {
 
   Future<Map<String, dynamic>> register(Map<String, dynamic> userData) async {
     final response = await http.post(
-      Uri.parse('${ApiConstants.apiBaseUrl}${ApiConstants.register}'),
+      Uri.parse(ApiConstants.register),
       headers: _getHeaders(includeAuth: false),
       body: json.encode(userData),
     ).timeout(timeoutDuration);
@@ -72,7 +72,7 @@ class ApiService {
   Future<void> logout() async {
     try {
       await http.post(
-        Uri.parse('${ApiConstants.apiBaseUrl}${ApiConstants.logout}'),
+        Uri.parse(ApiConstants.logout),
         headers: _getHeaders(),
       ).timeout(timeoutDuration);
     } finally {
@@ -83,7 +83,7 @@ class ApiService {
   // 用户相关API
   Future<User> getCurrentUser() async {
     final response = await http.get(
-      Uri.parse('${ApiConstants.apiBaseUrl}${ApiConstants.userProfile}'),
+      Uri.parse(ApiConstants.userProfile),
       headers: _getHeaders(),
     ).timeout(timeoutDuration);
 
@@ -93,7 +93,7 @@ class ApiService {
 
   Future<User> updateProfile(Map<String, dynamic> userData) async {
     final response = await http.put(
-      Uri.parse('${ApiConstants.apiBaseUrl}${ApiConstants.updateProfile}'),
+      Uri.parse(ApiConstants.userProfile),
       headers: _getHeaders(),
       body: json.encode(userData),
     ).timeout(timeoutDuration);
@@ -104,7 +104,7 @@ class ApiService {
 
   Future<List<User>> searchUsers(String query) async {
     final response = await http.get(
-      Uri.parse('${ApiConstants.apiBaseUrl}${ApiConstants.searchUsers}?q=$query'),
+      Uri.parse('${ApiConstants.searchUsers}?q=$query'),
       headers: _getHeaders(),
     ).timeout(timeoutDuration);
 
@@ -116,7 +116,7 @@ class ApiService {
   // 聊天室相关API
   Future<List<Chat>> getChatRooms() async {
     final response = await http.get(
-      Uri.parse('${ApiConstants.apiBaseUrl}${ApiConstants.chatRooms}'),
+      Uri.parse(ApiConstants.chatRooms),
       headers: _getHeaders(),
     ).timeout(timeoutDuration);
 
@@ -127,7 +127,7 @@ class ApiService {
 
   Future<Chat> createChatRoom(Map<String, dynamic> chatRoomData) async {
     final response = await http.post(
-      Uri.parse('${ApiConstants.apiBaseUrl}${ApiConstants.createChatRoom}'),
+      Uri.parse(ApiConstants.createGroupChat),
       headers: _getHeaders(),
       body: json.encode(chatRoomData),
     ).timeout(timeoutDuration);
@@ -138,14 +138,14 @@ class ApiService {
 
   Future<void> joinChatRoom(String chatRoomId) async {
     await http.post(
-      Uri.parse('${ApiConstants.apiBaseUrl}${ApiConstants.joinChatRoom}/$chatRoomId/join'),
+      Uri.parse(ApiConstants.joinChatRoom(int.parse(chatRoomId))),
       headers: _getHeaders(),
     ).timeout(timeoutDuration);
   }
 
   Future<void> leaveChatRoom(String chatRoomId) async {
     await http.post(
-      Uri.parse('${ApiConstants.apiBaseUrl}${ApiConstants.leaveChatRoom}/$chatRoomId/leave'),
+      Uri.parse(ApiConstants.leaveChatRoom(int.parse(chatRoomId))),
       headers: _getHeaders(),
     ).timeout(timeoutDuration);
   }
@@ -153,7 +153,7 @@ class ApiService {
   // 消息相关API
   Future<List<Message>> getChatRoomMessages(String chatRoomId, {int page = 0, int size = 50}) async {
     final response = await http.get(
-      Uri.parse('${ApiConstants.apiBaseUrl}${ApiConstants.getChatRoomMessages}/$chatRoomId?page=$page&size=$size'),
+      Uri.parse('${ApiConstants.chatRoomMessages(int.parse(chatRoomId))}?page=$page&size=$size'),
       headers: _getHeaders(),
     ).timeout(timeoutDuration);
 
@@ -164,7 +164,7 @@ class ApiService {
 
   Future<Message> sendMessage(Map<String, dynamic> messageData) async {
     final response = await http.post(
-      Uri.parse('${ApiConstants.apiBaseUrl}${ApiConstants.sendMessage}'),
+      Uri.parse(ApiConstants.sendMessage),
       headers: _getHeaders(),
       body: json.encode(messageData),
     ).timeout(timeoutDuration);
@@ -175,7 +175,7 @@ class ApiService {
 
   Future<void> markMessageAsRead(String messageId) async {
     await http.post(
-      Uri.parse('${ApiConstants.apiBaseUrl}${ApiConstants.markAsRead}/$messageId/read'),
+      Uri.parse(ApiConstants.markMessageRead(int.parse(messageId))),
       headers: _getHeaders(),
     ).timeout(timeoutDuration);
   }
@@ -184,7 +184,7 @@ class ApiService {
   Future<String> uploadFile(File file, {String type = 'file'}) async {
     final request = http.MultipartRequest(
       'POST',
-      Uri.parse('${ApiConstants.apiBaseUrl}${ApiConstants.uploadFile}'),
+      Uri.parse(ApiConstants.uploadFile),
     );
 
     request.headers.addAll(_getHeaders());

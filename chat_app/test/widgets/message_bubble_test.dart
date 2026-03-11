@@ -1,0 +1,286 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:chat_app/widgets/message_bubble.dart';
+import 'package:chat_app/models/message.dart';
+
+void main() {
+  // Helper to create a Message for testing.
+  Message createMessage({
+    String id = '1',
+    String content = 'Hello, world!',
+    String senderId = 'user1',
+    String senderName = 'Alice',
+    String? senderAvatar,
+    String chatRoomId = 'room1',
+    MessageType type = MessageType.text,
+    MessageStatus status = MessageStatus.sent,
+    DateTime? timestamp,
+  }) {
+    return Message(
+      id: id,
+      content: content,
+      senderId: senderId,
+      senderName: senderName,
+      senderAvatar: senderAvatar,
+      chatRoomId: chatRoomId,
+      type: type,
+      status: status,
+      timestamp: timestamp ?? DateTime.now(),
+    );
+  }
+
+  Widget buildTestWidget(Widget child) {
+    return MaterialApp(
+      home: Scaffold(
+        body: child,
+      ),
+    );
+  }
+
+  group('MessageBubble', () {
+    testWidgets('renders message content text', (tester) async {
+      final message = createMessage(content: '你好，世界！');
+
+      await tester.pumpWidget(buildTestWidget(
+        MessageBubble(message: message, isMe: false),
+      ));
+
+      expect(find.text('你好，世界！'), findsOneWidget);
+    });
+
+    testWidgets('renders sent message (isMe=true) aligned to the right',
+        (tester) async {
+      final message = createMessage(content: 'My message');
+
+      await tester.pumpWidget(buildTestWidget(
+        MessageBubble(message: message, isMe: true),
+      ));
+
+      // The outer Row should have MainAxisAlignment.end for sent messages.
+      final row = tester.widget<Row>(find.byType(Row).first);
+      expect(row.mainAxisAlignment, MainAxisAlignment.end);
+    });
+
+    testWidgets('renders received message (isMe=false) aligned to the left',
+        (tester) async {
+      final message = createMessage(content: 'Their message');
+
+      await tester.pumpWidget(buildTestWidget(
+        MessageBubble(message: message, isMe: false),
+      ));
+
+      final row = tester.widget<Row>(find.byType(Row).first);
+      expect(row.mainAxisAlignment, MainAxisAlignment.start);
+    });
+
+    testWidgets('shows status icon for sent messages (isMe=true)',
+        (tester) async {
+      final message = createMessage(
+        content: 'Sent message',
+        status: MessageStatus.sent,
+      );
+
+      await tester.pumpWidget(buildTestWidget(
+        MessageBubble(message: message, isMe: true),
+      ));
+
+      // MessageStatus.sent -> Icons.check
+      expect(find.byIcon(Icons.check), findsOneWidget);
+    });
+
+    testWidgets('does not show status icon for received messages (isMe=false)',
+        (tester) async {
+      final message = createMessage(
+        content: 'Received message',
+        status: MessageStatus.sent,
+      );
+
+      await tester.pumpWidget(buildTestWidget(
+        MessageBubble(message: message, isMe: false),
+      ));
+
+      // No status icon should appear for received messages.
+      expect(find.byIcon(Icons.check), findsNothing);
+    });
+
+    testWidgets('shows CircleAvatar when showAvatar is true and isMe is false',
+        (tester) async {
+      final message = createMessage(
+        content: 'Group message',
+        senderName: 'Bob',
+      );
+
+      await tester.pumpWidget(buildTestWidget(
+        MessageBubble(message: message, isMe: false, showAvatar: true),
+      ));
+
+      // Should find a CircleAvatar.
+      expect(find.byType(CircleAvatar), findsOneWidget);
+      // The avatar fallback shows first letter of senderName uppercased.
+      expect(find.text('B'), findsOneWidget);
+    });
+
+    testWidgets('shows sender name when showAvatar is true and isMe is false',
+        (tester) async {
+      final message = createMessage(
+        content: 'Group message',
+        senderName: 'Charlie',
+      );
+
+      await tester.pumpWidget(buildTestWidget(
+        MessageBubble(message: message, isMe: false, showAvatar: true),
+      ));
+
+      expect(find.text('Charlie'), findsOneWidget);
+    });
+
+    testWidgets('does not show CircleAvatar when showAvatar is false',
+        (tester) async {
+      final message = createMessage(content: 'No avatar');
+
+      await tester.pumpWidget(buildTestWidget(
+        MessageBubble(message: message, isMe: false, showAvatar: false),
+      ));
+
+      expect(find.byType(CircleAvatar), findsNothing);
+    });
+
+    testWidgets('does not show avatar or sender name for sent messages',
+        (tester) async {
+      final message = createMessage(
+        content: 'My message',
+        senderName: 'Me',
+      );
+
+      await tester.pumpWidget(buildTestWidget(
+        MessageBubble(message: message, isMe: true, showAvatar: true),
+      ));
+
+      // Even with showAvatar true, avatar should not show for isMe messages
+      // because the code checks `!isMe && showAvatar`.
+      expect(find.byType(CircleAvatar), findsNothing);
+    });
+
+    testWidgets('displays formatted timestamp for today', (tester) async {
+      final now = DateTime.now();
+      final message = createMessage(
+        content: 'Timed message',
+        timestamp: DateTime(now.year, now.month, now.day, 14, 30),
+      );
+
+      await tester.pumpWidget(buildTestWidget(
+        MessageBubble(message: message, isMe: false),
+      ));
+
+      expect(find.text('14:30'), findsOneWidget);
+    });
+
+    testWidgets('displays date and time for messages not from today',
+        (tester) async {
+      // Use a date far in the past to guarantee it is not today.
+      final pastDate = DateTime(2024, 3, 15, 9, 5);
+      final message = createMessage(
+        content: 'Old message',
+        timestamp: pastDate,
+      );
+
+      await tester.pumpWidget(buildTestWidget(
+        MessageBubble(message: message, isMe: false),
+      ));
+
+      // Format: month/day HH:MM -> "3/15 09:05"
+      expect(find.text('3/15 09:05'), findsOneWidget);
+    });
+
+    group('message status icons', () {
+      testWidgets('sending status shows access_time icon', (tester) async {
+        final message = createMessage(
+          content: 'Sending...',
+          status: MessageStatus.sending,
+        );
+
+        await tester.pumpWidget(buildTestWidget(
+          MessageBubble(message: message, isMe: true),
+        ));
+
+        expect(find.byIcon(Icons.access_time), findsOneWidget);
+      });
+
+      testWidgets('sent status shows check icon', (tester) async {
+        final message = createMessage(
+          content: 'Sent',
+          status: MessageStatus.sent,
+        );
+
+        await tester.pumpWidget(buildTestWidget(
+          MessageBubble(message: message, isMe: true),
+        ));
+
+        expect(find.byIcon(Icons.check), findsOneWidget);
+      });
+
+      testWidgets('delivered status shows done_all icon', (tester) async {
+        final message = createMessage(
+          content: 'Delivered',
+          status: MessageStatus.delivered,
+        );
+
+        await tester.pumpWidget(buildTestWidget(
+          MessageBubble(message: message, isMe: true),
+        ));
+
+        expect(find.byIcon(Icons.done_all), findsOneWidget);
+      });
+
+      testWidgets('read status shows done_all icon', (tester) async {
+        final message = createMessage(
+          content: 'Read',
+          status: MessageStatus.read,
+        );
+
+        await tester.pumpWidget(buildTestWidget(
+          MessageBubble(message: message, isMe: true),
+        ));
+
+        expect(find.byIcon(Icons.done_all), findsOneWidget);
+      });
+
+      testWidgets('failed status shows error_outline icon', (tester) async {
+        final message = createMessage(
+          content: 'Failed',
+          status: MessageStatus.failed,
+        );
+
+        await tester.pumpWidget(buildTestWidget(
+          MessageBubble(message: message, isMe: true),
+        ));
+
+        expect(find.byIcon(Icons.error_outline), findsOneWidget);
+      });
+    });
+
+    testWidgets('sent message text color is white', (tester) async {
+      final message = createMessage(content: 'White text');
+
+      await tester.pumpWidget(buildTestWidget(
+        MessageBubble(message: message, isMe: true),
+      ));
+
+      final textWidget = tester.widget<Text>(find.text('White text'));
+      expect(textWidget.style?.color, Colors.white);
+    });
+
+    testWidgets('avatar shows "?" when senderName is empty', (tester) async {
+      final message = createMessage(
+        content: 'No name',
+        senderName: '',
+      );
+
+      await tester.pumpWidget(buildTestWidget(
+        MessageBubble(message: message, isMe: false, showAvatar: true),
+      ));
+
+      expect(find.text('?'), findsOneWidget);
+    });
+  });
+}

@@ -29,7 +29,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     });
 
     try {
-      final token = await AuthService.getToken();
+      final token = AuthService().accessToken;
       if (token == null) {
         throw Exception('请先登录');
       }
@@ -64,7 +64,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   Future<void> _updateOnlineStatus(OnlineStatus status) async {
     try {
-      final token = await AuthService.getToken();
+      final token = AuthService().accessToken;
       if (token == null) {
         throw Exception('请先登录');
       }
@@ -108,7 +108,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
 
     if (confirmed == true) {
-      await AuthService.logout();
+      await AuthService().logout();
       Navigator.of(context).pushReplacementNamed('/login');
     }
   }

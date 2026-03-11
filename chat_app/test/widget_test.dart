@@ -1,31 +1,35 @@
-// This is a basic Flutter widget test.
-//
-// To perform an interaction with a widget in your test, use the WidgetTester
-// utility in the flutter_test package. For example, you can send tap and scroll
-// gestures. You can also use WidgetTester to find child widgets in the widget
-// tree, read text, and verify that the values of widget properties are correct.
-
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:chat_app/models/user.dart';
+import 'package:chat_app/models/chat.dart';
+import 'package:chat_app/models/message.dart';
 
-import 'package:chat_app/main.dart';
-
+/// Basic smoke test to verify core models can be instantiated
 void main() {
-  testWidgets('Counter increments smoke test', (WidgetTester tester) async {
-    // Build our app and trigger a frame.
-    await tester.pumpWidget(const ProviderScope(child: ChatApp()));
+  test('Core models can be instantiated', () {
+    final user = User(
+      id: '1',
+      username: 'test',
+      email: 'test@example.com',
+      displayName: 'Test User',
+      createdAt: DateTime.now(),
+    );
+    expect(user.username, 'test');
 
-    // Verify that our counter starts at 0.
-    expect(find.text('0'), findsOneWidget);
-    expect(find.text('1'), findsNothing);
+    final chat = Chat(
+      id: '1',
+      name: 'Test Chat',
+      createdAt: DateTime.now(),
+    );
+    expect(chat.name, 'Test Chat');
 
-    // Tap the '+' icon and trigger a frame.
-    await tester.tap(find.byIcon(Icons.add));
-    await tester.pump();
-
-    // Verify that our counter has incremented.
-    expect(find.text('0'), findsNothing);
-    expect(find.text('1'), findsOneWidget);
+    final message = Message(
+      id: '1',
+      content: 'Hello',
+      chatRoomId: '1',
+      senderId: '1',
+      senderName: 'Test User',
+      timestamp: DateTime.now(),
+    );
+    expect(message.content, 'Hello');
   });
 }

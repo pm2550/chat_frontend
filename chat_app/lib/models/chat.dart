@@ -103,6 +103,8 @@ class Chat {
     DateTime? updatedAt,
     Message? lastMessage,
     int? unreadCount,
+    bool? isPinned,
+    bool? isMuted,
   }) {
     return Chat(
       id: id ?? this.id,
@@ -119,6 +121,8 @@ class Chat {
       updatedAt: updatedAt ?? this.updatedAt,
       lastMessage: lastMessage ?? this.lastMessage,
       unreadCount: unreadCount ?? this.unreadCount,
+      isPinned: isPinned ?? this.isPinned,
+      isMuted: isMuted ?? this.isMuted,
     );
   }
 
