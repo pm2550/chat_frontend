@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import '../constants/app_colors.dart';
+import '../services/update_service.dart';
+import '../widgets/update_dialog.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -47,10 +49,21 @@ class _SplashScreenState extends State<SplashScreen>
 
   void _startAnimation() async {
     await _animationController.forward();
-    
-    // 延迟2秒后跳转到登录页面
-    await Future.delayed(const Duration(seconds: 2));
-    
+
+    // Check for updates before navigating (pre-login, no auth required).
+    // Failures are silently swallowed — never block startup.
+    try {
+      final check = await UpdateService.checkForUpdate();
+      if (mounted && check.updateAvailable) {
+        await UpdateDialog.show(context, check);
+        // If force update, the dialog is not dismissible — user must
+        // tap "update" which opens the browser. The app stays on splash.
+        if (check.forceUpdate) return;
+      }
+    } catch (_) {
+      // ignore
+    }
+
     if (mounted) {
       Navigator.of(context).pushReplacementNamed('/login');
     }

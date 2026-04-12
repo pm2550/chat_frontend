@@ -1,13 +1,24 @@
 class ApiConstants {
-  // Base URLs - configurable per environment
-  static const String baseUrl = 'http://localhost:8080';
+  // Base URLs configurable at build time via --dart-define.
+  // Example:
+  //   flutter build web --dart-define=API_BASE_URL=https://chat.example.com \
+  //                     --dart-define=WS_BASE_URL=wss://chat.example.com
+  // Defaults match the local dev backend on port 18080.
+  static const String baseUrl = String.fromEnvironment(
+    'API_BASE_URL',
+    defaultValue: 'http://localhost:18080',
+  );
+  static const String wsBaseUrl = String.fromEnvironment(
+    'WS_BASE_URL',
+    defaultValue: 'ws://localhost:18080',
+  );
+
   static const String apiPrefix = '/api';
   static const String apiVersion = '/v1';
   static const String apiBaseUrl = '$baseUrl$apiPrefix$apiVersion';
   static const String authBaseUrl = '$baseUrl$apiPrefix/auth';
 
   // WebSocket
-  static const String wsBaseUrl = 'ws://localhost:8080';
   static const String wsEndpoint = '$wsBaseUrl$apiPrefix/ws';
 
   // Auth endpoints
@@ -80,6 +91,11 @@ class ApiConstants {
   // Device token (push notifications)
   static const String registerDevice = '$apiBaseUrl/device-tokens/register';
   static const String unregisterDevice = '$apiBaseUrl/device-tokens/unregister';
+
+  // App version / OTA update
+  static const String appVersionCheck = '$apiBaseUrl/app/version';
+  static String appDownload(String platform, String filename) =>
+      '$apiBaseUrl/app/download/$platform/$filename';
 
   // Timeouts
   static const Duration requestTimeout = Duration(seconds: 30);
