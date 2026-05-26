@@ -1,5 +1,5 @@
 import 'dart:convert';
-import 'dart:io' show File, Platform, Process;
+import 'dart:io' show Platform, Process;
 
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -33,8 +33,7 @@ class UpdateService {
       final uri = Uri.parse(
         '${ApiConstants.appVersionCheck}?platform=$platform&currentVersionCode=$currentCode',
       );
-      final response =
-          await http.get(uri).timeout(ApiConstants.requestTimeout);
+      final response = await http.get(uri).timeout(ApiConstants.requestTimeout);
 
       if (response.statusCode == 200) {
         final json = jsonDecode(response.body) as Map<String, dynamic>;
@@ -64,7 +63,7 @@ class UpdateService {
     String dir;
     if (!kIsWeb && Platform.isAndroid) {
       // Android external cache so FileProvider can serve it
-      dir = '/data/data/com.example.chat_app/cache';
+      dir = '/data/data/com.pm2550.chat/cache';
     } else if (!kIsWeb && (Platform.isMacOS || Platform.isLinux)) {
       dir = Platform.environment['TMPDIR'] ?? '/tmp';
     } else if (!kIsWeb && Platform.isWindows) {
@@ -114,13 +113,15 @@ class UpdateService {
 
     if (Platform.isMacOS) {
       // Unzip to /Applications (user may need to grant permission)
-      final result = await Process.run('unzip', ['-o', zipPath, '-d', '/Applications']);
+      final result =
+          await Process.run('unzip', ['-o', zipPath, '-d', '/Applications']);
       if (result.exitCode != 0) {
         throw Exception('解压失败: ${result.stderr}');
       }
     } else if (Platform.isLinux) {
       final home = Platform.environment['HOME'] ?? '/tmp';
-      final result = await Process.run('unzip', ['-o', zipPath, '-d', '$home/chat_app']);
+      final result =
+          await Process.run('unzip', ['-o', zipPath, '-d', '$home/chat_app']);
       if (result.exitCode != 0) {
         throw Exception('解压失败: ${result.stderr}');
       }
