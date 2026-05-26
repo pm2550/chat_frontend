@@ -1,0 +1,273 @@
+name: Build PM chat installers
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      version_name:
+        description: Version name
+        required: true
+        default: 1.0.0
+      version_code:
+        description: Version code
+        required: true
+        default: "10001"
+      tag:
+        description: Release tag. Empty uses client-v<version_name>-<version_code>
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+env:
+  FLUTTER_VERSION: 3.41.6
+  VERSION_NAME: ${{ github.event.inputs.version_name || '1.0.0' }}
+  VERSION_CODE: ${{ github.event.inputs.version_code || '10001' }}
+  API_BASE_URL: https://gateway.chat.pm2550.com
+  WS_BASE_URL: wss://gateway.chat.pm2550.com
+  WEB_APP_URL: https://gateway.chat.pm2550.com
+  WEBRTC_ICE_SERVERS: stun:stun.l.google.com:19302,turn:192.9.134.169:3478?transport=udp,turn:192.9.134.169:3478?transport=tcp
+
+jobs:
+  linux-android:
+    name: Android APK/AAB and Linux x64
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: chat_app
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Install Linux desktop dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libstdc++-12-dev
+
+      - name: Configure optional Android release key
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -n "$ANDROID_KEYSTORE_BASE64" ] && [ -n "$ANDROID_KEYSTORE_PASSWORD" ] && [ -n "$ANDROID_KEY_ALIAS" ] && [ -n "$ANDROID_KEY_PASSWORD" ]; then
+            printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > android/app/release.keystore
+            {
+              echo "storePassword=$ANDROID_KEYSTORE_PASSWORD"
+              echo "keyPassword=$ANDROID_KEY_PASSWORD"
+              echo "keyAlias=$ANDROID_KEY_ALIAS"
+              echo "storeFile=release.keystore"
+            } > android/key.properties
+            echo "Using Android release keystore from GitHub Secrets."
+          else
+            echo "::warning::Android release keystore secrets are missing. Building an installable APK with the default debug signing key."
+          fi
+
+      - name: Build Android and Linux
+        run: |
+          flutter pub get
+          bash scripts/ci/patch_flutter_sound_linux.sh
+
+          flutter build apk --release \
+            --build-name "$VERSION_NAME" \
+            --build-number "$VERSION_CODE" \
+            --dart-define=API_BASE_URL="$API_BASE_URL" \
+            --dart-define=WS_BASE_URL="$WS_BASE_URL" \
+            --dart-define=WEB_APP_URL="$WEB_APP_URL" \
+            --dart-define=WEBRTC_ICE_SERVERS="$WEBRTC_ICE_SERVERS"
+          cp build/app/outputs/flutter-apk/app-release.apk "../pm-chat-android-v${VERSION_NAME}-${VERSION_CODE}.apk"
+
+          flutter build appbundle --release \
+            --build-name "$VERSION_NAME" \
+            --build-number "$VERSION_CODE" \
+            --dart-define=API_BASE_URL="$API_BASE_URL" \
+            --dart-define=WS_BASE_URL="$WS_BASE_URL" \
+            --dart-define=WEB_APP_URL="$WEB_APP_URL" \
+            --dart-define=WEBRTC_ICE_SERVERS="$WEBRTC_ICE_SERVERS"
+          cp build/app/outputs/bundle/release/app-release.aab "../pm-chat-android-v${VERSION_NAME}-${VERSION_CODE}.aab"
+
+          flutter build linux --release \
+            --build-name "$VERSION_NAME" \
+            --build-number "$VERSION_CODE" \
+            --dart-define=API_BASE_URL="$API_BASE_URL" \
+            --dart-define=WS_BASE_URL="$WS_BASE_URL" \
+            --dart-define=WEB_APP_URL="$WEB_APP_URL" \
+            --dart-define=WEBRTC_ICE_SERVERS="$WEBRTC_ICE_SERVERS"
+          tar -C build/linux/x64/release -czf "../pm-chat-linux-x64-v${VERSION_NAME}-${VERSION_CODE}.tar.gz" bundle
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-android
+          path: |
+            pm-chat-android-v*.apk
+            pm-chat-android-v*.aab
+            pm-chat-linux-x64-v*.tar.gz
+          if-no-files-found: error
+
+  windows:
+    name: Windows x64
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: chat_app
+    env:
+      HAS_WINDOWS_CERT: ${{ secrets.WINDOWS_CERTIFICATE_BASE64 != '' && secrets.WINDOWS_CERTIFICATE_PASSWORD != '' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Build Windows
+        shell: pwsh
+        run: |
+          flutter pub get
+          flutter build windows --release `
+            --build-name "$env:VERSION_NAME" `
+            --build-number "$env:VERSION_CODE" `
+            --dart-define=API_BASE_URL="$env:API_BASE_URL" `
+            --dart-define=WS_BASE_URL="$env:WS_BASE_URL" `
+            --dart-define=WEB_APP_URL="$env:WEB_APP_URL" `
+            --dart-define=WEBRTC_ICE_SERVERS="$env:WEBRTC_ICE_SERVERS"
+
+      - name: Sign Windows binaries when certificate is available
+        if: env.HAS_WINDOWS_CERT == 'true'
+        shell: pwsh
+        env:
+          WINDOWS_CERTIFICATE_BASE64: ${{ secrets.WINDOWS_CERTIFICATE_BASE64 }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          [IO.File]::WriteAllBytes("$env:RUNNER_TEMP\pmchat-windows.pfx", [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE_BASE64))
+          $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin" -Recurse -Filter signtool.exe |
+            Where-Object { $_.FullName -match "\\x64\\signtool.exe$" } |
+            Sort-Object FullName -Descending |
+            Select-Object -First 1
+          if (-not $signtool) { throw "signtool.exe not found" }
+          Get-ChildItem "build\windows\x64\runner\Release" -Recurse -Include *.exe,*.dll | ForEach-Object {
+            & $signtool.FullName sign /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 /f "$env:RUNNER_TEMP\pmchat-windows.pfx" /p "$env:WINDOWS_CERTIFICATE_PASSWORD" $_.FullName
+          }
+
+      - name: Package Windows
+        shell: pwsh
+        run: |
+          if ("$env:HAS_WINDOWS_CERT" -ne "true") {
+            Write-Warning "No paid Windows code signing certificate configured; packaging unsigned Windows build."
+          }
+          Compress-Archive -Path "build\windows\x64\runner\Release\*" -DestinationPath "..\pm-chat-windows-x64-v$env:VERSION_NAME-$env:VERSION_CODE.zip" -Force
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: pm-chat-windows-x64-v*.zip
+          if-no-files-found: error
+
+  macos:
+    name: macOS
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: chat_app
+    env:
+      HAS_MACOS_CERT: ${{ secrets.MACOS_CERTIFICATE_BASE64 != '' && secrets.MACOS_CERTIFICATE_PASSWORD != '' && secrets.MACOS_CODESIGN_IDENTITY != '' && secrets.MACOS_KEYCHAIN_PASSWORD != '' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Build macOS
+        run: |
+          flutter pub get
+          flutter build macos --release \
+            --build-name "$VERSION_NAME" \
+            --build-number "$VERSION_CODE" \
+            --dart-define=API_BASE_URL="$API_BASE_URL" \
+            --dart-define=WS_BASE_URL="$WS_BASE_URL" \
+            --dart-define=WEB_APP_URL="$WEB_APP_URL" \
+            --dart-define=WEBRTC_ICE_SERVERS="$WEBRTC_ICE_SERVERS"
+
+      - name: Sign macOS app when certificate is available
+        if: env.HAS_MACOS_CERT == 'true'
+        env:
+          MACOS_CERTIFICATE_BASE64: ${{ secrets.MACOS_CERTIFICATE_BASE64 }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          MACOS_CODESIGN_IDENTITY: ${{ secrets.MACOS_CODESIGN_IDENTITY }}
+          MACOS_KEYCHAIN_PASSWORD: ${{ secrets.MACOS_KEYCHAIN_PASSWORD }}
+        run: |
+          security create-keychain -p "$MACOS_KEYCHAIN_PASSWORD" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "$MACOS_KEYCHAIN_PASSWORD" build.keychain
+          printf '%s' "$MACOS_CERTIFICATE_BASE64" | base64 --decode > "$RUNNER_TEMP/pmchat-macos.p12"
+          security import "$RUNNER_TEMP/pmchat-macos.p12" -k build.keychain -P "$MACOS_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$MACOS_KEYCHAIN_PASSWORD" build.keychain
+          codesign --force --deep --options runtime --timestamp --sign "$MACOS_CODESIGN_IDENTITY" "build/macos/Build/Products/Release/PM chat.app"
+          codesign --verify --deep --strict --verbose=2 "build/macos/Build/Products/Release/PM chat.app"
+
+      - name: Package macOS
+        run: |
+          if [ "$HAS_MACOS_CERT" != "true" ]; then
+            echo "::warning::No paid Apple Developer certificate configured; packaging unsigned macOS build."
+          fi
+          ditto -c -k --sequesterRsrc --keepParent "build/macos/Build/Products/Release/PM chat.app" "../pm-chat-macos-v${VERSION_NAME}-${VERSION_CODE}.zip"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: pm-chat-macos-v*.zip
+          if-no-files-found: error
+
+  release:
+    name: GitHub Release
+    runs-on: ubuntu-latest
+    needs:
+      - linux-android
+      - windows
+      - macos
+    env:
+      INPUT_TAG: ${{ github.event.inputs.tag }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Resolve release tag
+        id: meta
+        run: |
+          tag="$INPUT_TAG"
+          if [ -z "$tag" ]; then
+            tag="client-v${VERSION_NAME}-${VERSION_CODE}"
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Publish GitHub Release
+        run: |
+          tag="${{ steps.meta.outputs.tag }}"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" dist/* --clobber
+          else
+            gh release create "$tag" dist/* \
+              --title "PM chat ${VERSION_NAME}-${VERSION_CODE}" \
+              --notes "PM chat installers. Windows/macOS are unsigned unless signing secrets are configured."
+          fi
