@@ -273,6 +273,8 @@ jobs:
       INPUT_TAG: ${{ github.event.inputs.tag }}
       GH_TOKEN: ${{ github.token }}
     steps:
+      - uses: actions/checkout@v4
+
       - uses: actions/download-artifact@v4
         continue-on-error: true
         with:
@@ -295,10 +297,11 @@ jobs:
             echo "No artifacts were produced."
             exit 1
           fi
-          if gh release view "$tag" >/dev/null 2>&1; then
-            gh release upload "$tag" dist/* --clobber
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$tag" dist/* --clobber --repo "$GITHUB_REPOSITORY"
           else
             gh release create "$tag" dist/* \
+              --repo "$GITHUB_REPOSITORY" \
               --title "PM chat ${VERSION_NAME}-${VERSION_CODE}" \
               --notes "PM chat installers. Windows/macOS are unsigned unless signing secrets are configured."
           fi
