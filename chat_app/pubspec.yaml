@@ -87,7 +87,6 @@ dependencies:
   # Additional UI
   emoji_picker_flutter: ^4.3.0
   audio_waveforms: ^1.1.0
-  flutter_sound: ^9.16.3
   video_player: ^2.9.2
 
   # Internationalization

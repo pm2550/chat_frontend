@@ -146,20 +146,38 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force ..\build-logs | Out-Null
-          Start-Transcript -Path ..\build-logs\windows.log
+          $logPath = "..\build-logs\windows.log"
+          "" | Set-Content -Path $logPath
           $ErrorActionPreference = "Stop"
-          try {
-            flutter pub get
-            flutter build windows --release `
-              --build-name "$env:VERSION_NAME" `
-              --build-number "$env:VERSION_CODE" `
-              --dart-define=API_BASE_URL="$env:API_BASE_URL" `
-              --dart-define=WS_BASE_URL="$env:WS_BASE_URL" `
-              --dart-define=WEB_APP_URL="$env:WEB_APP_URL" `
-              --dart-define=WEBRTC_ICE_SERVERS="$env:WEBRTC_ICE_SERVERS"
-          } finally {
-            Stop-Transcript
+
+          function Invoke-Logged {
+            param(
+              [Parameter(ValueFromRemainingArguments = $true)]
+              [string[]] $CommandParts
+            )
+
+            $exe = $CommandParts[0]
+            $cmdArgs = @()
+            if ($CommandParts.Length -gt 1) {
+              $cmdArgs = $CommandParts[1..($CommandParts.Length - 1)]
+            }
+
+            ">>> $exe $($cmdArgs -join ' ')" | Tee-Object -FilePath $logPath -Append
+            & $exe @cmdArgs 2>&1 | Tee-Object -FilePath $logPath -Append
+            $exitCode = $LASTEXITCODE
+            if ($exitCode -ne 0) {
+              throw "$exe failed with exit code $exitCode"
+            }
           }
+
+          Invoke-Logged flutter pub get
+          Invoke-Logged flutter build windows --release `
+            --build-name "$env:VERSION_NAME" `
+            --build-number "$env:VERSION_CODE" `
+            --dart-define=API_BASE_URL="$env:API_BASE_URL" `
+            --dart-define=WS_BASE_URL="$env:WS_BASE_URL" `
+            --dart-define=WEB_APP_URL="$env:WEB_APP_URL" `
+            --dart-define=WEBRTC_ICE_SERVERS="$env:WEBRTC_ICE_SERVERS"
 
       - name: Sign Windows binaries when certificate is available
         if: env.HAS_WINDOWS_CERT == 'true'
