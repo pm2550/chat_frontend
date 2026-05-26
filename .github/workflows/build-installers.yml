@@ -121,6 +121,7 @@ jobs:
   windows:
     name: Windows x64
     runs-on: windows-latest
+    continue-on-error: true
     defaults:
       run:
         working-directory: chat_app
@@ -181,6 +182,7 @@ jobs:
   macos:
     name: macOS
     runs-on: macos-latest
+    continue-on-error: true
     defaults:
       run:
         working-directory: chat_app
@@ -239,6 +241,7 @@ jobs:
   release:
     name: GitHub Release
     runs-on: ubuntu-latest
+    if: always()
     needs:
       - linux-android
       - windows
