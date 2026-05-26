@@ -79,44 +79,50 @@ jobs:
 
       - name: Build Android and Linux
         run: |
-          flutter pub get
-          bash scripts/ci/patch_flutter_sound_linux.sh
+          mkdir -p ../build-logs
+          set -o pipefail
+          {
+            flutter pub get
+            bash scripts/ci/patch_flutter_sound_linux.sh
 
-          flutter build apk --release \
-            --build-name "$VERSION_NAME" \
-            --build-number "$VERSION_CODE" \
-            --dart-define=API_BASE_URL="$API_BASE_URL" \
-            --dart-define=WS_BASE_URL="$WS_BASE_URL" \
-            --dart-define=WEB_APP_URL="$WEB_APP_URL" \
-            --dart-define=WEBRTC_ICE_SERVERS="$WEBRTC_ICE_SERVERS"
-          cp build/app/outputs/flutter-apk/app-release.apk "../pm-chat-android-v${VERSION_NAME}-${VERSION_CODE}.apk"
+            flutter build apk --release \
+              --build-name "$VERSION_NAME" \
+              --build-number "$VERSION_CODE" \
+              --dart-define=API_BASE_URL="$API_BASE_URL" \
+              --dart-define=WS_BASE_URL="$WS_BASE_URL" \
+              --dart-define=WEB_APP_URL="$WEB_APP_URL" \
+              --dart-define=WEBRTC_ICE_SERVERS="$WEBRTC_ICE_SERVERS"
+            cp build/app/outputs/flutter-apk/app-release.apk "../pm-chat-android-v${VERSION_NAME}-${VERSION_CODE}.apk"
 
-          flutter build appbundle --release \
-            --build-name "$VERSION_NAME" \
-            --build-number "$VERSION_CODE" \
-            --dart-define=API_BASE_URL="$API_BASE_URL" \
-            --dart-define=WS_BASE_URL="$WS_BASE_URL" \
-            --dart-define=WEB_APP_URL="$WEB_APP_URL" \
-            --dart-define=WEBRTC_ICE_SERVERS="$WEBRTC_ICE_SERVERS"
-          cp build/app/outputs/bundle/release/app-release.aab "../pm-chat-android-v${VERSION_NAME}-${VERSION_CODE}.aab"
+            flutter build appbundle --release \
+              --build-name "$VERSION_NAME" \
+              --build-number "$VERSION_CODE" \
+              --dart-define=API_BASE_URL="$API_BASE_URL" \
+              --dart-define=WS_BASE_URL="$WS_BASE_URL" \
+              --dart-define=WEB_APP_URL="$WEB_APP_URL" \
+              --dart-define=WEBRTC_ICE_SERVERS="$WEBRTC_ICE_SERVERS"
+            cp build/app/outputs/bundle/release/app-release.aab "../pm-chat-android-v${VERSION_NAME}-${VERSION_CODE}.aab"
 
-          flutter build linux --release \
-            --build-name "$VERSION_NAME" \
-            --build-number "$VERSION_CODE" \
-            --dart-define=API_BASE_URL="$API_BASE_URL" \
-            --dart-define=WS_BASE_URL="$WS_BASE_URL" \
-            --dart-define=WEB_APP_URL="$WEB_APP_URL" \
-            --dart-define=WEBRTC_ICE_SERVERS="$WEBRTC_ICE_SERVERS"
-          tar -C build/linux/x64/release -czf "../pm-chat-linux-x64-v${VERSION_NAME}-${VERSION_CODE}.tar.gz" bundle
+            flutter build linux --release \
+              --build-name "$VERSION_NAME" \
+              --build-number "$VERSION_CODE" \
+              --dart-define=API_BASE_URL="$API_BASE_URL" \
+              --dart-define=WS_BASE_URL="$WS_BASE_URL" \
+              --dart-define=WEB_APP_URL="$WEB_APP_URL" \
+              --dart-define=WEBRTC_ICE_SERVERS="$WEBRTC_ICE_SERVERS"
+            tar -C build/linux/x64/release -czf "../pm-chat-linux-x64-v${VERSION_NAME}-${VERSION_CODE}.tar.gz" bundle
+          } 2>&1 | tee ../build-logs/linux-android.log
 
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: linux-android
           path: |
             pm-chat-android-v*.apk
             pm-chat-android-v*.aab
             pm-chat-linux-x64-v*.tar.gz
-          if-no-files-found: error
+            build-logs/linux-android.log
+          if-no-files-found: warn
 
   windows:
     name: Windows x64
@@ -139,14 +145,21 @@ jobs:
       - name: Build Windows
         shell: pwsh
         run: |
-          flutter pub get
-          flutter build windows --release `
-            --build-name "$env:VERSION_NAME" `
-            --build-number "$env:VERSION_CODE" `
-            --dart-define=API_BASE_URL="$env:API_BASE_URL" `
-            --dart-define=WS_BASE_URL="$env:WS_BASE_URL" `
-            --dart-define=WEB_APP_URL="$env:WEB_APP_URL" `
-            --dart-define=WEBRTC_ICE_SERVERS="$env:WEBRTC_ICE_SERVERS"
+          New-Item -ItemType Directory -Force ..\build-logs | Out-Null
+          Start-Transcript -Path ..\build-logs\windows.log
+          $ErrorActionPreference = "Stop"
+          try {
+            flutter pub get
+            flutter build windows --release `
+              --build-name "$env:VERSION_NAME" `
+              --build-number "$env:VERSION_CODE" `
+              --dart-define=API_BASE_URL="$env:API_BASE_URL" `
+              --dart-define=WS_BASE_URL="$env:WS_BASE_URL" `
+              --dart-define=WEB_APP_URL="$env:WEB_APP_URL" `
+              --dart-define=WEBRTC_ICE_SERVERS="$env:WEBRTC_ICE_SERVERS"
+          } finally {
+            Stop-Transcript
+          }
 
       - name: Sign Windows binaries when certificate is available
         if: env.HAS_WINDOWS_CERT == 'true'
@@ -174,10 +187,13 @@ jobs:
           Compress-Archive -Path "build\windows\x64\runner\Release\*" -DestinationPath "..\pm-chat-windows-x64-v$env:VERSION_NAME-$env:VERSION_CODE.zip" -Force
 
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: windows
-          path: pm-chat-windows-x64-v*.zip
-          if-no-files-found: error
+          path: |
+            pm-chat-windows-x64-v*.zip
+            build-logs/windows.log
+          if-no-files-found: warn
 
   macos:
     name: macOS
@@ -199,14 +215,18 @@ jobs:
 
       - name: Build macOS
         run: |
-          flutter pub get
-          flutter build macos --release \
-            --build-name "$VERSION_NAME" \
-            --build-number "$VERSION_CODE" \
-            --dart-define=API_BASE_URL="$API_BASE_URL" \
-            --dart-define=WS_BASE_URL="$WS_BASE_URL" \
-            --dart-define=WEB_APP_URL="$WEB_APP_URL" \
-            --dart-define=WEBRTC_ICE_SERVERS="$WEBRTC_ICE_SERVERS"
+          mkdir -p ../build-logs
+          set -o pipefail
+          {
+            flutter pub get
+            flutter build macos --release \
+              --build-name "$VERSION_NAME" \
+              --build-number "$VERSION_CODE" \
+              --dart-define=API_BASE_URL="$API_BASE_URL" \
+              --dart-define=WS_BASE_URL="$WS_BASE_URL" \
+              --dart-define=WEB_APP_URL="$WEB_APP_URL" \
+              --dart-define=WEBRTC_ICE_SERVERS="$WEBRTC_ICE_SERVERS"
+          } 2>&1 | tee ../build-logs/macos.log
 
       - name: Sign macOS app when certificate is available
         if: env.HAS_MACOS_CERT == 'true'
@@ -233,10 +253,13 @@ jobs:
           ditto -c -k --sequesterRsrc --keepParent "build/macos/Build/Products/Release/PM chat.app" "../pm-chat-macos-v${VERSION_NAME}-${VERSION_CODE}.zip"
 
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: macos
-          path: pm-chat-macos-v*.zip
-          if-no-files-found: error
+          path: |
+            pm-chat-macos-v*.zip
+            build-logs/macos.log
+          if-no-files-found: warn
 
   release:
     name: GitHub Release
@@ -251,6 +274,7 @@ jobs:
       GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/download-artifact@v4
+        continue-on-error: true
         with:
           path: dist
           merge-multiple: true
@@ -267,6 +291,10 @@ jobs:
       - name: Publish GitHub Release
         run: |
           tag="${{ steps.meta.outputs.tag }}"
+          if [ ! -d dist ] || [ -z "$(find dist -maxdepth 1 -type f 2>/dev/null)" ]; then
+            echo "No artifacts were produced."
+            exit 1
+          fi
           if gh release view "$tag" >/dev/null 2>&1; then
             gh release upload "$tag" dist/* --clobber
           else
