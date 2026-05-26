@@ -43,25 +43,23 @@ class _AnonymousToggleButtonState extends State<AnonymousToggleButton> {
               });
               widget.onAnonymousChanged(null);
             } else {
-              final identity = await _anonymousService.enterAnonymousMode(widget.chatRoomId);
+              final identity =
+                  await _anonymousService.enterAnonymousMode(widget.chatRoomId);
               if (identity != null) {
                 setState(() {
                   _isAnonymous = true;
                   _currentIdentity = identity;
                 });
                 widget.onAnonymousChanged(identity);
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('你现在是: ${identity.anonymousName}')),
-                  );
-                }
               }
             }
           },
         ),
         if (_isAnonymous && _currentIdentity != null)
           GestureDetector(
-            onTap: _currentIdentity!.customNameUsed ? null : () => _showRenameDialog(),
+            onTap: _currentIdentity!.customNameUsed
+                ? null
+                : () => _showRenameDialog(),
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
               decoration: BoxDecoration(
@@ -94,7 +92,8 @@ class _AnonymousToggleButtonState extends State<AnonymousToggleButton> {
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Text('每天只能改名一次哦~', style: TextStyle(color: Colors.grey, fontSize: 12)),
+            const Text('每天只能改名一次哦~',
+                style: TextStyle(color: Colors.grey, fontSize: 12)),
             const SizedBox(height: 8),
             TextField(
               controller: controller,
@@ -107,12 +106,14 @@ class _AnonymousToggleButtonState extends State<AnonymousToggleButton> {
           ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
           ElevatedButton(
             onPressed: () async {
               if (controller.text.length >= 2) {
                 final result = await _anonymousService.renameAnonymous(
                     widget.chatRoomId, controller.text);
+                if (!context.mounted || !ctx.mounted) return;
                 if (result != null) {
                   setState(() => _currentIdentity = result);
                   widget.onAnonymousChanged(result);

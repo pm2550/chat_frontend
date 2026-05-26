@@ -45,7 +45,9 @@ class ChatHistory {
       receiverId: json['receiverId'],
       content: json['content'] ?? '',
       messageType: MessageType.values.firstWhere(
-        (e) => e.name.toUpperCase() == (json['messageType'] ?? 'TEXT').toString().toUpperCase(),
+        (e) =>
+            e.name.toUpperCase() ==
+            (json['messageType'] ?? 'TEXT').toString().toUpperCase(),
         orElse: () => MessageType.text,
       ),
       fileUrl: json['fileUrl'],
@@ -225,4 +227,4 @@ class ChatHistoryResponse {
 
   /// 是否是最后一页
   bool get isLastPage => currentPage >= totalPages - 1;
-} 
+}

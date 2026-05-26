@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:chat_app/widgets/message_bubble.dart';
@@ -15,6 +17,10 @@ void main() {
     MessageType type = MessageType.text,
     MessageStatus status = MessageStatus.sent,
     DateTime? timestamp,
+    String? fileUrl,
+    String? fileName,
+    int? fileSize,
+    String? fileType,
   }) {
     return Message(
       id: id,
@@ -26,6 +32,10 @@ void main() {
       type: type,
       status: status,
       timestamp: timestamp ?? DateTime.now(),
+      fileUrl: fileUrl,
+      fileName: fileName,
+      fileSize: fileSize,
+      fileType: fileType,
     );
   }
 
@@ -281,6 +291,122 @@ void main() {
       ));
 
       expect(find.text('?'), findsOneWidget);
+    });
+
+    testWidgets('renders image attachment preview and filename',
+        (tester) async {
+      final message = createMessage(
+        content: 'photo.png',
+        type: MessageType.image,
+        fileUrl: '/api/files/chat/photo.png',
+        fileName: 'photo.png',
+        fileSize: 2048,
+        fileType: 'image/png',
+      );
+
+      await tester.pumpWidget(buildTestWidget(
+        MessageBubble(
+          message: message,
+          isMe: false,
+          imageLoader: (_) async => Uint8List.fromList([
+            137,
+            80,
+            78,
+            71,
+            13,
+            10,
+            26,
+            10,
+            0,
+            0,
+            0,
+            13,
+            73,
+            72,
+            68,
+            82,
+            0,
+            0,
+            0,
+            1,
+            0,
+            0,
+            0,
+            1,
+            8,
+            6,
+            0,
+            0,
+            0,
+            31,
+            21,
+            196,
+            137,
+            0,
+            0,
+            0,
+            13,
+            73,
+            68,
+            65,
+            84,
+            120,
+            156,
+            99,
+            248,
+            207,
+            192,
+            80,
+            15,
+            0,
+            5,
+            131,
+            2,
+            127,
+            150,
+            236,
+            250,
+            87,
+            0,
+            0,
+            0,
+            0,
+            73,
+            69,
+            78,
+            68,
+            174,
+            66,
+            96,
+            130,
+          ]),
+        ),
+      ));
+      await tester.pump();
+
+      expect(find.byType(Image), findsOneWidget);
+      expect(find.text('photo.png'), findsOneWidget);
+    });
+
+    testWidgets('renders file attachment card with size and download icon',
+        (tester) async {
+      final message = createMessage(
+        content: 'doc.pdf',
+        type: MessageType.file,
+        fileUrl: '/api/files/chat/doc.pdf',
+        fileName: 'doc.pdf',
+        fileSize: 2048,
+        fileType: 'application/pdf',
+      );
+
+      await tester.pumpWidget(buildTestWidget(
+        MessageBubble(message: message, isMe: false),
+      ));
+
+      expect(find.byIcon(Icons.insert_drive_file), findsOneWidget);
+      expect(find.byIcon(Icons.download), findsOneWidget);
+      expect(find.text('[文件] doc.pdf'), findsOneWidget);
+      expect(find.text('2.0 KB'), findsOneWidget);
     });
   });
 }

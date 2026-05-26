@@ -41,7 +41,9 @@ void main() {
       expect(service.isAuthenticated, isFalse);
     });
 
-    test('isAuthenticated returns false when no user even if token concept exists', () {
+    test(
+        'isAuthenticated returns false when no user even if token concept exists',
+        () {
       final service = AuthService();
       // Both token AND user must be non-null for isAuthenticated
       // Since neither is set on a fresh singleton, this confirms the logic
@@ -53,7 +55,8 @@ void main() {
     test('isAuthenticated requires both token and user to be non-null', () {
       final service = AuthService();
       // Verify the contract: isAuthenticated == (token != null && user != null)
-      final expected = service.accessToken != null && service.currentUser != null;
+      final expected =
+          service.accessToken != null && service.currentUser != null;
       expect(service.isAuthenticated, equals(expected));
     });
 

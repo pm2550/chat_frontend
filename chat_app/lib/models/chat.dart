@@ -19,6 +19,7 @@ class Chat {
   final bool isActive;
   final bool isPrivate;
   final int maxMembers;
+  final bool anonymousEnabled;
 
   const Chat({
     required this.id,
@@ -38,29 +39,41 @@ class Chat {
     this.isActive = true,
     this.isPrivate = true,
     this.maxMembers = 500,
+    this.anonymousEnabled = false,
   });
 
   factory Chat.fromJson(Map<String, dynamic> json) {
+    final typeValue =
+        json['type'] ?? json['roomType'] ?? json['room_type'] ?? 'PRIVATE';
     return Chat(
       id: json['id']?.toString() ?? '',
       name: json['name'] ?? '',
       description: json['description'],
       type: ChatType.values.firstWhere(
-        (e) => e.name.toUpperCase() == (json['type'] ?? json['room_type'] ?? 'PRIVATE').toString().toUpperCase(),
+        (e) => e.name.toUpperCase() == typeValue.toString().toUpperCase(),
         orElse: () => ChatType.private,
       ),
       avatarUrl: json['avatarUrl'] ?? json['avatar_url'],
       participants: (json['participants'] as List<dynamic>?)
-              ?.map((userJson) => User.fromJson(userJson as Map<String, dynamic>))
+              ?.map(
+                  (userJson) => User.fromJson(userJson as Map<String, dynamic>))
               .toList() ??
           [],
-      createdBy: json['createdBy']?.toString() ?? json['created_by']?.toString(),
+      createdBy:
+          json['createdBy']?.toString() ?? json['created_by']?.toString(),
       isActive: json['isActive'] ?? json['is_active'] ?? true,
-      isPrivate: json['isPrivate'] ?? json['is_private'] ?? (json['type'] == 'PRIVATE'),
+      isPrivate: json['isPrivate'] ??
+          json['is_private'] ??
+          typeValue.toString().toUpperCase() == 'PRIVATE',
       maxMembers: json['maxMembers'] ?? json['max_members'] ?? 500,
-      createdAt: DateTime.tryParse((json['createdAt'] ?? json['created_at']).toString()) ?? DateTime.now(),
+      anonymousEnabled:
+          json['anonymousEnabled'] ?? json['anonymous_enabled'] ?? false,
+      createdAt: DateTime.tryParse(
+              (json['createdAt'] ?? json['created_at']).toString()) ??
+          DateTime.now(),
       updatedAt: json['updatedAt'] != null || json['updated_at'] != null
-          ? DateTime.tryParse((json['updatedAt'] ?? json['updated_at']).toString())
+          ? DateTime.tryParse(
+              (json['updatedAt'] ?? json['updated_at']).toString())
           : null,
       lastMessage: json['lastMessage'] != null
           ? Message.fromJson(json['lastMessage'] as Map<String, dynamic>)
@@ -81,6 +94,7 @@ class Chat {
       'isActive': isActive,
       'isPrivate': isPrivate,
       'maxMembers': maxMembers,
+      'anonymousEnabled': anonymousEnabled,
       'createdAt': createdAt.toIso8601String(),
       'updatedAt': updatedAt?.toIso8601String(),
       'lastMessage': lastMessage?.toJson(),
@@ -99,6 +113,7 @@ class Chat {
     bool? isActive,
     bool? isPrivate,
     int? maxMembers,
+    bool? anonymousEnabled,
     DateTime? createdAt,
     DateTime? updatedAt,
     Message? lastMessage,
@@ -117,6 +132,7 @@ class Chat {
       isActive: isActive ?? this.isActive,
       isPrivate: isPrivate ?? this.isPrivate,
       maxMembers: maxMembers ?? this.maxMembers,
+      anonymousEnabled: anonymousEnabled ?? this.anonymousEnabled,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       lastMessage: lastMessage ?? this.lastMessage,
@@ -131,17 +147,19 @@ class Chat {
     if (type == ChatType.group || type == ChatType.channel) {
       return name;
     }
-    
+
     // 私聊显示对方用户名
     final otherUser = participants.firstWhere(
       (user) => user.id != currentUserId,
-      orElse: () => participants.isNotEmpty ? participants.first : User(
-        id: '',
-        username: 'Unknown',
-        email: '',
-        displayName: 'Unknown User',
-        createdAt: DateTime.now(),
-      ),
+      orElse: () => participants.isNotEmpty
+          ? participants.first
+          : User(
+              id: '',
+              username: 'Unknown',
+              email: '',
+              displayName: 'Unknown User',
+              createdAt: DateTime.now(),
+            ),
     );
     return otherUser.displayName;
   }
@@ -149,27 +167,31 @@ class Chat {
   // 获取聊天头像
   String? getDisplayAvatar(String currentUserId) {
     if (avatarUrl != null) return avatarUrl;
-    
+
     if (type == ChatType.private) {
       final otherUser = participants.firstWhere(
         (user) => user.id != currentUserId,
-        orElse: () => participants.isNotEmpty ? participants.first : User(
-          id: '',
-          username: 'Unknown',
-          email: '',
-          displayName: 'Unknown User',
-          createdAt: DateTime.now(),
-        ),
+        orElse: () => participants.isNotEmpty
+            ? participants.first
+            : User(
+                id: '',
+                username: 'Unknown',
+                email: '',
+                displayName: 'Unknown User',
+                createdAt: DateTime.now(),
+              ),
       );
       return otherUser.avatarUrl;
     }
-    
+
     return null;
   }
 
   // 获取在线参与者数量
   int get onlineParticipantCount {
-    return participants.where((user) => user.onlineStatus == OnlineStatus.online).length;
+    return participants
+        .where((user) => user.onlineStatus == OnlineStatus.online)
+        .length;
   }
 
   // 是否有未读消息
@@ -197,4 +219,4 @@ enum ChatType {
 
   const ChatType(this.description);
   final String description;
-} 
+}

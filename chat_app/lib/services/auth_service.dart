@@ -57,17 +57,34 @@ class AuthService extends ChangeNotifier {
     return false;
   }
 
+  Future<bool> ensureAuthenticated() async {
+    if (_accessToken != null && _currentUser != null) {
+      if (await validateToken()) {
+        return true;
+      }
+      if (await refreshAccessToken()) {
+        return true;
+      }
+      await clearLocalSession();
+      return false;
+    }
+
+    return initialize();
+  }
+
   /// Login with username and password
   Future<bool> login(String username, String password) async {
     _isLoading = true;
     notifyListeners();
 
     try {
-      final response = await http.post(
-        Uri.parse(ApiConstants.login),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'username': username, 'password': password}),
-      ).timeout(ApiConstants.requestTimeout);
+      final response = await http
+          .post(
+            Uri.parse(ApiConstants.login),
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({'username': username, 'password': password}),
+          )
+          .timeout(ApiConstants.requestTimeout);
 
       final data = jsonDecode(utf8.decode(response.bodyBytes));
 
@@ -103,17 +120,19 @@ class AuthService extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final response = await http.post(
-        Uri.parse(ApiConstants.register),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'username': username,
-          'password': password,
-          'email': email,
-          if (phone != null) 'phone': phone,
-          if (displayName != null) 'displayName': displayName,
-        }),
-      ).timeout(ApiConstants.requestTimeout);
+      final response = await http
+          .post(
+            Uri.parse(ApiConstants.register),
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({
+              'username': username,
+              'password': password,
+              'email': email,
+              if (phone != null) 'phone': phone,
+              if (displayName != null) 'displayName': displayName,
+            }),
+          )
+          .timeout(ApiConstants.requestTimeout);
 
       final data = jsonDecode(utf8.decode(response.bodyBytes));
       _isLoading = false;
@@ -199,24 +218,28 @@ class AuthService extends ChangeNotifier {
   /// Update user profile
   Future<bool> updateProfile({
     String? displayName,
+    String? email,
     String? bio,
     String? phone,
   }) async {
     if (_accessToken == null) return false;
 
     try {
-      final response = await http.put(
-        Uri.parse(ApiConstants.userProfile),
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $_accessToken',
-        },
-        body: jsonEncode({
-          if (displayName != null) 'displayName': displayName,
-          if (bio != null) 'bio': bio,
-          if (phone != null) 'phone': phone,
-        }),
-      ).timeout(ApiConstants.requestTimeout);
+      final response = await http
+          .put(
+            Uri.parse(ApiConstants.userProfile),
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': 'Bearer $_accessToken',
+            },
+            body: jsonEncode({
+              if (displayName != null) 'displayName': displayName,
+              if (email != null) 'email': email,
+              if (bio != null) 'bio': bio,
+              if (phone != null) 'phone': phone,
+            }),
+          )
+          .timeout(ApiConstants.requestTimeout);
 
       if (response.statusCode == 200) {
         final data = jsonDecode(utf8.decode(response.bodyBytes));
@@ -231,6 +254,30 @@ class AuthService extends ChangeNotifier {
       debugPrint('Profile update error: $e');
     }
     return false;
+  }
+
+  /// Replace cached current user after profile/avatar updates.
+  Future<void> replaceCurrentUser(User user) async {
+    _currentUser = user;
+    await _saveAuthData();
+    notifyListeners();
+  }
+
+  Future<void> changePassword({
+    required String oldPassword,
+    required String newPassword,
+  }) async {
+    final response = await authenticatedRequest(
+      'POST',
+      ApiConstants.profilePassword,
+      body: {
+        'oldPassword': oldPassword,
+        'newPassword': newPassword,
+      },
+    );
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw Exception(_extractError(response.body));
+    }
   }
 
   /// Make authenticated API request with auto token refresh
@@ -248,64 +295,122 @@ class AuthService extends ChangeNotifier {
 
     switch (method.toUpperCase()) {
       case 'GET':
-        response = await http.get(Uri.parse(url), headers: headers)
+        response = await http
+            .get(Uri.parse(url), headers: headers)
             .timeout(ApiConstants.requestTimeout);
         break;
       case 'POST':
-        response = await http.post(Uri.parse(url), headers: headers,
-            body: body is String ? body : jsonEncode(body))
+        response = await http
+            .post(Uri.parse(url),
+                headers: headers,
+                body: body is String ? body : jsonEncode(body))
             .timeout(ApiConstants.requestTimeout);
         break;
       case 'PUT':
-        response = await http.put(Uri.parse(url), headers: headers,
-            body: body is String ? body : jsonEncode(body))
+        response = await http
+            .put(Uri.parse(url),
+                headers: headers,
+                body: body is String ? body : jsonEncode(body))
             .timeout(ApiConstants.requestTimeout);
         break;
       case 'DELETE':
-        response = await http.delete(Uri.parse(url), headers: headers)
+        response = await http
+            .delete(Uri.parse(url), headers: headers)
             .timeout(ApiConstants.requestTimeout);
         break;
       default:
         throw Exception('Unsupported HTTP method: $method');
     }
 
-    // Auto refresh on 401
-    if (response.statusCode == 401) {
+    // Auto refresh on authentication failures. Some Spring Security paths
+    // return 403 instead of 401 for expired or malformed JWTs.
+    if (_shouldRefreshFor(response)) {
       final refreshed = await refreshAccessToken();
       if (refreshed) {
         headers['Authorization'] = 'Bearer $_accessToken';
         switch (method.toUpperCase()) {
           case 'GET':
-            response = await http.get(Uri.parse(url), headers: headers)
+            response = await http
+                .get(Uri.parse(url), headers: headers)
                 .timeout(ApiConstants.requestTimeout);
             break;
           case 'POST':
-            response = await http.post(Uri.parse(url), headers: headers,
-                body: body is String ? body : jsonEncode(body))
+            response = await http
+                .post(Uri.parse(url),
+                    headers: headers,
+                    body: body is String ? body : jsonEncode(body))
                 .timeout(ApiConstants.requestTimeout);
             break;
           case 'PUT':
-            response = await http.put(Uri.parse(url), headers: headers,
-                body: body is String ? body : jsonEncode(body))
+            response = await http
+                .put(Uri.parse(url),
+                    headers: headers,
+                    body: body is String ? body : jsonEncode(body))
                 .timeout(ApiConstants.requestTimeout);
             break;
           case 'DELETE':
-            response = await http.delete(Uri.parse(url), headers: headers)
+            response = await http
+                .delete(Uri.parse(url), headers: headers)
                 .timeout(ApiConstants.requestTimeout);
             break;
         }
+      } else if (_isAuthenticationFailure(response)) {
+        await clearLocalSession();
       }
     }
 
     return response;
   }
 
+  bool _shouldRefreshFor(http.Response response) {
+    if (_refreshToken == null) return false;
+    return response.statusCode == 401 || response.statusCode == 403;
+  }
+
+  bool _isAuthenticationFailure(http.Response response) {
+    if (response.statusCode == 401) return true;
+    if (response.statusCode != 403) return false;
+
+    try {
+      final decoded = jsonDecode(utf8.decode(response.bodyBytes));
+      if (decoded is Map<String, dynamic>) {
+        final error = decoded['error']?.toString().toLowerCase() ?? '';
+        final message = decoded['message']?.toString().toLowerCase() ?? '';
+        return error == 'forbidden' ||
+            message.contains('jwt') ||
+            message.contains('token') ||
+            message.contains('authentication');
+      }
+    } catch (_) {
+      // Plain "Forbidden" responses are also used for auth failures.
+    }
+    return response.body.trim().toLowerCase() == 'forbidden';
+  }
+
+  String _extractError(String body) {
+    try {
+      final decoded = jsonDecode(body);
+      if (decoded is Map<String, dynamic>) {
+        return (decoded['message'] ?? decoded['error'] ?? '请求失败').toString();
+      }
+    } catch (_) {
+      // Use generic error below.
+    }
+    return '请求失败';
+  }
+
   /// Save auth data to SharedPreferences
   Future<void> _saveAuthData() async {
     final prefs = await SharedPreferences.getInstance();
-    if (_accessToken != null) prefs.setString(_keyAccessToken, _accessToken!);
-    if (_refreshToken != null) prefs.setString(_keyRefreshToken, _refreshToken!);
-    if (_currentUser != null) prefs.setString(_keyUserData, jsonEncode(_currentUser!.toJson()));
+    if (_accessToken != null) {
+      await prefs.setString(_keyAccessToken, _accessToken!);
+    }
+    if (_refreshToken != null) {
+      await prefs.setString(_keyRefreshToken, _refreshToken!);
+    }
+    if (_currentUser != null) {
+      await prefs.setString(_keyUserData, jsonEncode(_currentUser!.toJson()));
+    }
   }
 
   /// Clear auth data from SharedPreferences
@@ -317,5 +422,10 @@ class AuthService extends ChangeNotifier {
     await prefs.remove(_keyAccessToken);
     await prefs.remove(_keyRefreshToken);
     await prefs.remove(_keyUserData);
+  }
+
+  Future<void> clearLocalSession() async {
+    await _clearAuthData();
+    notifyListeners();
   }
 }

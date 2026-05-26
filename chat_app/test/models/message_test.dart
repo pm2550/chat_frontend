@@ -60,6 +60,31 @@ void main() {
       expect(message.fileType, 'image/jpeg');
     });
 
+    test('fromJson maps anonymous display metadata over real sender name', () {
+      final json = {
+        'id': 201,
+        'content': '匿名消息',
+        'senderId': 5,
+        'senderName': 'RealUser',
+        'chatRoomId': 20,
+        'messageType': 'TEXT',
+        'messageStatus': 'SENT',
+        'createdAt': '2024-06-15T08:30:00.000Z',
+        'isAnonymous': true,
+        'anonymousIdentityId': 9,
+        'anonymousName': '神秘海豚',
+        'anonymousAvatar': '#FF6B6B',
+      };
+
+      final message = Message.fromJson(json);
+
+      expect(message.isAnonymous, isTrue);
+      expect(message.senderName, '神秘海豚');
+      expect(message.senderAvatar, '#FF6B6B');
+      expect(message.anonymousIdentityId, '9');
+      expect(message.anonymousName, '神秘海豚');
+    });
+
     test('fromJson handles missing fields gracefully', () {
       final json = {
         'id': null,

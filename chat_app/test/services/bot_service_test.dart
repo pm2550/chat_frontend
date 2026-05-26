@@ -1,5 +1,8 @@
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:chat_app/services/bot_service.dart';
+import 'package:http/http.dart' as http;
 
 void main() {
   group('BotConfig', () {
@@ -222,5 +225,101 @@ void main() {
       final service2 = BotService();
       expect(identical(service1, service2), isFalse);
     });
+
+    test('getMyBots reads ApiResponse data list', () async {
+      final service = BotService(
+        authenticatedRequest: (method, url, {headers, body}) async {
+          expect(method, 'GET');
+          expect(url, contains('/api/v1/bots/my'));
+          return jsonResponse({
+            'code': 200,
+            'data': [
+              {
+                'id': 1,
+                'botName': 'Helper',
+                'llmProvider': 'OPENAI',
+                'modelName': 'gpt-4o',
+              },
+            ],
+          });
+        },
+      );
+
+      final bots = await service.getMyBots();
+
+      expect(bots, hasLength(1));
+      expect(bots.first.botName, 'Helper');
+      expect(bots.first.modelName, 'gpt-4o');
+    });
+
+    test('createBot posts config and api key', () async {
+      Object? capturedBody;
+      final service = BotService(
+        authenticatedRequest: (method, url, {headers, body}) async {
+          expect(method, 'POST');
+          capturedBody = body;
+          return jsonResponse({
+            'code': 200,
+            'data': {
+              'id': 2,
+              'botName': 'NewBot',
+              'llmProvider': 'OLLAMA',
+            },
+          });
+        },
+      );
+
+      final bot = await service.createBot(
+        BotConfig(botName: 'NewBot', llmProvider: 'OLLAMA'),
+        apiKey: 'secret',
+      );
+
+      expect((capturedBody as Map<String, dynamic>)['apiKey'], 'secret');
+      expect(bot?.id, 2);
+      expect(bot?.botName, 'NewBot');
+    });
+
+    test('room bot management calls backend endpoints', () async {
+      final calls = <String>[];
+      final service = BotService(
+        authenticatedRequest: (method, url, {headers, body}) async {
+          calls.add('$method $url');
+          return jsonResponse({'code': 200, 'data': null});
+        },
+      );
+
+      await service.addBotToRoom(42, 5, triggerMode: 'MENTION');
+      await service.removeBotFromRoom(42, 5);
+      await service.deleteBot(5);
+
+      expect(calls[0], contains('/api/v1/bots/chat-rooms/42/bots/5/add'));
+      expect(calls[1], startsWith('DELETE '));
+      expect(calls[1], contains('/api/v1/bots/chat-rooms/42/bots/5'));
+      expect(calls[2], contains('/api/v1/bots/5'));
+    });
+
+    test('failed response throws BotServiceException', () async {
+      final service = BotService(
+        authenticatedRequest: (method, url, {headers, body}) async {
+          return jsonResponse({'message': '无权限'}, statusCode: 403);
+        },
+      );
+
+      expect(
+        () => service.getMyBots(),
+        throwsA(isA<BotServiceException>()),
+      );
+    });
   });
+}
+
+http.Response jsonResponse(
+  Object body, {
+  int statusCode = 200,
+}) {
+  return http.Response.bytes(
+    utf8.encode(jsonEncode(body)),
+    statusCode,
+    headers: {'content-type': 'application/json; charset=utf-8'},
+  );
 }

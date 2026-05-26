@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
-import '../constants/app_colors.dart';
+import '../services/auth_service.dart';
 import '../services/update_service.dart';
+import '../widgets/pm_brand.dart';
 import '../widgets/update_dialog.dart';
 
 class SplashScreen extends StatefulWidget {
@@ -64,9 +65,39 @@ class _SplashScreenState extends State<SplashScreen>
       // ignore
     }
 
+    final route = await _resolveInitialRoute();
     if (mounted) {
-      Navigator.of(context).pushReplacementNamed('/login');
+      Navigator.of(context).pushReplacementNamed(route);
     }
+  }
+
+  Future<String> _resolveInitialRoute() async {
+    final requestedRoute = _requestedColdStartRoute();
+    if (requestedRoute == '/register') {
+      return '/register';
+    }
+
+    final authenticated = await AuthService().ensureAuthenticated();
+    if (!authenticated) {
+      return '/login';
+    }
+
+    return requestedRoute ?? '/home';
+  }
+
+  String? _requestedColdStartRoute() {
+    final fragment = Uri.base.fragment;
+    if (fragment.isEmpty || fragment == '/') {
+      return null;
+    }
+
+    final route = fragment.split('?').first;
+    const allowedColdStartRoutes = {
+      '/home',
+      '/settings',
+      '/register',
+    };
+    return allowedColdStartRoutes.contains(route) ? route : null;
   }
 
   @override
@@ -78,10 +109,9 @@ class _SplashScreenState extends State<SplashScreen>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Container(
-        decoration: const BoxDecoration(
-          gradient: AppColors.primaryGradient,
-        ),
+      body: PMChatPattern(
+        dark: true,
+        dense: true,
         child: Center(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
@@ -94,24 +124,21 @@ class _SplashScreenState extends State<SplashScreen>
                     child: ScaleTransition(
                       scale: _scaleAnimation,
                       child: Container(
-                        width: 120,
-                        height: 120,
+                        width: 132,
+                        height: 132,
+                        padding: const EdgeInsets.all(18),
                         decoration: BoxDecoration(
-                          color: Colors.white,
-                          shape: BoxShape.circle,
+                          color: Colors.white.withValues(alpha: 0.96),
+                          borderRadius: BorderRadius.circular(28),
                           boxShadow: [
                             BoxShadow(
-                              color: Colors.black.withOpacity(0.2),
-                              blurRadius: 20,
-                              offset: const Offset(0, 10),
+                              color: Colors.black.withValues(alpha: 0.20),
+                              blurRadius: 28,
+                              offset: const Offset(0, 14),
                             ),
                           ],
                         ),
-                        child: const Icon(
-                          Icons.chat_bubble,
-                          size: 60,
-                          color: AppColors.primary,
-                        ),
+                        child: const PMChatMark(size: 92),
                       ),
                     ),
                   );
@@ -123,21 +150,13 @@ class _SplashScreenState extends State<SplashScreen>
                 builder: (context, child) {
                   return FadeTransition(
                     opacity: _fadeAnimation,
-                    child: Column(
+                    child: const Column(
                       children: [
-                        Text(
-                          '聊天应用',
-                          style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          '连接你我，畅享沟通',
-                          style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                            color: Colors.white.withOpacity(0.9),
-                          ),
+                        PMChatLogo(
+                          size: 0,
+                          showWordmark: true,
+                          bright: true,
+                          centered: true,
                         ),
                       ],
                     ),
@@ -163,4 +182,4 @@ class _SplashScreenState extends State<SplashScreen>
       ),
     );
   }
-} 
+}

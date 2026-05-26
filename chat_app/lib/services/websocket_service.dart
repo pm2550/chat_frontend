@@ -6,7 +6,24 @@ import '../constants/api_constants.dart';
 import '../models/message.dart';
 import 'auth_service.dart';
 
-class WebSocketService extends ChangeNotifier {
+abstract class ChatRealtimeService {
+  bool get isConnected;
+  Stream<Message> get onMessage;
+  Stream<Map<String, dynamic>> get onTyping;
+  Stream<Map<String, dynamic>> get onStatusChange;
+
+  Future<void> connect();
+  void disconnect();
+  void sendMessage(Map<String, dynamic> message);
+  bool sendTextMessage(
+    int chatRoomId,
+    String content, {
+    bool isAnonymous = false,
+  });
+  void sendTyping(int chatRoomId, bool isTyping);
+}
+
+class WebSocketService extends ChangeNotifier implements ChatRealtimeService {
   static final WebSocketService _instance = WebSocketService._internal();
   factory WebSocketService() => _instance;
   WebSocketService._internal();
@@ -19,18 +36,29 @@ class WebSocketService extends ChangeNotifier {
   int _reconnectAttempts = 0;
   static const int _maxReconnectAttempts = 10;
 
+  @override
   bool get isConnected => _isConnected;
 
   // Stream controllers for different message types
-  final StreamController<Message> _messageController = StreamController<Message>.broadcast();
-  final StreamController<Map<String, dynamic>> _typingController = StreamController<Map<String, dynamic>>.broadcast();
-  final StreamController<Map<String, dynamic>> _statusController = StreamController<Map<String, dynamic>>.broadcast();
+  final StreamController<Message> _messageController =
+      StreamController<Message>.broadcast();
+  final StreamController<Map<String, dynamic>> _typingController =
+      StreamController<Map<String, dynamic>>.broadcast();
+  final StreamController<Map<String, dynamic>> _statusController =
+      StreamController<Map<String, dynamic>>.broadcast();
+  final StreamController<Map<String, dynamic>> _callController =
+      StreamController<Map<String, dynamic>>.broadcast();
 
+  @override
   Stream<Message> get onMessage => _messageController.stream;
+  @override
   Stream<Map<String, dynamic>> get onTyping => _typingController.stream;
+  @override
   Stream<Map<String, dynamic>> get onStatusChange => _statusController.stream;
+  Stream<Map<String, dynamic>> get onCallSignal => _callController.stream;
 
   /// Connect to WebSocket server
+  @override
   Future<void> connect() async {
     if (_isConnected) return;
 
@@ -60,6 +88,7 @@ class WebSocketService extends ChangeNotifier {
   }
 
   /// Disconnect from WebSocket server
+  @override
   void disconnect() {
     _heartbeatTimer?.cancel();
     _reconnectTimer?.cancel();
@@ -69,19 +98,72 @@ class WebSocketService extends ChangeNotifier {
   }
 
   /// Send a message via WebSocket
+  @override
   void sendMessage(Map<String, dynamic> message) {
     if (_isConnected && _channel != null) {
       _channel!.sink.add(jsonEncode(message));
     }
   }
 
+  /// Send a text chat message using the backend raw WebSocket protocol.
+  @override
+  bool sendTextMessage(
+    int chatRoomId,
+    String content, {
+    bool isAnonymous = false,
+  }) {
+    if (!_isConnected || _channel == null) {
+      return false;
+    }
+    sendMessage({
+      'type': 'message',
+      'chatRoomId': chatRoomId,
+      'content': content,
+      'messageType': 'TEXT',
+      if (isAnonymous) 'isAnonymous': true,
+    });
+    return true;
+  }
+
+  bool sendEncryptedTextMessage(
+    int chatRoomId, {
+    required String encryptedContent,
+    String content = '[加密消息]',
+    int encryptionVersion = 1,
+  }) {
+    if (!_isConnected || _channel == null) {
+      return false;
+    }
+    sendMessage({
+      'type': 'message',
+      'chatRoomId': chatRoomId,
+      'content': content,
+      'messageType': 'TEXT',
+      'encryptedContent': encryptedContent,
+      'encryptionVersion': encryptionVersion,
+    });
+    return true;
+  }
+
   /// Send typing indicator
+  @override
   void sendTyping(int chatRoomId, bool isTyping) {
     sendMessage({
       'type': 'typing',
       'chatRoomId': chatRoomId,
       'isTyping': isTyping,
     });
+  }
+
+  bool sendCallSignal(Map<String, dynamic> signal) {
+    if (!_isConnected || _channel == null) {
+      return false;
+    }
+    sendMessage({
+      'type': 'call',
+      ...signal,
+    });
+    return true;
   }
 
   void _handleMessage(dynamic data) {
@@ -100,6 +182,12 @@ class WebSocketService extends ChangeNotifier {
           break;
         case 'status':
           _statusController.add(json);
+          break;
+        case 'read_receipt':
+          _statusController.add(json);
+          break;
+        case 'call':
+          _callController.add(Map<String, dynamic>.from(json));
           break;
         case 'pong':
           // Heartbeat response
@@ -138,7 +226,8 @@ class WebSocketService extends ChangeNotifier {
     }
 
     _reconnectTimer?.cancel();
-    final delay = Duration(seconds: (2 * (_reconnectAttempts + 1)).clamp(2, 30));
+    final delay =
+        Duration(seconds: (2 * (_reconnectAttempts + 1)).clamp(2, 30));
     _reconnectAttempts++;
 
     _reconnectTimer = Timer(delay, () {
@@ -153,6 +242,7 @@ class WebSocketService extends ChangeNotifier {
     _messageController.close();
     _typingController.close();
     _statusController.close();
+    _callController.close();
     super.dispose();
   }
 }

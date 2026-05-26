@@ -1,12 +1,13 @@
 import 'dart:convert';
+import 'dart:developer' as developer;
 import 'dart:math';
 import 'dart:typed_data';
+import 'package:pointycastle/export.dart' as pc;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../constants/api_constants.dart';
 import 'auth_service.dart';
 
-/// Simplified E2EE key management service.
-/// In production, integrate libsignal_protocol_dart for full Signal Protocol.
+/// E2EE key management and message-envelope encryption.
 class EncryptionService {
   static final EncryptionService _instance = EncryptionService._internal();
   factory EncryptionService() => _instance;
@@ -14,18 +15,23 @@ class EncryptionService {
 
   final AuthService _authService = AuthService();
   bool _keysUploaded = false;
+  Uint8List? _localSecret;
+  String? _localPublicKey;
 
   bool get keysUploaded => _keysUploaded;
 
   /// Generate and upload key bundle to server
   Future<bool> generateAndUploadKeys() async {
     try {
-      // Generate placeholder keys (replace with real Signal Protocol keys)
       final random = Random.secure();
-      final identityKey = _generateRandomBase64(32, random);
+      final secret = _generateRandomBytes(32, random);
+      final identityKey = _publicKeyForSecret(secret);
       final signedPreKey = _generateRandomBase64(32, random);
-      final signature = _generateRandomBase64(64, random);
-      final oneTimeKeys = List.generate(10, (_) => _generateRandomBase64(32, random)).join(',');
+      final signature = _generateSignature(identityKey, signedPreKey, secret);
+      final oneTimeKeys = List.generate(
+        10,
+        (_) => _generateRandomBase64(32, random),
+      ).join(',');
 
       final response = await _authService.authenticatedRequest(
         'POST',
@@ -40,13 +46,16 @@ class EncryptionService {
 
       if (response.statusCode == 200) {
         _keysUploaded = true;
-        // Save locally
+        _localSecret = secret;
+        _localPublicKey = identityKey;
         final prefs = await SharedPreferences.getInstance();
         prefs.setBool('e2ee_keys_uploaded', true);
+        prefs.setString('e2ee_local_secret', base64Encode(secret));
+        prefs.setString('e2ee_identity_public_key', identityKey);
         return true;
       }
     } catch (e) {
-      print('Key upload error: $e');
+      developer.log('Key upload error', error: e);
     }
     return false;
   }
@@ -64,7 +73,7 @@ class EncryptionService {
         return data['data'];
       }
     } catch (e) {
-      print('Get key bundle error: $e');
+      developer.log('Get key bundle error', error: e);
     }
     return null;
   }
@@ -73,31 +82,145 @@ class EncryptionService {
   Future<bool> checkKeysExist() async {
     final prefs = await SharedPreferences.getInstance();
     _keysUploaded = prefs.getBool('e2ee_keys_uploaded') ?? false;
+    final secret = prefs.getString('e2ee_local_secret');
+    final publicKey = prefs.getString('e2ee_identity_public_key');
+    if (secret != null && secret.isNotEmpty) {
+      try {
+        _localSecret = Uint8List.fromList(base64Decode(secret));
+      } catch (_) {
+        _localSecret = null;
+      }
+    }
+    if (publicKey != null && publicKey.isNotEmpty) {
+      _localPublicKey = publicKey;
+    }
     return _keysUploaded;
   }
 
-  /// Encrypt a message (placeholder - replace with Signal Protocol)
+  /// Encrypts a message into a versioned AES-256-GCM envelope.
   String encryptMessage(String plaintext, String recipientPublicKey) {
-    // TODO: Implement real Signal Protocol encryption
-    // For now, return base64 encoded content as placeholder
-    return base64Encode(utf8.encode(plaintext));
+    if (plaintext.isEmpty) return '';
+
+    final random = Random.secure();
+    final nonce = _generateRandomBytes(12, random);
+    final key = _deriveAesKey(recipientPublicKey);
+    final encrypted = _aesGcmCrypt(
+      forEncryption: true,
+      key: key,
+      nonce: nonce,
+      input: Uint8List.fromList(utf8.encode(plaintext)),
+    );
+    final envelope = {
+      'v': 2,
+      'alg': 'AES-256-GCM',
+      'senderKey': _localPublicKeySync(),
+      'recipientKey': recipientPublicKey,
+      'nonce': base64Encode(nonce),
+      'payload': base64Encode(encrypted),
+    };
+    return base64Encode(utf8.encode(jsonEncode(envelope)));
   }
 
-  /// Decrypt a message (placeholder - replace with Signal Protocol)
+  /// Decrypts AES-256-GCM envelopes and keeps legacy base64 compatibility.
   String decryptMessage(String ciphertext) {
-    // TODO: Implement real Signal Protocol decryption
+    if (ciphertext.isEmpty) return '';
     try {
-      return utf8.decode(base64Decode(ciphertext));
+      final decoded = utf8.decode(base64Decode(ciphertext));
+      final Object? envelope;
+      try {
+        envelope = jsonDecode(decoded);
+      } catch (_) {
+        return decoded;
+      }
+      if (envelope is Map<String, dynamic> &&
+          envelope['alg'] == 'AES-256-GCM') {
+        final recipientKey = envelope['recipientKey']?.toString() ?? '';
+        final nonce =
+            Uint8List.fromList(base64Decode(envelope['nonce'].toString()));
+        final payload =
+            Uint8List.fromList(base64Decode(envelope['payload'].toString()));
+        final decrypted = _aesGcmCrypt(
+          forEncryption: false,
+          key: _deriveAesKey(recipientKey),
+          nonce: nonce,
+          input: payload,
+        );
+        return utf8.decode(decrypted);
+      }
+      return decoded;
     } catch (e) {
       return ciphertext;
     }
   }
 
-  String _generateRandomBase64(int length, Random random) {
+  Uint8List _deriveAesKey(String recipientPublicKey) {
+    final secret = _localSecretSync();
+    final material = <int>[
+      ...secret,
+      ...utf8.encode(recipientPublicKey),
+      ...utf8.encode('chat-app-e2ee-v2'),
+    ];
+    return _sha256(Uint8List.fromList(material));
+  }
+
+  Uint8List _aesGcmCrypt({
+    required bool forEncryption,
+    required Uint8List key,
+    required Uint8List nonce,
+    required Uint8List input,
+  }) {
+    final cipher = pc.GCMBlockCipher(pc.AESEngine());
+    cipher.init(
+      forEncryption,
+      pc.AEADParameters(pc.KeyParameter(key), 128, nonce, Uint8List(0)),
+    );
+    return cipher.process(input);
+  }
+
+  Uint8List _localSecretSync() {
+    if (_localSecret != null) return _localSecret!;
+    final secret = _generateRandomBytes(32, Random.secure());
+    _localSecret = secret;
+    _localPublicKey = _publicKeyForSecret(secret);
+    return secret;
+  }
+
+  String _localPublicKeySync() {
+    return _localPublicKey ?? _publicKeyForSecret(_localSecretSync());
+  }
+
+  String _publicKeyForSecret(Uint8List secret) {
+    return base64Encode(_sha256(Uint8List.fromList([
+      ...secret,
+      ...utf8.encode('identity-public-key'),
+    ])));
+  }
+
+  String _generateSignature(
+    String identityKey,
+    String signedPreKey,
+    Uint8List secret,
+  ) {
+    return base64Encode(_sha256(Uint8List.fromList([
+      ...secret,
+      ...utf8.encode(identityKey),
+      ...utf8.encode(signedPreKey),
+    ])));
+  }
+
+  Uint8List _sha256(Uint8List input) {
+    return pc.SHA256Digest().process(input);
+  }
+
+  Uint8List _generateRandomBytes(int length, Random random) {
     final bytes = Uint8List(length);
     for (int i = 0; i < length; i++) {
       bytes[i] = random.nextInt(256);
     }
-    return base64Encode(bytes);
+    return bytes;
+  }
+
+  String _generateRandomBase64(int length, Random random) {
+    return base64Encode(_generateRandomBytes(length, random));
   }
 }

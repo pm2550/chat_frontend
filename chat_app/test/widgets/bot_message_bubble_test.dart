@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:chat_app/constants/app_colors.dart';
 import 'package:chat_app/widgets/bot_message_bubble.dart';
 
 void main() {
@@ -85,7 +86,7 @@ void main() {
       expect(find.text('No time'), findsOneWidget);
     });
 
-    testWidgets('bot name text is blue colored', (tester) async {
+    testWidgets('bot name text uses PM assistant color', (tester) async {
       await tester.pumpWidget(buildTestWidget(
         const BotMessageBubble(
           botName: 'BlueBot',
@@ -94,10 +95,11 @@ void main() {
       ));
 
       final nameWidget = tester.widget<Text>(find.text('BlueBot'));
-      expect(nameWidget.style?.color, Colors.blue);
+      expect(nameWidget.style?.color, AppColors.secondaryDark);
     });
 
-    testWidgets('BOT badge text is blue and bold', (tester) async {
+    testWidgets('BOT badge text uses PM brand color and bold weight',
+        (tester) async {
       await tester.pumpWidget(buildTestWidget(
         const BotMessageBubble(
           botName: 'Bot',
@@ -106,7 +108,7 @@ void main() {
       ));
 
       final botBadge = tester.widget<Text>(find.text('BOT'));
-      expect(botBadge.style?.color, Colors.blue);
+      expect(botBadge.style?.color, AppColors.primary);
       expect(botBadge.style?.fontWeight, FontWeight.bold);
     });
 

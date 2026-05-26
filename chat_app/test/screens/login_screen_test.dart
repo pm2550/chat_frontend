@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:chat_app/screens/auth/login_screen.dart';
+import 'package:chat_app/widgets/pm_brand.dart';
 
 void main() {
   Widget buildTestWidget() {
@@ -8,6 +9,7 @@ void main() {
       routes: {
         '/register': (context) => const Scaffold(body: Text('Register Page')),
         '/home': (context) => const Scaffold(body: Text('Home Page')),
+        '/downloads': (context) => const Scaffold(body: Text('Downloads Page')),
       },
       home: const LoginScreen(),
     );
@@ -26,10 +28,10 @@ void main() {
       binding.platformDispatcher.clearAllTestValues();
     });
 
-    testWidgets('renders app title "聊天应用"', (tester) async {
+    testWidgets('renders app title "PM chat"', (tester) async {
       usePhoneSize(tester);
       await tester.pumpWidget(buildTestWidget());
-      expect(find.text('聊天应用'), findsOneWidget);
+      expect(find.text('PM chat'), findsOneWidget);
     });
 
     testWidgets('renders welcome text "欢迎回来"', (tester) async {
@@ -38,16 +40,14 @@ void main() {
       expect(find.text('欢迎回来'), findsOneWidget);
     });
 
-    testWidgets('renders username text field with label "用户名"',
-        (tester) async {
+    testWidgets('renders username text field with label "用户名"', (tester) async {
       usePhoneSize(tester);
       await tester.pumpWidget(buildTestWidget());
       expect(find.text('用户名'), findsOneWidget);
       expect(find.byIcon(Icons.person_outline), findsOneWidget);
     });
 
-    testWidgets('renders password text field with label "密码"',
-        (tester) async {
+    testWidgets('renders password text field with label "密码"', (tester) async {
       usePhoneSize(tester);
       await tester.pumpWidget(buildTestWidget());
       expect(find.text('密码'), findsOneWidget);
@@ -68,16 +68,22 @@ void main() {
       expect(find.byType(TextButton), findsOneWidget);
     });
 
-    testWidgets('renders test account info', (tester) async {
+    testWidgets('renders formal service info', (tester) async {
       usePhoneSize(tester);
       await tester.pumpWidget(buildTestWidget());
-      expect(find.text('测试账号'), findsOneWidget);
+      expect(find.text('正式服务已连接，请使用已创建账号登录。'), findsOneWidget);
     });
 
-    testWidgets('renders chat icon', (tester) async {
+    testWidgets('renders client download entry', (tester) async {
       usePhoneSize(tester);
       await tester.pumpWidget(buildTestWidget());
-      expect(find.byIcon(Icons.chat_bubble_rounded), findsOneWidget);
+      expect(find.textContaining('下载客户端'), findsWidgets);
+    });
+
+    testWidgets('renders PM chat mark', (tester) async {
+      usePhoneSize(tester);
+      await tester.pumpWidget(buildTestWidget());
+      expect(find.byType(PMChatMark), findsOneWidget);
     });
 
     testWidgets('password field is initially obscured', (tester) async {
@@ -115,8 +121,7 @@ void main() {
       expect(find.text('请输入密码'), findsOneWidget);
     });
 
-    testWidgets(
-        'shows only password validation error when username is filled',
+    testWidgets('shows only password validation error when username is filled',
         (tester) async {
       usePhoneSize(tester);
       await tester.pumpWidget(buildTestWidget());
@@ -127,8 +132,7 @@ void main() {
       expect(find.text('请输入密码'), findsOneWidget);
     });
 
-    testWidgets(
-        'shows only username validation error when password is filled',
+    testWidgets('shows only username validation error when password is filled',
         (tester) async {
       usePhoneSize(tester);
       await tester.pumpWidget(buildTestWidget());
@@ -155,6 +159,14 @@ void main() {
       await tester.tap(find.text('还没有账号？立即注册'));
       await tester.pumpAndSettle();
       expect(find.text('Register Page'), findsOneWidget);
+    });
+
+    testWidgets('download entry navigates to /downloads', (tester) async {
+      usePhoneSize(tester);
+      await tester.pumpWidget(buildTestWidget());
+      await tester.tap(find.textContaining('下载客户端').last);
+      await tester.pumpAndSettle();
+      expect(find.text('Downloads Page'), findsOneWidget);
     });
 
     testWidgets('contains a Form widget with validation', (tester) async {

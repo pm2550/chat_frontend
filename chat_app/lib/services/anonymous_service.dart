@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:developer' as developer;
 import '../constants/api_constants.dart';
 import 'auth_service.dart';
 
@@ -40,7 +41,7 @@ class AnonymousService {
         return AnonymousIdentity.fromJson(data['data']);
       }
     } catch (e) {
-      print('Enter anonymous mode error: $e');
+      developer.log('Enter anonymous mode error', error: e);
     }
     return null;
   }
@@ -58,7 +59,7 @@ class AnonymousService {
         return AnonymousIdentity.fromJson(data['data']);
       }
     } catch (e) {
-      print('Rename anonymous error: $e');
+      developer.log('Rename anonymous error', error: e);
     }
     return null;
   }
@@ -71,7 +72,7 @@ class AnonymousService {
       );
       return response.statusCode == 200;
     } catch (e) {
-      print('Toggle anonymous error: $e');
+      developer.log('Toggle anonymous error', error: e);
       return false;
     }
   }

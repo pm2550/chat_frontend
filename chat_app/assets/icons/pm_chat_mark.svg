@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-label="PM chat logo">
+  <defs>
+    <linearGradient id="pm" x1="96" y1="80" x2="430" y2="432" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#183B83"/>
+      <stop offset="0.56" stop-color="#2D6CDF"/>
+      <stop offset="1" stop-color="#0FAE96"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="352" y1="0" x2="512" y2="176" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FF7A59"/>
+      <stop offset="1" stop-color="#F4B740"/>
+    </linearGradient>
+  </defs>
+  <rect x="32" y="32" width="448" height="448" rx="112" fill="url(#pm)"/>
+  <path d="M340 32h140v139c-67-9-109-52-140-139Z" fill="url(#accent)"/>
+  <rect x="116" y="142" width="280" height="184" rx="76" fill="#fff" fill-opacity=".95"/>
+  <path d="M188 310 145 404l118-78Z" fill="#fff" fill-opacity=".95"/>
+  <circle cx="192" cy="234" r="22" fill="#183B83"/>
+  <circle cx="256" cy="234" r="22" fill="#183B83"/>
+  <circle cx="320" cy="234" r="22" fill="#183B83"/>
+</svg>

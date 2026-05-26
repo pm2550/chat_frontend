@@ -1,41 +1,56 @@
-import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+
+import '../../constants/api_constants.dart';
 import '../../models/user.dart';
 import '../../services/user_profile_service.dart';
-import '../../services/auth_service.dart';
+
+typedef ProfileAvatarPicker = Future<PickedProfileAvatar?> Function();
 
 class ProfileEditScreen extends StatefulWidget {
-  final User user;
+  const ProfileEditScreen({
+    super.key,
+    required this.user,
+    this.profileService,
+    this.avatarPicker,
+  });
 
-  const ProfileEditScreen({Key? key, required this.user}) : super(key: key);
+  final User user;
+  final UserProfileService? profileService;
+  final ProfileAvatarPicker? avatarPicker;
 
   @override
-  _ProfileEditScreenState createState() => _ProfileEditScreenState();
+  State<ProfileEditScreen> createState() => _ProfileEditScreenState();
 }
 
 class _ProfileEditScreenState extends State<ProfileEditScreen> {
   final _formKey = GlobalKey<FormState>();
-  final ImagePicker _imagePicker = ImagePicker();
-  
-  late TextEditingController _displayNameController;
-  late TextEditingController _emailController;
-  late TextEditingController _phoneController;
-  late TextEditingController _bioController;
-  
+
+  late final UserProfileService _profileService;
+  late final TextEditingController _displayNameController;
+  late final TextEditingController _emailController;
+  late final TextEditingController _phoneController;
+  late final TextEditingController _bioController;
+
   OnlineStatus _selectedStatus = OnlineStatus.online;
-  File? _selectedAvatar;
+  PickedProfileAvatar? _selectedAvatar;
+  List<int>? _avatarPreviewBytes;
+  String? _avatarUrl;
   bool _isLoading = false;
   bool _isUploadingAvatar = false;
 
   @override
   void initState() {
     super.initState();
-    _displayNameController = TextEditingController(text: widget.user.displayName);
+    _profileService = widget.profileService ?? UserProfileService();
+    _displayNameController =
+        TextEditingController(text: widget.user.displayName);
     _emailController = TextEditingController(text: widget.user.email);
     _phoneController = TextEditingController(text: widget.user.phone ?? '');
     _bioController = TextEditingController(text: widget.user.bio ?? '');
     _selectedStatus = widget.user.onlineStatus;
+    _avatarUrl = widget.user.avatarUrl;
   }
 
   @override
@@ -47,64 +62,87 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
     super.dispose();
   }
 
+  Future<PickedProfileAvatar?> _pickAvatarFromGallery() async {
+    final image = await ImagePicker().pickImage(
+      source: ImageSource.gallery,
+      maxWidth: 512,
+      maxHeight: 512,
+      imageQuality: 80,
+    );
+    if (image == null) return null;
+    return PickedProfileAvatar(
+      name: image.name,
+      path: kIsWeb ? null : image.path,
+      size: await image.length(),
+      mimeType: image.mimeType,
+      bytes: await image.readAsBytes(),
+    );
+  }
+
   Future<void> _selectAvatar() async {
     try {
-      final XFile? image = await _imagePicker.pickImage(
-        source: ImageSource.gallery,
-        maxWidth: 512,
-        maxHeight: 512,
-        imageQuality: 80,
-      );
-      
-      if (image != null) {
-        setState(() {
-          _selectedAvatar = File(image.path);
-        });
-      }
+      final picker = widget.avatarPicker ?? _pickAvatarFromGallery;
+      final avatar = await picker();
+      if (avatar == null || !mounted) return;
+      setState(() {
+        _selectedAvatar = avatar;
+        _avatarPreviewBytes = avatar.bytes;
+      });
     } catch (e) {
       _showErrorSnackBar('选择图片失败: $e');
     }
   }
 
   Future<void> _uploadAvatar() async {
-    if (_selectedAvatar == null) return;
+    final avatar = _selectedAvatar;
+    if (avatar == null) return;
 
     setState(() {
       _isUploadingAvatar = true;
     });
 
     try {
-      final token = AuthService().accessToken;
-      if (token == null) {
-        throw Exception('请先登录');
-      }
-
-      await UserProfileService.uploadAvatar(token, _selectedAvatar!);
-      _showSuccessSnackBar('头像上传成功');
-      
+      final avatarUrl = await _profileService.uploadAvatar(avatar);
+      if (!mounted) return;
       setState(() {
+        _avatarUrl = avatarUrl;
         _selectedAvatar = null;
+        _avatarPreviewBytes = avatar.bytes;
       });
+      _showSuccessSnackBar('头像上传成功');
     } catch (e) {
       _showErrorSnackBar('头像上传失败: $e');
     } finally {
-      setState(() {
-        _isUploadingAvatar = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isUploadingAvatar = false;
+        });
+      }
     }
   }
 
   Future<void> _deleteAvatar() async {
-    try {
-      final token = AuthService().accessToken;
-      if (token == null) {
-        throw Exception('请先登录');
-      }
+    setState(() {
+      _isUploadingAvatar = true;
+    });
 
-      await UserProfileService.deleteAvatar(token);
+    try {
+      await _profileService.deleteAvatar();
+      if (!mounted) return;
+      setState(() {
+        _avatarUrl = null;
+        _selectedAvatar = null;
+        _avatarPreviewBytes = null;
+      });
       _showSuccessSnackBar('头像删除成功');
     } catch (e) {
       _showErrorSnackBar('头像删除失败: $e');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isUploadingAvatar = false;
+        });
+      }
     }
   }
 
@@ -118,30 +156,30 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
     });
 
     try {
-      final token = AuthService().accessToken;
-      if (token == null) {
-        throw Exception('请先登录');
-      }
-
       final request = UserProfileUpdateRequest(
         displayName: _displayNameController.text.trim(),
         email: _emailController.text.trim(),
-        phone: _phoneController.text.trim().isEmpty ? null : _phoneController.text.trim(),
-        bio: _bioController.text.trim().isEmpty ? null : _bioController.text.trim(),
+        phone: _phoneController.text.trim().isEmpty
+            ? null
+            : _phoneController.text.trim(),
+        bio: _bioController.text.trim().isEmpty
+            ? null
+            : _bioController.text.trim(),
         onlineStatus: _selectedStatus.name.toUpperCase(),
       );
 
-      await UserProfileService.updateProfile(token, request);
+      await _profileService.updateProfile(request);
+      if (!mounted) return;
       _showSuccessSnackBar('资料更新成功');
-      
-      // 返回上一页
       Navigator.of(context).pop(true);
     } catch (e) {
       _showErrorSnackBar('资料更新失败: $e');
     } finally {
-      setState(() {
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
   }
 
@@ -169,15 +207,16 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
       appBar: AppBar(
         title: const Text('编辑资料'),
         actions: [
-          TextButton(
+          IconButton(
+            tooltip: '保存',
             onPressed: _isLoading ? null : _updateProfile,
-            child: Text(
-              '保存',
-              style: TextStyle(
-                color: _isLoading ? Colors.grey : Colors.white,
-                fontSize: 16,
-              ),
-            ),
+            icon: _isLoading
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.check),
           ),
         ],
       ),
@@ -187,29 +226,27 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
           key: _formKey,
           child: Column(
             children: [
-              // 头像部分
               _buildAvatarSection(),
               const SizedBox(height: 24),
-              
-              // 基本信息
               _buildBasicInfoSection(),
               const SizedBox(height: 24),
-              
-              // 在线状态
               _buildOnlineStatusSection(),
               const SizedBox(height: 32),
-              
-              // 保存按钮
               SizedBox(
                 width: double.infinity,
-                child: ElevatedButton(
+                child: ElevatedButton.icon(
                   onPressed: _isLoading ? null : _updateProfile,
+                  icon: _isLoading
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.save),
+                  label: const Text('保存更改'),
                   style: ElevatedButton.styleFrom(
                     padding: const EdgeInsets.symmetric(vertical: 16),
                   ),
-                  child: _isLoading
-                      ? const CircularProgressIndicator(color: Colors.white)
-                      : const Text('保存更改', style: TextStyle(fontSize: 16)),
                 ),
               ),
             ],
@@ -227,21 +264,19 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
           children: [
             CircleAvatar(
               radius: 50,
-              backgroundImage: _selectedAvatar != null
-                  ? FileImage(_selectedAvatar!)
-                  : (widget.user.avatarUrl != null
-                      ? NetworkImage(widget.user.avatarUrl!)
-                      : null) as ImageProvider?,
-              child: _selectedAvatar == null && widget.user.avatarUrl == null
+              backgroundImage: _avatarImageProvider(),
+              child: _avatarImageProvider() == null
                   ? const Icon(Icons.person, size: 50)
                   : null,
             ),
             const SizedBox(height: 16),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            Wrap(
+              spacing: 12,
+              runSpacing: 8,
+              alignment: WrapAlignment.center,
               children: [
                 ElevatedButton.icon(
-                  onPressed: _selectAvatar,
+                  onPressed: _isUploadingAvatar ? null : _selectAvatar,
                   icon: const Icon(Icons.photo_library),
                   label: const Text('选择头像'),
                 ),
@@ -257,14 +292,11 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
                         : const Icon(Icons.upload),
                     label: const Text('上传'),
                   ),
-                if (widget.user.avatarUrl != null)
-                  ElevatedButton.icon(
-                    onPressed: _deleteAvatar,
+                if (_avatarUrl != null)
+                  OutlinedButton.icon(
+                    onPressed: _isUploadingAvatar ? null : _deleteAvatar,
                     icon: const Icon(Icons.delete),
                     label: const Text('删除'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.red,
-                    ),
                   ),
               ],
             ),
@@ -272,6 +304,18 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
         ),
       ),
     );
+  }
+
+  ImageProvider? _avatarImageProvider() {
+    final previewBytes = _avatarPreviewBytes ?? _selectedAvatar?.bytes;
+    if (previewBytes != null) {
+      return MemoryImage(Uint8List.fromList(previewBytes));
+    }
+    final avatarUrl = _avatarUrl;
+    if (avatarUrl != null && avatarUrl.isNotEmpty) {
+      return NetworkImage(ApiConstants.resolveFileUrl(avatarUrl));
+    }
+    return null;
   }
 
   Widget _buildBasicInfoSection() {
@@ -316,7 +360,8 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
                 if (value == null || value.trim().isEmpty) {
                   return '请输入邮箱地址';
                 }
-                if (!RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(value)) {
+                if (!RegExp(r'^[\w\-.]+@([\w-]+\.)+[\w-]{2,}$')
+                    .hasMatch(value.trim())) {
                   return '请输入有效的邮箱地址';
                 }
                 return null;
@@ -361,21 +406,25 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 16),
-            ...OnlineStatus.values.map((status) => RadioListTile<OnlineStatus>(
-              title: Text(status.description),
-              value: status,
-              groupValue: _selectedStatus,
-              onChanged: (OnlineStatus? value) {
-                if (value != null) {
-                  setState(() {
-                    _selectedStatus = value;
-                  });
-                }
-              },
-            )),
+            ...OnlineStatus.values.map(
+              (status) => RadioListTile<OnlineStatus>(
+                title: Text(status.description),
+                value: status,
+                // ignore: deprecated_member_use
+                groupValue: _selectedStatus,
+                // ignore: deprecated_member_use
+                onChanged: (value) {
+                  if (value != null) {
+                    setState(() {
+                      _selectedStatus = value;
+                    });
+                  }
+                },
+              ),
+            ),
           ],
         ),
       ),
     );
   }
-} 
+}

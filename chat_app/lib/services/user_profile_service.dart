@@ -1,177 +1,370 @@
 import 'dart:convert';
-import 'dart:io';
+
 import 'package:http/http.dart' as http;
+
 import '../constants/api_constants.dart';
 import '../models/user.dart';
+import 'auth_service.dart';
 
-class UserProfileService {
-  /// 获取用户资料
-  static Future<User> getProfile(String token) async {
-    final response = await http.get(
-      Uri.parse('${ApiConstants.baseUrl}/profile'),
-      headers: {
-        'Authorization': 'Bearer $token',
-        'Content-Type': 'application/json',
-      },
+typedef ProfileAuthenticatedRequest = Future<dynamic> Function(
+  String method,
+  String url, {
+  Map<String, String>? headers,
+  Object? body,
+});
+
+typedef ProfileMultipartRequest = Future<dynamic> Function(
+  String url, {
+  required PickedProfileAvatar avatar,
+});
+
+class PickedProfileAvatar {
+  const PickedProfileAvatar({
+    required this.name,
+    required this.size,
+    this.path,
+    this.mimeType,
+    this.bytes,
+  });
+
+  final String name;
+  final int size;
+  final String? path;
+  final String? mimeType;
+  final List<int>? bytes;
+}
+
+class UserProfileException implements Exception {
+  const UserProfileException(this.message);
+
+  final String message;
+
+  @override
+  String toString() => message;
+}
+
+class UserAppSettings {
+  const UserAppSettings({
+    this.messageNotificationsEnabled = true,
+    this.showOnlineStatus = true,
+    this.allowFriendRequests = true,
+    this.allowDirectMessages = true,
+    this.readReceiptsEnabled = true,
+  });
+
+  final bool messageNotificationsEnabled;
+  final bool showOnlineStatus;
+  final bool allowFriendRequests;
+  final bool allowDirectMessages;
+  final bool readReceiptsEnabled;
+
+  factory UserAppSettings.fromJson(Map<String, dynamic> json) {
+    return UserAppSettings(
+      messageNotificationsEnabled: _parseBool(
+          json['messageNotificationsEnabled'] ??
+              json['message_notifications_enabled'],
+          true),
+      showOnlineStatus: _parseBool(
+          json['showOnlineStatus'] ?? json['show_online_status'], true),
+      allowFriendRequests: _parseBool(
+          json['allowFriendRequests'] ?? json['allow_friend_requests'], true),
+      allowDirectMessages: _parseBool(
+          json['allowDirectMessages'] ?? json['allow_direct_messages'], true),
+      readReceiptsEnabled: _parseBool(
+          json['readReceiptsEnabled'] ?? json['read_receipts_enabled'], true),
     );
-
-    if (response.statusCode == 200) {
-      final data = json.decode(response.body);
-      if (data['success']) {
-        return User.fromJson(data['data']);
-      } else {
-        throw Exception(data['message'] ?? '获取用户资料失败');
-      }
-    } else {
-      throw Exception('获取用户资料失败: ${response.statusCode}');
-    }
   }
 
-  /// 更新用户资料
-  static Future<User> updateProfile(String token, UserProfileUpdateRequest request) async {
-    final response = await http.put(
-      Uri.parse('${ApiConstants.baseUrl}/profile'),
-      headers: {
-        'Authorization': 'Bearer $token',
-        'Content-Type': 'application/json',
-      },
-      body: json.encode(request.toJson()),
-    );
-
-    if (response.statusCode == 200) {
-      final data = json.decode(response.body);
-      if (data['success']) {
-        return User.fromJson(data['data']);
-      } else {
-        throw Exception(data['message'] ?? '更新用户资料失败');
-      }
-    } else {
-      throw Exception('更新用户资料失败: ${response.statusCode}');
-    }
+  Map<String, dynamic> toJson() {
+    return {
+      'messageNotificationsEnabled': messageNotificationsEnabled,
+      'showOnlineStatus': showOnlineStatus,
+      'allowFriendRequests': allowFriendRequests,
+      'allowDirectMessages': allowDirectMessages,
+      'readReceiptsEnabled': readReceiptsEnabled,
+    };
   }
 
-  /// 上传头像
-  static Future<String> uploadAvatar(String token, File avatarFile) async {
-    final request = http.MultipartRequest(
-      'POST',
-      Uri.parse('${ApiConstants.baseUrl}/profile/avatar'),
+  UserAppSettings copyWith({
+    bool? messageNotificationsEnabled,
+    bool? showOnlineStatus,
+    bool? allowFriendRequests,
+    bool? allowDirectMessages,
+    bool? readReceiptsEnabled,
+  }) {
+    return UserAppSettings(
+      messageNotificationsEnabled:
+          messageNotificationsEnabled ?? this.messageNotificationsEnabled,
+      showOnlineStatus: showOnlineStatus ?? this.showOnlineStatus,
+      allowFriendRequests: allowFriendRequests ?? this.allowFriendRequests,
+      allowDirectMessages: allowDirectMessages ?? this.allowDirectMessages,
+      readReceiptsEnabled: readReceiptsEnabled ?? this.readReceiptsEnabled,
     );
-
-    request.headers['Authorization'] = 'Bearer $token';
-    request.files.add(await http.MultipartFile.fromPath('avatar', avatarFile.path));
-
-    final streamedResponse = await request.send();
-    final response = await http.Response.fromStream(streamedResponse);
-
-    if (response.statusCode == 200) {
-      final data = json.decode(response.body);
-      if (data['success']) {
-        return data['data']['avatarUrl'];
-      } else {
-        throw Exception(data['message'] ?? '头像上传失败');
-      }
-    } else {
-      throw Exception('头像上传失败: ${response.statusCode}');
-    }
   }
 
-  /// 删除头像
-  static Future<void> deleteAvatar(String token) async {
-    final response = await http.delete(
-      Uri.parse('${ApiConstants.baseUrl}/profile/avatar'),
-      headers: {
-        'Authorization': 'Bearer $token',
-        'Content-Type': 'application/json',
-      },
-    );
-
-    if (response.statusCode == 200) {
-      final data = json.decode(response.body);
-      if (!data['success']) {
-        throw Exception(data['message'] ?? '删除头像失败');
-      }
-    } else {
-      throw Exception('删除头像失败: ${response.statusCode}');
-    }
-  }
-
-  /// 更新在线状态
-  static Future<OnlineStatus> updateOnlineStatus(String token, OnlineStatus status) async {
-    final response = await http.put(
-      Uri.parse('${ApiConstants.baseUrl}/profile/status?status=${status.name.toUpperCase()}'),
-      headers: {
-        'Authorization': 'Bearer $token',
-        'Content-Type': 'application/json',
-      },
-    );
-
-    if (response.statusCode == 200) {
-      final data = json.decode(response.body);
-      if (data['success']) {
-        return OnlineStatus.values.firstWhere(
-          (e) => e.name.toUpperCase() == data['data']['onlineStatus'].toString().toUpperCase(),
-          orElse: () => OnlineStatus.offline,
-        );
-      } else {
-        throw Exception(data['message'] ?? '更新状态失败');
-      }
-    } else {
-      throw Exception('更新状态失败: ${response.statusCode}');
-    }
-  }
-
-  /// 搜索用户
-  static Future<List<User>> searchUsers(String keyword, {int limit = 10}) async {
-    final response = await http.get(
-      Uri.parse('${ApiConstants.baseUrl}/profile/search?keyword=$keyword&limit=$limit'),
-      headers: {
-        'Content-Type': 'application/json',
-      },
-    );
-
-    if (response.statusCode == 200) {
-      final data = json.decode(response.body);
-      if (data['success']) {
-        return (data['data'] as List)
-            .map((userJson) => User.fromJson(userJson))
-            .toList();
-      } else {
-        throw Exception(data['message'] ?? '搜索用户失败');
-      }
-    } else {
-      throw Exception('搜索用户失败: ${response.statusCode}');
-    }
-  }
-
-  /// 发送心跳（更新最后在线时间）
-  static Future<void> sendHeartbeat(String token) async {
-    final response = await http.post(
-      Uri.parse('${ApiConstants.baseUrl}/profile/heartbeat'),
-      headers: {
-        'Authorization': 'Bearer $token',
-        'Content-Type': 'application/json',
-      },
-    );
-
-    if (response.statusCode == 200) {
-      final data = json.decode(response.body);
-      if (!data['success']) {
-        throw Exception(data['message'] ?? '心跳更新失败');
-      }
-    } else {
-      throw Exception('心跳更新失败: ${response.statusCode}');
-    }
+  static bool _parseBool(dynamic value, bool fallback) {
+    if (value == null) return fallback;
+    if (value is bool) return value;
+    return value.toString().toLowerCase() == 'true';
   }
 }
 
-/// 用户资料更新请求模型
-class UserProfileUpdateRequest {
-  final String? displayName;
-  final String? email;
-  final String? phone;
-  final String? bio;
-  final String? onlineStatus;
+class UserProfileService {
+  UserProfileService({
+    AuthService? authService,
+    ProfileAuthenticatedRequest? authenticatedRequest,
+    ProfileMultipartRequest? multipartRequest,
+  })  : _authService = authService ?? AuthService(),
+        _authenticatedRequest = authenticatedRequest,
+        _multipartRequest = multipartRequest;
 
+  final AuthService _authService;
+  final ProfileAuthenticatedRequest? _authenticatedRequest;
+  final ProfileMultipartRequest? _multipartRequest;
+
+  Future<User> getProfile() async {
+    final response = await _request('GET', ApiConstants.profile);
+    final user = _extractUser(_decodeResponse(response));
+    await _authService.replaceCurrentUser(user);
+    return user;
+  }
+
+  Future<User> updateProfile(UserProfileUpdateRequest request) async {
+    final response = await _request(
+      'PUT',
+      ApiConstants.profile,
+      body: request.toJson(),
+    );
+    final user = _extractUser(_decodeResponse(response));
+    await _authService.replaceCurrentUser(user);
+    return user;
+  }
+
+  Future<String> uploadAvatar(PickedProfileAvatar avatar) async {
+    final response = await _requestMultipart(
+      ApiConstants.profileAvatar,
+      avatar: avatar,
+    );
+    final data = _decodeResponse(response);
+    final payload = data['data'];
+    final avatarUrl = payload is Map<String, dynamic>
+        ? payload['avatarUrl']?.toString()
+        : data['avatarUrl']?.toString();
+    if (avatarUrl == null || avatarUrl.isEmpty) {
+      throw const UserProfileException('头像上传成功但响应中没有头像地址');
+    }
+
+    final currentUser = _authService.currentUser;
+    if (currentUser != null) {
+      await _authService.replaceCurrentUser(currentUser.copyWith(
+        avatarUrl: avatarUrl,
+      ));
+    }
+    return avatarUrl;
+  }
+
+  Future<void> deleteAvatar() async {
+    await _request('DELETE', ApiConstants.profileAvatar);
+    final currentUser = _authService.currentUser;
+    if (currentUser != null) {
+      await _authService.replaceCurrentUser(User(
+        id: currentUser.id,
+        username: currentUser.username,
+        email: currentUser.email,
+        phone: currentUser.phone,
+        displayName: currentUser.displayName,
+        bio: currentUser.bio,
+        onlineStatus: currentUser.onlineStatus,
+        lastSeen: currentUser.lastSeen,
+        isActive: currentUser.isActive,
+        createdAt: currentUser.createdAt,
+        updatedAt: currentUser.updatedAt,
+        roles: currentUser.roles,
+      ));
+    }
+  }
+
+  Future<OnlineStatus> updateOnlineStatus(OnlineStatus status) async {
+    final response = await _request(
+      'PUT',
+      ApiConstants.profileStatus(status.name.toUpperCase()),
+    );
+    final data = _decodeResponse(response);
+    final statusValue = data['data'] is Map<String, dynamic>
+        ? data['data']['onlineStatus']?.toString()
+        : data['onlineStatus']?.toString();
+    final updatedStatus = OnlineStatus.values.firstWhere(
+      (value) => value.name.toUpperCase() == statusValue?.toUpperCase(),
+      orElse: () => status,
+    );
+
+    final currentUser = _authService.currentUser;
+    if (currentUser != null) {
+      await _authService.replaceCurrentUser(currentUser.copyWith(
+        onlineStatus: updatedStatus,
+      ));
+    }
+    return updatedStatus;
+  }
+
+  Future<List<User>> searchUsers(String keyword, {int limit = 10}) async {
+    final uri = Uri.parse(ApiConstants.profileSearch).replace(
+      queryParameters: {
+        'keyword': keyword,
+        'limit': limit.toString(),
+      },
+    );
+    final response = await _request('GET', uri.toString());
+    final data = _decodeResponse(response);
+    return _extractList(data, keys: const ['data', 'users', 'content'])
+        .whereType<Map<String, dynamic>>()
+        .map(User.fromJson)
+        .toList();
+  }
+
+  Future<void> sendHeartbeat() async {
+    await _request('POST', ApiConstants.profileHeartbeat);
+  }
+
+  Future<UserAppSettings> getSettings() async {
+    final response = await _request('GET', ApiConstants.profileSettings);
+    return _extractSettings(_decodeResponse(response));
+  }
+
+  Future<UserAppSettings> updateSettings(UserAppSettings settings) async {
+    final response = await _request(
+      'PUT',
+      ApiConstants.profileSettings,
+      body: settings.toJson(),
+    );
+    return _extractSettings(_decodeResponse(response));
+  }
+
+  Future<dynamic> _request(
+    String method,
+    String url, {
+    Map<String, String>? headers,
+    Object? body,
+  }) {
+    final request = _authenticatedRequest ?? _authService.authenticatedRequest;
+    return request(method, url, headers: headers, body: body);
+  }
+
+  Future<dynamic> _requestMultipart(
+    String url, {
+    required PickedProfileAvatar avatar,
+  }) async {
+    if (_multipartRequest != null) {
+      return _multipartRequest(url, avatar: avatar);
+    }
+
+    Future<http.Response> send() async {
+      final request = http.MultipartRequest('POST', Uri.parse(url));
+      final token = _authService.accessToken;
+      if (token != null) {
+        request.headers['Authorization'] = 'Bearer $token';
+      }
+
+      final bytes = avatar.bytes;
+      if (bytes != null) {
+        request.files.add(http.MultipartFile.fromBytes(
+          'avatar',
+          bytes,
+          filename: avatar.name,
+        ));
+      } else if (avatar.path != null && avatar.path!.isNotEmpty) {
+        request.files.add(await http.MultipartFile.fromPath(
+          'avatar',
+          avatar.path!,
+          filename: avatar.name,
+        ));
+      } else {
+        throw const UserProfileException('请选择有效头像');
+      }
+
+      final streamedResponse =
+          await request.send().timeout(ApiConstants.uploadTimeout);
+      return http.Response.fromStream(streamedResponse);
+    }
+
+    var response = await send();
+    if (response.statusCode == 401 && await _authService.refreshAccessToken()) {
+      response = await send();
+    }
+    return response;
+  }
+
+  User _extractUser(Map<String, dynamic> data) {
+    final payload = data['data'] ?? data['user'];
+    if (payload is Map<String, dynamic>) {
+      return User.fromJson(payload);
+    }
+    throw const UserProfileException('响应中没有用户资料');
+  }
+
+  UserAppSettings _extractSettings(Map<String, dynamic> data) {
+    final payload = data['data'] ?? data['settings'];
+    if (payload is Map<String, dynamic>) {
+      return UserAppSettings.fromJson(payload);
+    }
+    throw const UserProfileException('响应中没有用户设置');
+  }
+
+  Map<String, dynamic> _decodeResponse(dynamic response) {
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw UserProfileException(_extractError(response.body));
+    }
+    if (response.bodyBytes.isEmpty) {
+      return {};
+    }
+    final decoded = jsonDecode(utf8.decode(response.bodyBytes));
+    if (decoded is Map<String, dynamic>) {
+      if (decoded['success'] == false) {
+        throw UserProfileException(
+          (decoded['message'] ?? decoded['error'] ?? '请求失败').toString(),
+        );
+      }
+      return decoded;
+    }
+    if (decoded is List<dynamic>) {
+      return {'data': decoded};
+    }
+    return {};
+  }
+
+  String _extractError(String body) {
+    try {
+      final decoded = jsonDecode(body);
+      if (decoded is Map<String, dynamic>) {
+        return (decoded['error'] ?? decoded['message'] ?? '请求失败').toString();
+      }
+    } catch (_) {
+      // Fall through to generic message.
+    }
+    return '请求失败';
+  }
+
+  List<dynamic> _extractList(
+    Map<String, dynamic> data, {
+    required List<String> keys,
+  }) {
+    for (final key in keys) {
+      final value = data[key];
+      if (value is List<dynamic>) {
+        return value;
+      }
+      if (value is Map<String, dynamic>) {
+        final nested = _extractList(value, keys: keys);
+        if (nested.isNotEmpty) {
+          return nested;
+        }
+      }
+    }
+    return const [];
+  }
+}
+
+class UserProfileUpdateRequest {
   UserProfileUpdateRequest({
     this.displayName,
     this.email,
@@ -180,13 +373,19 @@ class UserProfileUpdateRequest {
     this.onlineStatus,
   });
 
+  final String? displayName;
+  final String? email;
+  final String? phone;
+  final String? bio;
+  final String? onlineStatus;
+
   Map<String, dynamic> toJson() {
-    final json = <String, dynamic>{};
-    if (displayName != null) json['displayName'] = displayName;
-    if (email != null) json['email'] = email;
-    if (phone != null) json['phone'] = phone;
-    if (bio != null) json['bio'] = bio;
-    if (onlineStatus != null) json['onlineStatus'] = onlineStatus;
-    return json;
+    return {
+      if (displayName != null) 'displayName': displayName,
+      if (email != null) 'email': email,
+      if (phone != null) 'phone': phone,
+      if (bio != null) 'bio': bio,
+      if (onlineStatus != null) 'onlineStatus': onlineStatus,
+    };
   }
-} 
+}

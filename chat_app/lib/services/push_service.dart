@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import '../constants/api_constants.dart';
@@ -35,7 +34,8 @@ class PushService {
         body: {
           'token': token,
           'platform': platform,
-          'deviceInfo': '${Platform.operatingSystem} ${Platform.operatingSystemVersion}',
+          'deviceInfo':
+              '${Platform.operatingSystem} ${Platform.operatingSystemVersion}',
         },
       );
 

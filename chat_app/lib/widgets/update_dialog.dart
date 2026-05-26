@@ -1,10 +1,9 @@
-import 'dart:io' show File, Platform, Process;
+import 'dart:io' show Platform, Process;
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-import '../constants/api_constants.dart';
 import '../models/app_version.dart';
 import '../services/update_service.dart';
 import '../services/web_reload.dart' as web_reload;
@@ -47,7 +46,6 @@ class _UpdateDialogState extends State<UpdateDialog> {
   bool _downloading = false;
   double _progress = 0;
   String? _error;
-  String? _downloadedPath;
   bool _installReady = false;
 
   @override
@@ -65,8 +63,7 @@ class _UpdateDialogState extends State<UpdateDialog> {
           if (widget.versionCheck.releaseNotes != null &&
               widget.versionCheck.releaseNotes!.isNotEmpty) ...[
             const SizedBox(height: 12),
-            const Text('更新内容：',
-                style: TextStyle(fontWeight: FontWeight.w600)),
+            const Text('更新内容：', style: TextStyle(fontWeight: FontWeight.w600)),
             const SizedBox(height: 4),
             Text(widget.versionCheck.releaseNotes!),
           ],
@@ -77,7 +74,9 @@ class _UpdateDialogState extends State<UpdateDialog> {
               style: TextStyle(color: Colors.grey[600], fontSize: 13),
             ),
           ],
-          if (widget.versionCheck.forceUpdate && !_downloading && !_installReady) ...[
+          if (widget.versionCheck.forceUpdate &&
+              !_downloading &&
+              !_installReady) ...[
             const SizedBox(height: 12),
             const Text('此版本为强制更新，请更新后继续使用。',
                 style: TextStyle(color: Colors.red)),
@@ -91,11 +90,11 @@ class _UpdateDialogState extends State<UpdateDialog> {
           ],
           if (_installReady) ...[
             const SizedBox(height: 16),
-            Row(
+            const Row(
               children: [
-                const Icon(Icons.check_circle, color: Colors.green),
-                const SizedBox(width: 8),
-                const Expanded(child: Text('下载完成，正在安装...')),
+                Icon(Icons.check_circle, color: Colors.green),
+                SizedBox(width: 8),
+                Expanded(child: Text('下载完成，正在安装...')),
               ],
             ),
           ],
@@ -138,8 +137,6 @@ class _UpdateDialogState extends State<UpdateDialog> {
           if (mounted) setState(() => _progress = p);
         },
       );
-      _downloadedPath = path;
-
       if (!mounted) return;
       setState(() {
         _downloading = false;
@@ -197,8 +194,7 @@ class _UpdateDialogState extends State<UpdateDialog> {
       await launchUrl(uri, mode: LaunchMode.externalApplication);
     } catch (e) {
       // If file:// doesn't work, fall back to opening the download URL in browser
-      final fullUrl =
-          UpdateService.resolveUrl(widget.versionCheck.downloadUrl);
+      final fullUrl = UpdateService.resolveUrl(widget.versionCheck.downloadUrl);
       final uri = Uri.parse(fullUrl);
       if (await canLaunchUrl(uri)) {
         await launchUrl(uri, mode: LaunchMode.externalApplication);

@@ -18,21 +18,204 @@
 
   <meta charset="UTF-8">
   <meta content="IE=Edge" http-equiv="X-UA-Compatible">
-  <meta name="description" content="A new Flutter project.">
+  <meta name="description" content="PM chat - 团队协作、AI 助手和工作区任务的一体化聊天入口。">
 
   <!-- iOS meta tags & icons -->
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black">
-  <meta name="apple-mobile-web-app-title" content="chat_app">
+  <meta name="apple-mobile-web-app-title" content="PM chat">
   <link rel="apple-touch-icon" href="icons/Icon-192.png">
 
   <!-- Favicon -->
   <link rel="icon" type="image/png" href="favicon.png"/>
 
-  <title>chat_app</title>
+  <title>PM chat</title>
   <link rel="manifest" href="manifest.json">
+  <style>
+    html, body {
+      height: 100%;
+      margin: 0;
+      background: #f6f9fc;
+      color: #101828;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    #pm-boot {
+      position: fixed;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      overflow: hidden;
+      background:
+        linear-gradient(135deg, rgba(37, 99, 235, 0.08) 0 25%, transparent 25% 50%, rgba(20, 184, 166, 0.08) 50% 75%, transparent 75%) 0 0 / 28px 28px,
+        radial-gradient(circle at 22% 24%, rgba(37, 99, 235, 0.12), transparent 28%),
+        radial-gradient(circle at 80% 70%, rgba(20, 184, 166, 0.12), transparent 30%),
+        #f6f9fc;
+      z-index: 9999;
+    }
+
+    .pm-boot-panel {
+      width: min(520px, calc(100vw - 48px));
+      padding: 32px;
+      border: 1px solid rgba(148, 163, 184, 0.35);
+      border-radius: 14px;
+      background: rgba(255, 255, 255, 0.9);
+      box-shadow: 0 24px 80px rgba(15, 23, 42, 0.12);
+    }
+
+    .pm-boot-brand {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      font-size: 28px;
+      font-weight: 800;
+      letter-spacing: 0;
+    }
+
+    .pm-boot-mark {
+      width: 48px;
+      height: 48px;
+      border-radius: 10px;
+      background: linear-gradient(135deg, #2557d6, #14a89a);
+      display: grid;
+      place-items: center;
+      box-shadow: 0 12px 28px rgba(37, 99, 235, 0.24);
+    }
+
+    .pm-boot-mark::before {
+      content: "";
+      width: 24px;
+      height: 18px;
+      border-radius: 4px;
+      background: #fff;
+      box-shadow: -7px 9px 0 -5px #fff;
+    }
+
+    .pm-boot-copy {
+      margin: 18px 0 24px;
+      color: #475467;
+      font-size: 15px;
+      line-height: 1.6;
+    }
+
+    .pm-boot-progress {
+      height: 4px;
+      overflow: hidden;
+      border-radius: 999px;
+      background: #dbe7f5;
+    }
+
+    .pm-boot-progress::before {
+      content: "";
+      display: block;
+      width: 38%;
+      height: 100%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, #2563eb, #14b8a6);
+      animation: pm-boot-slide 1.2s ease-in-out infinite;
+    }
+
+    @keyframes pm-boot-slide {
+      0% { transform: translateX(-110%); }
+      100% { transform: translateX(280%); }
+    }
+  </style>
 </head>
 <body>
-  <script src="flutter_bootstrap.js" async></script>
+  <div id="pm-boot" role="status" aria-live="polite">
+    <div class="pm-boot-panel">
+      <div class="pm-boot-brand">
+        <span class="pm-boot-mark" aria-hidden="true"></span>
+        <span>PM chat</span>
+      </div>
+      <div class="pm-boot-copy">正在载入登录和工作区界面。若会话已过期，将自动回到登录页。</div>
+      <div class="pm-boot-progress" aria-hidden="true"></div>
+    </div>
+  </div>
+  <script>
+    (function () {
+      var cacheResetVersion = 'pm-chat-desktop-20260525-3';
+
+      function dismissBoot() {
+        var boot = document.getElementById('pm-boot');
+        if (boot) boot.remove();
+      }
+
+      var observer = new MutationObserver(function () {
+        if (document.querySelector('flt-glass-pane, flutter-view')) {
+          dismissBoot();
+          observer.disconnect();
+        }
+      });
+      observer.observe(document.body, { childList: true, subtree: true });
+
+      function normalizeLocale(value) {
+        if (typeof value !== 'string' || value.length === 0) return null;
+        return value.replace(/_/g, '-').replace(/@.*$/, '');
+      }
+
+      var rawLanguages = Array.isArray(navigator.languages)
+        ? navigator.languages
+        : [navigator.language || navigator.userLanguage || 'en-US'];
+      var normalizedLanguages = rawLanguages
+        .map(normalizeLocale)
+        .filter(Boolean);
+
+      if (normalizedLanguages.length === 0) {
+        normalizedLanguages = ['en-US'];
+      }
+
+      var changed = rawLanguages.length !== normalizedLanguages.length ||
+        rawLanguages.some(function (value, index) {
+          return value !== normalizedLanguages[index];
+        });
+
+      if (changed) {
+        Object.defineProperty(navigator, 'languages', {
+          configurable: true,
+          get: function () { return normalizedLanguages.slice(); }
+        });
+        Object.defineProperty(navigator, 'language', {
+          configurable: true,
+          get: function () { return normalizedLanguages[0]; }
+        });
+      }
+
+      function loadFlutter() {
+        var script = document.createElement('script');
+        script.src = 'flutter_bootstrap.js?v=' + cacheResetVersion;
+        script.async = true;
+        document.body.appendChild(script);
+      }
+
+      var cleanupTasks = [];
+
+      if ('serviceWorker' in navigator) {
+        cleanupTasks.push(
+          navigator.serviceWorker.getRegistrations()
+            .then(function (registrations) {
+              return Promise.all(registrations.map(function (registration) {
+                return registration.unregister();
+              }));
+            })
+            .catch(function () {})
+        );
+      }
+
+      if ('caches' in window) {
+        cleanupTasks.push(
+          caches.keys()
+            .then(function (keys) {
+              return Promise.all(keys.map(function (key) {
+                return caches.delete(key);
+              }));
+            })
+            .catch(function () {})
+        );
+      }
+
+      Promise.all(cleanupTasks).then(loadFlutter, loadFlutter);
+    })();
+  </script>
 </body>
 </html>

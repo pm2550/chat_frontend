@@ -8,15 +8,16 @@ class ChatHistoryService {
   ChatHistoryService({this.authToken});
 
   Map<String, String> get _headers => {
-    'Content-Type': 'application/json',
-    if (authToken != null) 'Authorization': 'Bearer $authToken',
-  };
+        'Content-Type': 'application/json',
+        if (authToken != null) 'Authorization': 'Bearer $authToken',
+      };
 
   /// 获取私聊历史记录
-  Future<Map<String, dynamic>> getPrivateChatHistory(
-      int userId, {int page = 0, int size = 20}) async {
+  Future<Map<String, dynamic>> getPrivateChatHistory(int userId,
+      {int page = 0, int size = 20}) async {
     final response = await http.get(
-      Uri.parse('${ApiConstants.baseUrl}/api/chat-history/private?userId=$userId&page=$page&size=$size'),
+      Uri.parse(
+          '${ApiConstants.baseUrl}/api/chat-history/private?userId=$userId&page=$page&size=$size'),
       headers: _headers,
     );
     if (response.statusCode == 200) {
@@ -26,10 +27,11 @@ class ChatHistoryService {
   }
 
   /// 获取群聊历史记录
-  Future<Map<String, dynamic>> getGroupChatHistory(
-      int chatRoomId, {int page = 0, int size = 20}) async {
+  Future<Map<String, dynamic>> getGroupChatHistory(int chatRoomId,
+      {int page = 0, int size = 20}) async {
     final response = await http.get(
-      Uri.parse('${ApiConstants.baseUrl}/api/chat-history/group?chatRoomId=$chatRoomId&page=$page&size=$size'),
+      Uri.parse(
+          '${ApiConstants.baseUrl}/api/chat-history/group?chatRoomId=$chatRoomId&page=$page&size=$size'),
       headers: _headers,
     );
     if (response.statusCode == 200) {
@@ -39,10 +41,11 @@ class ChatHistoryService {
   }
 
   /// 搜索私聊消息
-  Future<Map<String, dynamic>> searchPrivateMessages(
-      int userId, String keyword, {int page = 0, int size = 20}) async {
+  Future<Map<String, dynamic>> searchPrivateMessages(int userId, String keyword,
+      {int page = 0, int size = 20}) async {
     final response = await http.get(
-      Uri.parse('${ApiConstants.baseUrl}/api/chat-history/private/search?userId=$userId&keyword=$keyword&page=$page&size=$size'),
+      Uri.parse(
+          '${ApiConstants.baseUrl}/api/chat-history/private/search?userId=$userId&keyword=$keyword&page=$page&size=$size'),
       headers: _headers,
     );
     if (response.statusCode == 200) {
@@ -53,9 +56,11 @@ class ChatHistoryService {
 
   /// 搜索群聊消息
   Future<Map<String, dynamic>> searchGroupMessages(
-      int chatRoomId, String keyword, {int page = 0, int size = 20}) async {
+      int chatRoomId, String keyword,
+      {int page = 0, int size = 20}) async {
     final response = await http.get(
-      Uri.parse('${ApiConstants.baseUrl}/api/chat-history/group/search?chatRoomId=$chatRoomId&keyword=$keyword&page=$page&size=$size'),
+      Uri.parse(
+          '${ApiConstants.baseUrl}/api/chat-history/group/search?chatRoomId=$chatRoomId&keyword=$keyword&page=$page&size=$size'),
       headers: _headers,
     );
     if (response.statusCode == 200) {

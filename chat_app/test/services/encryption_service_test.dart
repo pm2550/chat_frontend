@@ -17,7 +17,7 @@ void main() {
       expect(service.keysUploaded, isA<bool>());
     });
 
-    group('encryptMessage (placeholder base64)', () {
+    group('encryptMessage (AES-GCM envelope)', () {
       test('encrypts a simple string', () {
         final service = EncryptionService();
         final encrypted = service.encryptMessage('Hello', 'dummyKey');
@@ -32,12 +32,11 @@ void main() {
         expect(() => base64Decode(encrypted), returnsNormally);
       });
 
-      test('same input produces same output (deterministic placeholder)', () {
+      test('same input produces different randomized envelopes', () {
         final service = EncryptionService();
-        final encrypted1 = service.encryptMessage('same text', 'key1');
-        final encrypted2 = service.encryptMessage('same text', 'key2');
-        // The placeholder ignores the key, so same plaintext = same output
-        expect(encrypted1, equals(encrypted2));
+        final encrypted1 = service.encryptMessage('same text', 'key');
+        final encrypted2 = service.encryptMessage('same text', 'key');
+        expect(encrypted1, isNot(equals(encrypted2)));
       });
 
       test('different inputs produce different outputs', () {
@@ -51,7 +50,6 @@ void main() {
         final service = EncryptionService();
         final encrypted = service.encryptMessage('', 'key');
         expect(encrypted, isNotNull);
-        // base64 of empty string is empty string
         expect(encrypted, equals(''));
       });
 
@@ -70,10 +68,10 @@ void main() {
       });
     });
 
-    group('decryptMessage (placeholder base64)', () {
-      test('decrypts a valid base64 string', () {
+    group('decryptMessage', () {
+      test('keeps compatibility with legacy base64 strings', () {
         final service = EncryptionService();
-        final original = 'Hello World';
+        const original = 'Hello World';
         final encoded = base64Encode(utf8.encode(original));
         final decrypted = service.decryptMessage(encoded);
         expect(decrypted, equals(original));
@@ -94,7 +92,7 @@ void main() {
 
       test('handles unicode after decrypt', () {
         final service = EncryptionService();
-        final original = '你好世界 emoji test';
+        const original = '你好世界 emoji test';
         final encoded = base64Encode(utf8.encode(original));
         final decrypted = service.decryptMessage(encoded);
         expect(decrypted, equals(original));

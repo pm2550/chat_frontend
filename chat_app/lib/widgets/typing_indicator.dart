@@ -68,7 +68,8 @@ class _TypingIndicatorState extends State<TypingIndicator>
                   margin: const EdgeInsets.symmetric(horizontal: 1),
                   child: Opacity(
                     opacity: 0.3 + 0.7 * _controllers[index].value,
-                    child: Text('.',
+                    child: Text(
+                      '.',
                       style: TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.bold,

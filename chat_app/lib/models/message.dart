@@ -1,5 +1,3 @@
-import 'user.dart';
-
 enum MessageType {
   text('文本'),
   image('图片'),
@@ -43,6 +41,14 @@ class Message {
   final String? fileName;
   final int? fileSize;
   final String? fileType;
+  final bool isDeleted;
+  final bool isRecalled;
+  final String? encryptedContent;
+  final int? encryptionVersion;
+  final bool isAnonymous;
+  final String? anonymousIdentityId;
+  final String? anonymousName;
+  final String? anonymousAvatar;
 
   const Message({
     required this.id,
@@ -63,36 +69,104 @@ class Message {
     this.fileName,
     this.fileSize,
     this.fileType,
+    this.isDeleted = false,
+    this.isRecalled = false,
+    this.encryptedContent,
+    this.encryptionVersion,
+    this.isAnonymous = false,
+    this.anonymousIdentityId,
+    this.anonymousName,
+    this.anonymousAvatar,
   });
 
-  factory Message.fromJson(Map<String, dynamic> json) {
+  factory Message.fromJson(Map<String, dynamic> json,
+      {String? fallbackChatRoomId}) {
+    final senderJson = json['sender'] is Map<String, dynamic>
+        ? json['sender'] as Map<String, dynamic>
+        : null;
+    final chatRoomJson = json['chatRoom'] is Map<String, dynamic>
+        ? json['chatRoom'] as Map<String, dynamic>
+        : null;
+    final typeValue =
+        json['type'] ?? json['messageType'] ?? json['message_type'] ?? 'TEXT';
+    final statusValue = json['status'] ??
+        json['messageStatus'] ??
+        json['message_status'] ??
+        'SENT';
+    final timestampValue =
+        json['timestamp'] ?? json['createdAt'] ?? json['created_at'];
+    final isAnonymous = _parseBool(json['isAnonymous'] ?? json['is_anonymous']);
+    final anonymousName = json['anonymousName'] ?? json['anonymous_name'];
+    final anonymousAvatar = json['anonymousAvatar'] ?? json['anonymous_avatar'];
+    final regularSenderName = json['senderName'] ??
+        json['sender_name'] ??
+        senderJson?['displayName'] ??
+        senderJson?['display_name'] ??
+        senderJson?['username'] ??
+        '';
+
     return Message(
       id: json['id']?.toString() ?? '',
       content: json['content'] ?? '',
-      senderId: json['senderId']?.toString() ?? json['sender_id']?.toString() ?? '',
-      senderName: json['senderName'] ?? json['sender_name'] ?? '',
-      senderAvatar: json['senderAvatar'] ?? json['sender_avatar'],
-      chatRoomId: json['chatRoomId']?.toString() ?? json['chat_room_id']?.toString() ?? '',
+      senderId: json['senderId']?.toString() ??
+          json['sender_id']?.toString() ??
+          senderJson?['id']?.toString() ??
+          '',
+      senderName: isAnonymous
+          ? (anonymousName?.toString().isNotEmpty == true
+              ? anonymousName.toString()
+              : regularSenderName)
+          : regularSenderName,
+      senderAvatar: isAnonymous && anonymousAvatar != null
+          ? anonymousAvatar.toString()
+          : json['senderAvatar'] ??
+              json['sender_avatar'] ??
+              senderJson?['avatarUrl'] ??
+              senderJson?['avatar_url'],
+      chatRoomId: json['chatRoomId']?.toString() ??
+          json['chat_room_id']?.toString() ??
+          chatRoomJson?['id']?.toString() ??
+          fallbackChatRoomId ??
+          '',
       type: MessageType.values.firstWhere(
-        (e) => e.name.toUpperCase() == (json['type'] ?? json['message_type'] ?? 'TEXT').toString().toUpperCase(),
+        (e) => e.name.toUpperCase() == typeValue.toString().toUpperCase(),
         orElse: () => MessageType.text,
       ),
       status: MessageStatus.values.firstWhere(
-        (e) => e.name.toUpperCase() == (json['status'] ?? json['message_status'] ?? 'SENT').toString().toUpperCase(),
+        (e) => e.name.toUpperCase() == statusValue.toString().toUpperCase(),
         orElse: () => MessageStatus.sent,
       ),
-      timestamp: DateTime.tryParse((json['timestamp'] ?? json['created_at']).toString()) ?? DateTime.now(),
-      editedAt: json['editedAt'] != null ? DateTime.parse(json['editedAt']) : null,
+      timestamp:
+          DateTime.tryParse(timestampValue?.toString() ?? '') ?? DateTime.now(),
+      editedAt: json['editedAt'] != null || json['edited_at'] != null
+          ? DateTime.tryParse(
+              (json['editedAt'] ?? json['edited_at']).toString())
+          : null,
       replyToId: json['replyToId']?.toString(),
-      replyToMessage: json['replyToMessage'] != null 
-          ? Message.fromJson(json['replyToMessage']) 
+      replyToMessage: json['replyToMessage'] != null
+          ? Message.fromJson(
+              json['replyToMessage'] as Map<String, dynamic>,
+              fallbackChatRoomId: fallbackChatRoomId,
+            )
           : null,
       metadata: json['metadata'] as Map<String, dynamic>?,
-      replyToMessageId: json['replyToMessageId']?.toString() ?? json['reply_to_message_id']?.toString(),
+      replyToMessageId: json['replyToMessageId']?.toString() ??
+          json['reply_to_message_id']?.toString(),
       fileUrl: json['fileUrl'] ?? json['file_url'],
       fileName: json['fileName'] ?? json['file_name'],
-      fileSize: json['fileSize'] ?? json['file_size'],
+      fileSize: _parseInt(json['fileSize'] ?? json['file_size']),
       fileType: json['fileType'] ?? json['file_type'],
+      isDeleted: _parseBool(json['isDeleted'] ?? json['is_deleted']),
+      isRecalled: _parseBool(json['isRecalled'] ?? json['is_recalled']) ||
+          (json['content']?.toString() == '[消息已撤回]'),
+      encryptedContent: json['encryptedContent'] ?? json['encrypted_content'],
+      encryptionVersion:
+          _parseInt(json['encryptionVersion'] ?? json['encryption_version']),
+      isAnonymous: isAnonymous,
+      anonymousIdentityId: json['anonymousIdentityId']?.toString() ??
+          json['anonymous_identity_id']?.toString(),
+      anonymousName: anonymousName?.toString(),
+      anonymousAvatar: anonymousAvatar?.toString(),
     );
   }
 
@@ -116,6 +190,14 @@ class Message {
       'fileName': fileName,
       'fileSize': fileSize,
       'fileType': fileType,
+      'isDeleted': isDeleted,
+      'isRecalled': isRecalled,
+      'encryptedContent': encryptedContent,
+      'encryptionVersion': encryptionVersion,
+      'isAnonymous': isAnonymous,
+      'anonymousIdentityId': anonymousIdentityId,
+      'anonymousName': anonymousName,
+      'anonymousAvatar': anonymousAvatar,
     };
   }
 
@@ -138,6 +220,14 @@ class Message {
     String? fileName,
     int? fileSize,
     String? fileType,
+    bool? isDeleted,
+    bool? isRecalled,
+    String? encryptedContent,
+    int? encryptionVersion,
+    bool? isAnonymous,
+    String? anonymousIdentityId,
+    String? anonymousName,
+    String? anonymousAvatar,
   }) {
     return Message(
       id: id ?? this.id,
@@ -158,11 +248,51 @@ class Message {
       fileName: fileName ?? this.fileName,
       fileSize: fileSize ?? this.fileSize,
       fileType: fileType ?? this.fileType,
+      isDeleted: isDeleted ?? this.isDeleted,
+      isRecalled: isRecalled ?? this.isRecalled,
+      encryptedContent: encryptedContent ?? this.encryptedContent,
+      encryptionVersion: encryptionVersion ?? this.encryptionVersion,
+      isAnonymous: isAnonymous ?? this.isAnonymous,
+      anonymousIdentityId: anonymousIdentityId ?? this.anonymousIdentityId,
+      anonymousName: anonymousName ?? this.anonymousName,
+      anonymousAvatar: anonymousAvatar ?? this.anonymousAvatar,
     );
   }
 
   bool get isEdited => editedAt != null;
   bool get hasReply => replyToMessage != null;
+  bool get isRemoved => isDeleted || isRecalled;
+  bool get isEncrypted =>
+      encryptedContent != null && encryptedContent!.isNotEmpty;
+  bool get isImageMessage => type == MessageType.image;
+  bool get isVoiceMessage =>
+      type == MessageType.voice ||
+      (fileType?.toLowerCase().startsWith('audio/') ?? false);
+  bool get isVideoMessage =>
+      type == MessageType.video ||
+      (fileType?.toLowerCase().startsWith('video/') ?? false);
+  bool get isLocationMessage => type == MessageType.location;
+  bool get isFileMessage =>
+      type == MessageType.file ||
+      (fileUrl != null &&
+          !isImageMessage &&
+          !isVoiceMessage &&
+          !isVideoMessage);
+  String get resolvedFileLabel {
+    if (isImageMessage) {
+      return fileName?.isNotEmpty == true ? '[图片] $fileName' : '[图片]';
+    }
+    if (isVoiceMessage) {
+      return fileName?.isNotEmpty == true ? '[语音] $fileName' : '[语音]';
+    }
+    if (isVideoMessage) {
+      return fileName?.isNotEmpty == true ? '[视频] $fileName' : '[视频]';
+    }
+    if (isFileMessage) {
+      return fileName?.isNotEmpty == true ? '[文件] $fileName' : '[文件]';
+    }
+    return content;
+  }
 
   @override
   bool operator ==(Object other) {
@@ -177,4 +307,17 @@ class Message {
   String toString() {
     return 'Message(id: $id, senderId: $senderId, content: $content)';
   }
-} 
+
+  static int? _parseInt(dynamic value) {
+    if (value == null) return null;
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    return int.tryParse(value.toString());
+  }
+
+  static bool _parseBool(dynamic value) {
+    if (value == null) return false;
+    if (value is bool) return value;
+    return value.toString().toLowerCase() == 'true';
+  }
+}

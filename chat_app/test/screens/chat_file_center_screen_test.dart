@@ -1,0 +1,117 @@
+import 'package:chat_app/models/message.dart';
+import 'package:chat_app/screens/chat/chat_file_center_screen.dart';
+import 'package:chat_app/services/chat_data_service.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+void main() {
+  testWidgets('renders file messages and downloads selected file',
+      (tester) async {
+    final service = FakeFileCenterChatService();
+
+    await tester.pumpWidget(MaterialApp(
+      home: ChatFileCenterScreen(
+        chatRoomId: '42',
+        chatRoomName: 'Project Room',
+        chatService: service,
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    expect(find.text('photo.png'), findsOneWidget);
+    expect(find.text('doc.pdf'), findsOneWidget);
+
+    await tester.tap(find.text('doc.pdf'));
+    await tester.pumpAndSettle();
+
+    expect(service.downloadedIds, ['2']);
+    expect(find.text('已下载 doc.pdf (3 B)'), findsOneWidget);
+  });
+
+  testWidgets('filters file center by image type', (tester) async {
+    final service = FakeFileCenterChatService();
+
+    await tester.pumpWidget(MaterialApp(
+      home: ChatFileCenterScreen(
+        chatRoomId: '42',
+        chatRoomName: 'Project Room',
+        chatService: service,
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('图片'));
+    await tester.pumpAndSettle();
+
+    expect(service.requestedTypes.last, MessageType.image);
+    expect(find.text('photo.png'), findsOneWidget);
+    expect(find.text('doc.pdf'), findsNothing);
+  });
+}
+
+class FakeFileCenterChatService extends ChatDataService {
+  final requestedTypes = <MessageType?>[];
+  final downloadedIds = <String>[];
+
+  final messages = [
+    Message(
+      id: '1',
+      content: 'photo.png',
+      senderId: '7',
+      senderName: 'Alice',
+      chatRoomId: '42',
+      type: MessageType.image,
+      status: MessageStatus.sent,
+      timestamp: DateTime.parse('2024-01-01T10:00:00'),
+      fileUrl: '/api/files/chat/photo.png',
+      fileName: 'photo.png',
+      fileSize: 2,
+      fileType: 'image/png',
+    ),
+    Message(
+      id: '2',
+      content: 'doc.pdf',
+      senderId: '8',
+      senderName: 'Bob',
+      chatRoomId: '42',
+      type: MessageType.file,
+      status: MessageStatus.sent,
+      timestamp: DateTime.parse('2024-01-01T10:01:00'),
+      fileUrl: '/api/files/chat/doc.pdf',
+      fileName: 'doc.pdf',
+      fileSize: 3,
+      fileType: 'application/pdf',
+    ),
+  ];
+
+  @override
+  Future<MessagePage> getFileMessages(
+    String chatRoomId, {
+    MessageType? type,
+    int page = 0,
+    int size = 50,
+  }) async {
+    requestedTypes.add(type);
+    final filtered = type == null
+        ? messages
+        : messages.where((m) => m.type == type).toList();
+    return MessagePage(
+      messages: filtered,
+      currentPage: page,
+      totalPages: 1,
+      totalElements: filtered.length,
+      hasNext: false,
+      hasPrevious: false,
+    );
+  }
+
+  @override
+  Future<DownloadedChatFile> downloadFile(Message message) async {
+    downloadedIds.add(message.id);
+    return DownloadedChatFile(
+      name: message.fileName ?? message.content,
+      bytes: const [1, 2, 3],
+      mimeType: message.fileType,
+    );
+  }
+}
