@@ -293,14 +293,15 @@ jobs:
       - name: Publish GitHub Release
         run: |
           tag="${{ steps.meta.outputs.tag }}"
-          if [ ! -d dist ] || [ -z "$(find dist -maxdepth 1 -type f 2>/dev/null)" ]; then
+          if [ ! -d dist ] || [ -z "$(find dist -type f 2>/dev/null)" ]; then
             echo "No artifacts were produced."
             exit 1
           fi
+          mapfile -d '' assets < <(find dist -type f -print0)
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release upload "$tag" dist/* --clobber --repo "$GITHUB_REPOSITORY"
+            gh release upload "$tag" "${assets[@]}" --clobber --repo "$GITHUB_REPOSITORY"
           else
-            gh release create "$tag" dist/* \
+            gh release create "$tag" "${assets[@]}" \
               --repo "$GITHUB_REPOSITORY" \
               --title "PM chat ${VERSION_NAME}-${VERSION_CODE}" \
               --notes "PM chat installers. Windows/macOS are unsigned unless signing secrets are configured."
