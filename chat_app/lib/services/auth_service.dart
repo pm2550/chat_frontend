@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
@@ -27,7 +28,7 @@ class AuthService extends ChangeNotifier {
   static const String _keyUserData = 'user_data';
 
   /// Initialize auth state from local storage
-  Future<bool> initialize() async {
+  Future<bool> initialize({bool validateInBackground = true}) async {
     try {
       final prefs = await SharedPreferences.getInstance();
       _accessToken = prefs.getString(_keyAccessToken);
@@ -35,19 +36,15 @@ class AuthService extends ChangeNotifier {
       final userData = prefs.getString(_keyUserData);
 
       if (_accessToken != null && userData != null) {
-        _currentUser = User.fromJson(jsonDecode(userData));
-
-        // Validate token with server
-        final isValid = await validateToken();
-        if (!isValid) {
-          // Try refresh
-          final refreshed = await refreshAccessToken();
-          if (!refreshed) {
-            await _clearAuthData();
-            return false;
-          }
+        final decodedUser = _decodeStoredUser(userData);
+        if (decodedUser == null) {
+          return false;
         }
+        _currentUser = User.fromJson(decodedUser);
         notifyListeners();
+        if (validateInBackground) {
+          unawaited(_refreshCachedSessionIfNeeded());
+        }
         return true;
       }
     } catch (e) {
@@ -57,19 +54,36 @@ class AuthService extends ChangeNotifier {
     return false;
   }
 
+  Map<String, dynamic>? _decodeStoredUser(String userData) {
+    try {
+      final decoded = jsonDecode(userData);
+      if (decoded is Map<String, dynamic>) {
+        return decoded;
+      }
+      if (decoded is String) {
+        final nested = jsonDecode(decoded);
+        if (nested is Map<String, dynamic>) {
+          return nested;
+        }
+      }
+    } catch (e) {
+      debugPrint('Stored user decode error: $e');
+    }
+    return null;
+  }
+
   Future<bool> ensureAuthenticated() async {
     if (_accessToken != null && _currentUser != null) {
-      if (await validateToken()) {
-        return true;
-      }
-      if (await refreshAccessToken()) {
-        return true;
-      }
-      await clearLocalSession();
-      return false;
+      return true;
     }
 
     return initialize();
+  }
+
+  Future<void> _refreshCachedSessionIfNeeded() async {
+    if (_accessToken == null || _currentUser == null) return;
+    if (await validateToken()) return;
+    await refreshAccessToken();
   }
 
   /// Login with username and password
@@ -354,8 +368,6 @@ class AuthService extends ChangeNotifier {
                 .timeout(ApiConstants.requestTimeout);
             break;
         }
-      } else if (_isAuthenticationFailure(response)) {
-        await clearLocalSession();
       }
     }
 
@@ -364,8 +376,13 @@ class AuthService extends ChangeNotifier {
 
   bool _shouldRefreshFor(http.Response response) {
     if (_refreshToken == null) return false;
-    return response.statusCode == 401 || response.statusCode == 403;
+    return response.statusCode == 401 ||
+        (response.statusCode == 403 && _isAuthenticationFailure(response));
   }
+
+  @visibleForTesting
+  bool debugIsAuthenticationFailure(http.Response response) =>
+      _isAuthenticationFailure(response);
 
   bool _isAuthenticationFailure(http.Response response) {
     if (response.statusCode == 401) return true;
@@ -376,15 +393,21 @@ class AuthService extends ChangeNotifier {
       if (decoded is Map<String, dynamic>) {
         final error = decoded['error']?.toString().toLowerCase() ?? '';
         final message = decoded['message']?.toString().toLowerCase() ?? '';
-        return error == 'forbidden' ||
+        return error.contains('jwt') ||
+            error.contains('token') ||
+            error.contains('authentication') ||
             message.contains('jwt') ||
             message.contains('token') ||
             message.contains('authentication');
       }
     } catch (_) {
-      // Plain "Forbidden" responses are also used for auth failures.
+      // Plain "Forbidden" can be a normal authorization failure and must not
+      // wipe the whole local session.
     }
-    return response.body.trim().toLowerCase() == 'forbidden';
+    final body = response.body.trim().toLowerCase();
+    return body.contains('jwt') ||
+        body.contains('token') ||
+        body.contains('authentication');
   }
 
   String _extractError(String body) {

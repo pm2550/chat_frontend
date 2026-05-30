@@ -5,6 +5,7 @@ class User {
   final String? phone;
   final String displayName;
   final String? avatarUrl;
+  final String avatarFramePreset;
   final String? bio;
   final OnlineStatus onlineStatus;
   final DateTime? lastSeen;
@@ -20,6 +21,7 @@ class User {
     this.phone,
     required this.displayName,
     this.avatarUrl,
+    this.avatarFramePreset = 'none',
     this.bio,
     this.onlineStatus = OnlineStatus.offline,
     this.lastSeen,
@@ -37,6 +39,9 @@ class User {
       phone: json['phone'],
       displayName: json['displayName'] ?? json['display_name'] ?? '',
       avatarUrl: json['avatarUrl'] ?? json['avatar_url'],
+      avatarFramePreset:
+          (json['avatarFramePreset'] ?? json['avatar_frame_preset'] ?? 'none')
+              .toString(),
       bio: json['bio'],
       onlineStatus: OnlineStatus.values.firstWhere(
         (e) =>
@@ -77,6 +82,7 @@ class User {
       'phone': phone,
       'displayName': displayName,
       'avatarUrl': avatarUrl,
+      'avatarFramePreset': avatarFramePreset,
       'bio': bio,
       'onlineStatus': onlineStatus.name.toUpperCase(),
       'lastSeen': lastSeen?.toIso8601String(),
@@ -94,6 +100,7 @@ class User {
     String? phone,
     String? displayName,
     String? avatarUrl,
+    String? avatarFramePreset,
     String? bio,
     OnlineStatus? onlineStatus,
     DateTime? lastSeen,
@@ -109,6 +116,7 @@ class User {
       phone: phone ?? this.phone,
       displayName: displayName ?? this.displayName,
       avatarUrl: avatarUrl ?? this.avatarUrl,
+      avatarFramePreset: avatarFramePreset ?? this.avatarFramePreset,
       bio: bio ?? this.bio,
       onlineStatus: onlineStatus ?? this.onlineStatus,
       lastSeen: lastSeen ?? this.lastSeen,

@@ -821,7 +821,7 @@ class _ContactsPageState extends State<ContactsPage> {
     try {
       final Chat chat = await _contactService.createPrivateChat(contact.id);
       if (!mounted) return;
-      await Navigator.pushNamed(context, '/chat', arguments: chat);
+      await Navigator.pushNamed(context, '/chat/${chat.id}', arguments: chat);
     } catch (e) {
       if (mounted) {
         _showSnackBar(e.toString());
@@ -853,7 +853,7 @@ class _ContactsPageState extends State<ContactsPage> {
       if (!mounted) return;
       await Navigator.pushNamed(
         context,
-        '/chat',
+        '/chat/${chat.id}',
         arguments: ChatScreenArguments(
           chat: chat,
           startCall: mediaKind,
@@ -1346,7 +1346,7 @@ class _ContactsPageState extends State<ContactsPage> {
                           Navigator.pop(sheetContext);
                           await Navigator.pushNamed(
                             context,
-                            '/chat',
+                            '/chat/${chat.id}',
                             arguments: chat,
                           );
                         } catch (e) {

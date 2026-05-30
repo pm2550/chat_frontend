@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import '../../constants/app_colors.dart';
+import '../../design/design.dart';
 import '../../models/user.dart';
 import '../../models/workspace.dart';
 import '../../services/file_save.dart' as file_save;
@@ -27,19 +28,34 @@ class WorkspacePage extends StatefulWidget {
 
 class _WorkspacePageState extends State<WorkspacePage> {
   late final WorkspaceService _service;
+  final TextEditingController _workspaceSearchController =
+      TextEditingController();
   final List<WorkspaceFolder> _folderStack = [];
+  final Set<int> _selectedFileIds = {};
   List<Workspace> _workspaces = [];
   Workspace? _selectedWorkspace;
   WorkspaceContents _contents = const WorkspaceContents(folders: [], files: []);
   bool _isLoading = true;
   bool _isLoadingContents = false;
+  WorkspaceFileItem? _selectedPreviewFile;
+  DownloadedWorkspaceFile? _selectedPreview;
+  bool _isLoadingPreview = false;
+  String? _previewError;
   String? _error;
+  String _workspaceSearchQuery = '';
+  String _workspaceSort = 'updated';
 
   @override
   void initState() {
     super.initState();
     _service = widget.workspaceService ?? WorkspaceService();
     _loadWorkspaces();
+  }
+
+  @override
+  void dispose() {
+    _workspaceSearchController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadWorkspaces() async {
@@ -50,10 +66,22 @@ class _WorkspacePageState extends State<WorkspacePage> {
     try {
       final workspaces = await _service.listWorkspaces();
       if (!mounted) return;
+      final previousId = _selectedWorkspace?.id;
+      Workspace? previous;
+      if (previousId != null) {
+        for (final workspace in workspaces) {
+          if (workspace.id == previousId) {
+            previous = workspace;
+            break;
+          }
+        }
+      }
       setState(() {
         _workspaces = workspaces;
-        _selectedWorkspace = workspaces.isNotEmpty ? workspaces.first : null;
+        _selectedWorkspace = previous;
         _folderStack.clear();
+        _selectedFileIds.clear();
+        _clearPreviewState();
         _isLoading = false;
       });
       if (_selectedWorkspace != null) {
@@ -93,9 +121,28 @@ class _WorkspacePageState extends State<WorkspacePage> {
     setState(() {
       _selectedWorkspace = workspace;
       _folderStack.clear();
+      _selectedFileIds.clear();
       _contents = const WorkspaceContents(folders: [], files: []);
+      _clearPreviewState();
     });
     _loadContents();
+  }
+
+  void _backToWorkspaceList() {
+    setState(() {
+      _selectedWorkspace = null;
+      _folderStack.clear();
+      _selectedFileIds.clear();
+      _contents = const WorkspaceContents(folders: [], files: []);
+      _clearPreviewState();
+    });
+  }
+
+  void _clearPreviewState() {
+    _selectedPreviewFile = null;
+    _selectedPreview = null;
+    _isLoadingPreview = false;
+    _previewError = null;
   }
 
   Future<void> _refreshSelectedWorkspace() async {
@@ -138,6 +185,7 @@ class _WorkspacePageState extends State<WorkspacePage> {
         _workspaces = [workspace, ..._workspaces];
         _selectedWorkspace = workspace;
         _folderStack.clear();
+        _clearPreviewState();
       });
       await _loadContents();
     } catch (error) {
@@ -231,37 +279,55 @@ class _WorkspacePageState extends State<WorkspacePage> {
   }
 
   Future<void> _previewFile(WorkspaceFileItem file) async {
+    setState(() {
+      _selectedPreviewFile = file;
+      _selectedPreview = null;
+      _previewError = null;
+      _isLoadingPreview = true;
+    });
+
     try {
       final preview = await _service.previewFile(file);
       if (!mounted) return;
-      await showDialog<void>(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: Text(file.displayName),
-          content: SizedBox(
-            width: 760,
-            height: 520,
-            child: _buildPreviewBody(file, preview),
-          ),
-          actions: [
-            TextButton.icon(
-              onPressed: () {
-                Navigator.of(context).pop();
-                _downloadFile(file);
-              },
-              icon: const Icon(Icons.download, size: 18),
-              label: const Text('下载'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('关闭'),
-            ),
-          ],
-        ),
-      );
+      setState(() {
+        _selectedPreview = preview;
+        _isLoadingPreview = false;
+      });
+      if (!PMBreakpoints.isDesktop(context)) {
+        await _showMobilePreviewSheet(file, preview);
+      }
     } catch (error) {
+      if (mounted) {
+        setState(() {
+          _previewError = error.toString();
+          _isLoadingPreview = false;
+        });
+      }
       _showSnackBar('预览失败: $error', isError: true);
     }
+  }
+
+  Future<void> _showMobilePreviewSheet(
+    WorkspaceFileItem file,
+    DownloadedWorkspaceFile preview,
+  ) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => FractionallySizedBox(
+        heightFactor: 0.88,
+        child: _WorkspacePreviewChrome(
+          file: file,
+          onClose: () => Navigator.of(context).pop(),
+          onDownload: () {
+            Navigator.of(context).pop();
+            _downloadFile(file);
+          },
+          child: _buildPreviewBody(file, preview),
+        ),
+      ),
+    );
   }
 
   Future<void> _deleteFile(WorkspaceFileItem file) async {
@@ -274,6 +340,9 @@ class _WorkspacePageState extends State<WorkspacePage> {
       await _service.deleteFile(workspaceId: file.workspaceId, fileId: file.id);
       await _loadContents();
       await _refreshSelectedWorkspace();
+      if (_selectedPreviewFile?.id == file.id) {
+        setState(_clearPreviewState);
+      }
       _showSnackBar('文件已移入回收站');
     } catch (error) {
       _showSnackBar('删除失败: $error', isError: true);
@@ -1112,6 +1181,31 @@ class _WorkspacePageState extends State<WorkspacePage> {
     }
   }
 
+  List<Workspace> get _visibleWorkspaces {
+    final query = _workspaceSearchQuery.trim().toLowerCase();
+    final filtered = _workspaces.where((workspace) {
+      if (query.isEmpty) return true;
+      return [
+        workspace.name,
+        workspace.description,
+        workspace.ownerName,
+        workspace.workspaceType,
+      ].whereType<String>().any((value) => value.toLowerCase().contains(query));
+    }).toList();
+    filtered.sort((a, b) {
+      return switch (_workspaceSort) {
+        'name' => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
+        'files' => (b.usedBytes ?? 0).compareTo(a.usedBytes ?? 0),
+        _ =>
+          (b.updatedAt ?? b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0))
+              .compareTo(a.updatedAt ??
+                  a.createdAt ??
+                  DateTime.fromMillisecondsSinceEpoch(0)),
+      };
+    });
+    return filtered;
+  }
+
   Future<void> _showVersions(WorkspaceFileItem file) async {
     try {
       final versions = await _service.listVersions(
@@ -1250,10 +1344,12 @@ class _WorkspacePageState extends State<WorkspacePage> {
         onAction: _createWorkspace,
       );
     }
+    if (_selectedWorkspace == null) {
+      return _buildWorkspaceOverview(isDesktop: isDesktop);
+    }
     if (!isDesktop) {
       return Column(
         children: [
-          _buildMobileWorkspaceSelector(),
           Expanded(child: _buildContentPanel()),
         ],
       );
@@ -1261,10 +1357,209 @@ class _WorkspacePageState extends State<WorkspacePage> {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        SizedBox(width: 320, child: _buildWorkspaceList()),
+        SizedBox(width: 280, child: _buildWorkspaceList()),
         const SizedBox(width: 18),
         Expanded(child: _buildContentPanel()),
+        const SizedBox(width: 18),
+        SizedBox(width: 380, child: _buildPreviewPanel()),
       ],
+    );
+  }
+
+  Widget _buildWorkspaceOverview({required bool isDesktop}) {
+    final workspaces = _visibleWorkspaces;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        PMCard(
+          elevated: false,
+          padding: const EdgeInsets.all(PMSpacing.l),
+          child: Wrap(
+            spacing: PMSpacing.m,
+            runSpacing: PMSpacing.m,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              SizedBox(
+                width: isDesktop ? 420 : double.infinity,
+                child: TextField(
+                  controller: _workspaceSearchController,
+                  decoration: const InputDecoration(
+                    hintText: '搜索工作区、类型或所有者',
+                    prefixIcon: Icon(Icons.search),
+                    border: OutlineInputBorder(),
+                  ),
+                  onChanged: (value) =>
+                      setState(() => _workspaceSearchQuery = value),
+                ),
+              ),
+              PMChip(
+                label: '最近活动',
+                icon: Icons.schedule,
+                selected: _workspaceSort == 'updated',
+                onTap: () => setState(() => _workspaceSort = 'updated'),
+              ),
+              PMChip(
+                label: '名称',
+                icon: Icons.sort_by_alpha,
+                selected: _workspaceSort == 'name',
+                onTap: () => setState(() => _workspaceSort = 'name'),
+              ),
+              PMChip(
+                label: '文件量',
+                icon: Icons.storage_outlined,
+                selected: _workspaceSort == 'files',
+                onTap: () => setState(() => _workspaceSort = 'files'),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: PMSpacing.l),
+        Expanded(
+          child: workspaces.isEmpty
+              ? PMEmptyState(
+                  icon: Icons.search_off,
+                  title: '没有找到工作区',
+                  subtitle: '换一个关键词，或创建新的个人、团队、服务资料库。',
+                  action: PMButton(
+                    label: '新建资料库',
+                    icon: Icons.create_new_folder,
+                    onPressed: _createWorkspace,
+                  ),
+                )
+              : GridView.builder(
+                  itemCount: workspaces.length,
+                  gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
+                    maxCrossAxisExtent: isDesktop ? 420 : 640,
+                    mainAxisSpacing: PMSpacing.l,
+                    crossAxisSpacing: PMSpacing.l,
+                    childAspectRatio: isDesktop ? 1.35 : 1.75,
+                  ),
+                  itemBuilder: (context, index) =>
+                      _buildWorkspaceCard(workspaces[index]),
+                ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildWorkspaceCard(Workspace workspace) {
+    final quota = workspace.quotaBytes ?? 0;
+    final used = workspace.usedBytes ?? 0;
+    final progress = quota <= 0 ? 0.0 : (used / quota).clamp(0.0, 1.0);
+    return PMCard(
+      interactive: true,
+      onTap: () => _selectWorkspace(workspace),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 48,
+                height: 48,
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withValues(alpha: 0.10),
+                  borderRadius: BorderRadius.circular(PMRadius.l),
+                ),
+                child: PMSymbolIcon(
+                  _workspaceSymbol(workspace.workspaceType),
+                  size: 24,
+                  color: AppColors.primary,
+                ),
+              ),
+              const SizedBox(width: PMSpacing.m),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      workspace.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: AppColors.textPrimary,
+                        fontSize: 17,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    Text(
+                      [
+                        _workspaceTypeLabel(workspace.workspaceType),
+                        workspace.myAccessLevel ?? 'NONE',
+                        if (workspace.isLocked) '已锁定',
+                      ].join(' · '),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(color: AppColors.textSecondary),
+                    ),
+                  ],
+                ),
+              ),
+              if (workspace.isLocked)
+                const Icon(Icons.lock, color: AppColors.warning),
+            ],
+          ),
+          const SizedBox(height: PMSpacing.l),
+          Row(
+            children: [
+              for (final symbol in [
+                PMSymbol.files,
+                PMSymbol.files,
+                PMSymbol.ai,
+                PMSymbol.folder,
+              ])
+                Container(
+                  width: 34,
+                  height: 34,
+                  margin: const EdgeInsets.only(right: 6),
+                  decoration: BoxDecoration(
+                    color: AppColors.cloud,
+                    borderRadius: BorderRadius.circular(PMRadius.s),
+                    border: Border.all(color: AppColors.borderLight),
+                  ),
+                  child: Center(
+                    child: PMSymbolIcon(
+                      symbol,
+                      size: 17,
+                      color: AppColors.primary,
+                    ),
+                  ),
+                ),
+              const Spacer(),
+              Text(
+                workspace.updatedAt == null
+                    ? '暂无活动'
+                    : _formatDate(workspace.updatedAt!),
+                style: const TextStyle(
+                  color: AppColors.textSecondary,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: PMSpacing.l),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(999),
+            child: LinearProgressIndicator(
+              value: progress,
+              minHeight: 6,
+              backgroundColor: AppColors.borderLight,
+              color: progress > 0.9 ? AppColors.error : AppColors.primary,
+            ),
+          ),
+          const SizedBox(height: PMSpacing.s),
+          Text(
+            quota <= 0
+                ? '已用 ${_formatBytes(used)}'
+                : '已用 ${_formatBytes(used)} / ${_formatBytes(quota)}',
+            style: const TextStyle(
+              color: AppColors.textSecondary,
+              fontSize: 12,
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -1312,28 +1607,6 @@ class _WorkspacePageState extends State<WorkspacePage> {
     );
   }
 
-  Widget _buildMobileWorkspaceSelector() {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-      child: DropdownButtonFormField<int>(
-        initialValue: _selectedWorkspace?.id,
-        decoration: const InputDecoration(labelText: '资料库'),
-        items: _workspaces
-            .map(
-              (workspace) => DropdownMenuItem<int>(
-                value: workspace.id,
-                child: Text(workspace.name),
-              ),
-            )
-            .toList(),
-        onChanged: (id) {
-          final workspace = _workspaces.firstWhere((item) => item.id == id);
-          _selectWorkspace(workspace);
-        },
-      ),
-    );
-  }
-
   Widget _buildContentPanel() {
     final workspace = _selectedWorkspace;
     if (workspace == null) {
@@ -1352,12 +1625,103 @@ class _WorkspacePageState extends State<WorkspacePage> {
           _buildBreadcrumbs(),
           const Divider(height: 1),
           Expanded(
-            child: _isLoadingContents
-                ? const Center(child: CircularProgressIndicator())
-                : _buildContentsList(),
+            child: DragTarget<Object>(
+              onWillAcceptWithDetails: (_) => true,
+              onAcceptWithDetails: (_) {
+                _showSnackBar('请使用上传按钮选择要放入此文件夹的文件');
+              },
+              builder: (context, candidateData, rejectedData) {
+                final dragging = candidateData.isNotEmpty;
+                return AnimatedContainer(
+                  duration: PMMotion.fast,
+                  decoration: BoxDecoration(
+                    color: dragging
+                        ? AppColors.pixelBlue.withValues(alpha: 0.55)
+                        : Colors.transparent,
+                    border: dragging
+                        ? Border.all(color: AppColors.primary, width: 2)
+                        : null,
+                  ),
+                  child: _isLoadingContents
+                      ? const Center(child: CircularProgressIndicator())
+                      : _buildContentsList(),
+                );
+              },
+            ),
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildPreviewPanel() {
+    final file = _selectedPreviewFile;
+    final preview = _selectedPreview;
+
+    if (file == null) {
+      return const PMCard(
+        radius: PMRadius.l,
+        padding: EdgeInsets.all(PMSpacing.xl),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.preview_outlined,
+              size: 56,
+              color: AppColors.textTertiary,
+            ),
+            SizedBox(height: PMSpacing.l),
+            Text(
+              '选择文件预览',
+              style: TextStyle(
+                color: AppColors.textPrimary,
+                fontWeight: FontWeight.w800,
+                fontSize: 17,
+              ),
+            ),
+            SizedBox(height: PMSpacing.s),
+            Text(
+              '图片、文本和 PDF 会显示在这里，列表不会被弹窗遮住。',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: AppColors.textSecondary,
+                height: 1.45,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (_isLoadingPreview) {
+      return _WorkspacePreviewChrome(
+        file: file,
+        onClose: () => setState(_clearPreviewState),
+        onDownload: () => _downloadFile(file),
+        child: const Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    if (_previewError != null) {
+      return _WorkspacePreviewChrome(
+        file: file,
+        onClose: () => setState(_clearPreviewState),
+        onDownload: () => _downloadFile(file),
+        child: PMErrorState(
+          title: '预览失败',
+          message: _previewError!,
+          onRetry: () => _previewFile(file),
+        ),
+      );
+    }
+
+    return _WorkspacePreviewChrome(
+      file: file,
+      onClose: () => setState(_clearPreviewState),
+      onDownload: () => _downloadFile(file),
+      child: preview == null
+          ? const SizedBox.shrink()
+          : _buildPreviewBody(file, preview),
     );
   }
 
@@ -1369,8 +1733,17 @@ class _WorkspacePageState extends State<WorkspacePage> {
         children: [
           Row(
             children: [
-              Icon(_workspaceIcon(workspace.workspaceType),
-                  color: AppColors.primary),
+              IconButton(
+                tooltip: '返回工作区列表',
+                onPressed: _backToWorkspaceList,
+                icon: const Icon(Icons.arrow_back),
+              ),
+              const SizedBox(width: 6),
+              PMSymbolIcon(
+                _workspaceSymbol(workspace.workspaceType),
+                size: 20,
+                color: AppColors.primary,
+              ),
               const SizedBox(width: 10),
               Expanded(
                 child: Column(
@@ -1452,6 +1825,12 @@ class _WorkspacePageState extends State<WorkspacePage> {
                         icon: const Icon(Icons.create_new_folder, size: 18),
                         label: const Text('文件夹'),
                       ),
+                      if (_selectedFileIds.isNotEmpty)
+                        OutlinedButton.icon(
+                          onPressed: () => setState(_selectedFileIds.clear),
+                          icon: const Icon(Icons.check_box_outlined, size: 18),
+                          label: Text('已选 ${_selectedFileIds.length}'),
+                        ),
                       FilledButton.icon(
                         onPressed: () => _uploadFile(),
                         icon: const Icon(Icons.upload_file, size: 18),
@@ -1507,7 +1886,10 @@ class _WorkspacePageState extends State<WorkspacePage> {
         children: [
           TextButton.icon(
             onPressed: () {
-              setState(() => _folderStack.clear());
+              setState(() {
+                _folderStack.clear();
+                _clearPreviewState();
+              });
               _loadContents();
             },
             icon: const Icon(Icons.home_work_outlined, size: 18),
@@ -1519,6 +1901,7 @@ class _WorkspacePageState extends State<WorkspacePage> {
               onPressed: () {
                 setState(() {
                   _folderStack.removeRange(index + 1, _folderStack.length);
+                  _clearPreviewState();
                 });
                 _loadContents();
               },
@@ -1541,126 +1924,181 @@ class _WorkspacePageState extends State<WorkspacePage> {
         onAction: () => _uploadFile(),
       );
     }
-    return ListView.separated(
+    return GridView.builder(
+      padding: const EdgeInsets.all(PMSpacing.l),
       itemCount: itemCount,
-      separatorBuilder: (_, __) => const Divider(height: 1),
+      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+        maxCrossAxisExtent: 260,
+        mainAxisSpacing: PMSpacing.m,
+        crossAxisSpacing: PMSpacing.m,
+        childAspectRatio: 1.08,
+      ),
       itemBuilder: (context, index) {
         if (index < _contents.folders.length) {
           final folder = _contents.folders[index];
-          return ListTile(
-            leading: const Icon(Icons.folder, color: AppColors.warning),
-            title:
-                Text(folder.name, maxLines: 1, overflow: TextOverflow.ellipsis),
-            subtitle: Text(folder.isLocked ? '文件夹 · 已锁定' : '文件夹'),
-            trailing: Wrap(
-              spacing: 4,
+          return PMCard(
+            interactive: true,
+            elevated: false,
+            onTap: () {
+              setState(() {
+                _folderStack.add(folder);
+                _selectedFileIds.clear();
+                _clearPreviewState();
+              });
+              _loadContents();
+            },
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                IconButton(
-                  tooltip: '授权',
-                  icon: const Icon(Icons.key_outlined),
-                  onPressed: () => _showPermissionDialog(
-                    resourceType: 'FOLDER',
-                    resourceId: folder.id,
-                    resourceName: folder.name,
+                Row(
+                  children: [
+                    Container(
+                      width: 44,
+                      height: 44,
+                      decoration: BoxDecoration(
+                        color: AppColors.warning.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(PMRadius.m),
+                      ),
+                      child: const Icon(
+                        Icons.folder,
+                        color: AppColors.warning,
+                      ),
+                    ),
+                    const Spacer(),
+                    IconButton(
+                      tooltip: '授权',
+                      icon: const Icon(Icons.key_outlined),
+                      onPressed: () => _showPermissionDialog(
+                        resourceType: 'FOLDER',
+                        resourceId: folder.id,
+                        resourceName: folder.name,
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: folder.isLocked ? '解锁' : '锁定',
+                      icon:
+                          Icon(folder.isLocked ? Icons.lock_open : Icons.lock),
+                      onPressed: () => _toggleFolderLock(folder),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: PMSpacing.m),
+                Text(
+                  folder.name,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: AppColors.textPrimary,
+                    fontWeight: FontWeight.w900,
                   ),
                 ),
-                IconButton(
-                  tooltip: folder.isLocked ? '解锁' : '锁定',
-                  icon: Icon(folder.isLocked ? Icons.lock_open : Icons.lock),
-                  onPressed: () => _toggleFolderLock(folder),
+                const SizedBox(height: PMSpacing.xs),
+                Text(
+                  folder.isLocked ? '文件夹 · 已锁定' : '文件夹',
+                  style: const TextStyle(color: AppColors.textSecondary),
                 ),
-                IconButton(
-                  tooltip: '移入回收站',
-                  icon: const Icon(Icons.delete_outline),
-                  onPressed: () => _deleteFolder(folder),
+                const Spacer(),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: IconButton(
+                    tooltip: '移入回收站',
+                    icon: const Icon(Icons.delete_outline),
+                    onPressed: () => _deleteFolder(folder),
+                  ),
                 ),
               ],
             ),
-            onTap: () {
-              setState(() => _folderStack.add(folder));
-              _loadContents();
-            },
           );
         }
         final file = _contents.files[index - _contents.folders.length];
-        return ListTile(
-          leading: CircleAvatar(
-            backgroundColor: AppColors.primary.withValues(alpha: 0.1),
-            child: Icon(
-              _fileIcon(file),
-              color: AppColors.primary,
+        final selected = _selectedFileIds.contains(file.id);
+        return Stack(
+          children: [
+            Positioned.fill(
+              child: PMAttachmentCard(
+                type: _workspaceAttachmentType(file),
+                name: file.displayName,
+                sizeText: [
+                  file.isBotFile
+                      ? 'Bot: ${file.sourceBotName ?? '未知'}'
+                      : file.createdByName ?? '用户上传',
+                  'v${file.currentVersion}',
+                  if (file.fileSize != null) _formatBytes(file.fileSize!),
+                  if (file.scanStatus != null) _scanLabel(file.scanStatus!),
+                ].join(' · '),
+                forcePreview: file.isImage,
+                onTap: () => file.isPreviewable
+                    ? _previewFile(file)
+                    : _downloadFile(file),
+              ),
             ),
-          ),
-          title: Row(
-            children: [
-              Expanded(
-                child: Text(
-                  file.displayName,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
+            Positioned(
+              left: 8,
+              top: 8,
+              child: Checkbox(
+                value: selected,
+                onChanged: (_) {
+                  setState(() {
+                    if (selected) {
+                      _selectedFileIds.remove(file.id);
+                    } else {
+                      _selectedFileIds.add(file.id);
+                    }
+                  });
+                },
               ),
-              if (file.isLocked) const Icon(Icons.lock, size: 16),
-            ],
-          ),
-          subtitle: Text(
-            [
-              file.isBotFile
-                  ? 'Bot: ${file.sourceBotName ?? '未知'}'
-                  : file.createdByName ?? '用户上传',
-              'v${file.currentVersion}',
-              if (file.fileSize != null) _formatBytes(file.fileSize!),
-              if (file.scanStatus != null) _scanLabel(file.scanStatus!),
-              if (file.storageProvider != null) file.storageProvider!,
-              if (file.updatedAt != null) _formatDate(file.updatedAt!),
-            ].join(' · '),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-          trailing: Wrap(
-            spacing: 4,
-            children: [
-              IconButton(
-                tooltip: '预览',
-                icon: const Icon(Icons.visibility_outlined),
-                onPressed: file.isPreviewable ? () => _previewFile(file) : null,
+            ),
+            Positioned(
+              right: 6,
+              top: 6,
+              child: PopupMenuButton<String>(
+                tooltip: '更多',
+                onSelected: (value) {
+                  switch (value) {
+                    case 'versions':
+                      _showVersions(file);
+                      break;
+                    case 'permission':
+                      _showPermissionDialog(
+                        resourceType: 'FILE',
+                        resourceId: file.id,
+                        resourceName: file.displayName,
+                      );
+                      break;
+                    case 'replace':
+                      _uploadFile(replaceFile: file);
+                      break;
+                    case 'lock':
+                      _toggleFileLock(file);
+                      break;
+                    case 'download':
+                      _downloadFile(file);
+                      break;
+                    case 'delete':
+                      _deleteFile(file);
+                      break;
+                  }
+                },
+                itemBuilder: (context) => [
+                  const PopupMenuItem(value: 'versions', child: Text('版本')),
+                  const PopupMenuItem(value: 'permission', child: Text('授权')),
+                  const PopupMenuItem(value: 'replace', child: Text('上传新版本')),
+                  PopupMenuItem(
+                    value: 'lock',
+                    child: Text(file.isLocked ? '解锁' : '锁定'),
+                  ),
+                  const PopupMenuItem(value: 'download', child: Text('下载')),
+                  const PopupMenuItem(value: 'delete', child: Text('移入回收站')),
+                ],
               ),
-              IconButton(
-                tooltip: '版本',
-                icon: const Icon(Icons.history),
-                onPressed: () => _showVersions(file),
+            ),
+            if (file.isLocked)
+              const Positioned(
+                right: 48,
+                top: 16,
+                child: Icon(Icons.lock, color: AppColors.warning, size: 18),
               ),
-              IconButton(
-                tooltip: '授权',
-                icon: const Icon(Icons.key_outlined),
-                onPressed: () => _showPermissionDialog(
-                  resourceType: 'FILE',
-                  resourceId: file.id,
-                  resourceName: file.displayName,
-                ),
-              ),
-              IconButton(
-                tooltip: '上传新版本',
-                icon: const Icon(Icons.upload),
-                onPressed: () => _uploadFile(replaceFile: file),
-              ),
-              IconButton(
-                tooltip: file.isLocked ? '解锁' : '锁定',
-                icon: Icon(file.isLocked ? Icons.lock_open : Icons.lock),
-                onPressed: () => _toggleFileLock(file),
-              ),
-              IconButton(
-                tooltip: '下载',
-                icon: const Icon(Icons.download),
-                onPressed: () => _downloadFile(file),
-              ),
-              IconButton(
-                tooltip: '移入回收站',
-                icon: const Icon(Icons.delete_outline),
-                onPressed: () => _deleteFile(file),
-              ),
-            ],
-          ),
+          ],
         );
       },
     );
@@ -1907,20 +2345,16 @@ class _WorkspacePageState extends State<WorkspacePage> {
         false;
   }
 
-  IconData _fileIcon(WorkspaceFileItem file) {
+  AttachmentType _workspaceAttachmentType(WorkspaceFileItem file) {
     final type = (file.mimeType ?? '').toLowerCase();
     final name = file.displayName.toLowerCase();
-    if (file.isBotFile) return Icons.smart_toy_outlined;
-    if (type.startsWith('image/')) return Icons.image_outlined;
-    if (type == 'application/pdf' || name.endsWith('.pdf')) {
-      return Icons.picture_as_pdf_outlined;
+    if (file.isImage) return AttachmentType.image;
+    if (type.startsWith('video/')) return AttachmentType.video;
+    if (type.startsWith('audio/')) return AttachmentType.voice;
+    if (name.endsWith('.geojson') || name.endsWith('.kml')) {
+      return AttachmentType.location;
     }
-    if (name.endsWith('.zip') ||
-        name.endsWith('.rar') ||
-        name.endsWith('.7z')) {
-      return Icons.inventory_2_outlined;
-    }
-    return Icons.description_outlined;
+    return AttachmentType.file;
   }
 
   bool _isCurrentPermission(
@@ -1969,9 +2403,17 @@ class _WorkspacePageState extends State<WorkspacePage> {
 
   IconData _workspaceIcon(String type) {
     return switch (type) {
-      'PERSONAL' => Icons.person_pin_circle_outlined,
-      'SERVICE' => Icons.cloud_sync_outlined,
-      _ => Icons.groups_2_outlined,
+      'PERSONAL' => Icons.person,
+      'SERVICE' => Icons.storage,
+      _ => Icons.groups,
+    };
+  }
+
+  PMSymbol _workspaceSymbol(String type) {
+    return switch (type) {
+      'PERSONAL' => PMSymbol.profile,
+      'SERVICE' => PMSymbol.files,
+      _ => PMSymbol.workspace,
     };
   }
 
@@ -2005,6 +2447,160 @@ class _WorkspacePageState extends State<WorkspacePage> {
       ),
     );
   }
+}
+
+class _WorkspacePreviewChrome extends StatelessWidget {
+  const _WorkspacePreviewChrome({
+    required this.file,
+    required this.child,
+    required this.onClose,
+    required this.onDownload,
+  });
+
+  final WorkspaceFileItem file;
+  final Widget child;
+  final VoidCallback onClose;
+  final VoidCallback onDownload;
+
+  @override
+  Widget build(BuildContext context) {
+    return PMCard(
+      radius: PMRadius.l,
+      padding: EdgeInsets.zero,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(PMSpacing.l),
+            child: Row(
+              children: [
+                Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    color: _previewAccent(file).withValues(alpha: 0.11),
+                    borderRadius: BorderRadius.circular(PMRadius.m),
+                  ),
+                  child: Icon(
+                    _previewIcon(file),
+                    color: _previewAccent(file),
+                  ),
+                ),
+                const SizedBox(width: PMSpacing.m),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        file.displayName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: AppColors.textPrimary,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                      const SizedBox(height: PMSpacing.xs),
+                      Text(
+                        [
+                          'v${file.currentVersion}',
+                          if (file.fileSize != null)
+                            _formatPreviewBytes(file.fileSize!),
+                          if (file.scanStatus != null) file.scanStatus!,
+                        ].join(' · '),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: AppColors.textSecondary,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  tooltip: '关闭预览',
+                  onPressed: onClose,
+                  icon: const Icon(Icons.close),
+                ),
+              ],
+            ),
+          ),
+          const Divider(height: 1, color: AppColors.borderLight),
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.all(PMSpacing.l),
+              child: child,
+            ),
+          ),
+          const Divider(height: 1, color: AppColors.borderLight),
+          Padding(
+            padding: const EdgeInsets.all(PMSpacing.l),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    file.isLocked ? '文件已锁定，编辑操作受权限限制。' : '预览不会离开当前目录。',
+                    style: const TextStyle(
+                      color: AppColors.textSecondary,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: PMSpacing.m),
+                PMButton(
+                  label: '下载',
+                  icon: Icons.download_outlined,
+                  compact: true,
+                  variant: PMButtonVariant.secondary,
+                  onPressed: onDownload,
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  static IconData _previewIcon(WorkspaceFileItem file) {
+    final type = (file.mimeType ?? '').toLowerCase();
+    final name = file.displayName.toLowerCase();
+    if (file.isImage) return Icons.image_outlined;
+    if (type == 'application/pdf' || name.endsWith('.pdf')) {
+      return Icons.picture_as_pdf_outlined;
+    }
+    if (file.isTextPreview) return Icons.article_outlined;
+    if (type.contains('zip') || name.endsWith('.zip')) {
+      return Icons.archive_outlined;
+    }
+    return Icons.insert_drive_file_outlined;
+  }
+
+  static Color _previewAccent(WorkspaceFileItem file) {
+    final type = (file.mimeType ?? '').toLowerCase();
+    final name = file.displayName.toLowerCase();
+    if (file.isImage) return AppColors.secondary;
+    if (type == 'application/pdf' || name.endsWith('.pdf')) {
+      return AppColors.error;
+    }
+    if (file.isTextPreview) return AppColors.primary;
+    if (type.contains('zip') || name.endsWith('.zip')) {
+      return AppColors.warning;
+    }
+    return AppColors.primaryDark;
+  }
+}
+
+String _formatPreviewBytes(int bytes) {
+  if (bytes < 1024) return '$bytes B';
+  if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
+  if (bytes < 1024 * 1024 * 1024) {
+    return '${(bytes / 1024 / 1024).toStringAsFixed(1)} MB';
+  }
+  return '${(bytes / 1024 / 1024 / 1024).toStringAsFixed(1)} GB';
 }
 
 class _TextDialogResult {

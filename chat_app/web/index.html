@@ -16,6 +16,7 @@
   -->
   <base href="$FLUTTER_BASE_HREF">
 
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <meta charset="UTF-8">
   <meta content="IE=Edge" http-equiv="X-UA-Compatible">
   <meta name="description" content="PM chat - 团队协作、AI 助手和工作区任务的一体化聊天入口。">
@@ -134,7 +135,64 @@
   </div>
   <script>
     (function () {
-      var cacheResetVersion = 'pm-chat-desktop-20260525-3';
+      var originalFaviconHref = 'favicon.png';
+      var faviconImage = new Image();
+      var faviconReady = false;
+      var pendingCount = 0;
+
+      function ensureIconLink(type, href) {
+        var icon = document.querySelector("link[rel~='icon']");
+        if (!icon) {
+          icon = document.createElement('link');
+          icon.rel = 'icon';
+          document.head.appendChild(icon);
+        }
+        icon.type = type;
+        icon.href = href;
+      }
+
+      function drawBadge(count) {
+        if (!faviconReady) {
+          pendingCount = count;
+          return;
+        }
+        if (!count || count <= 0) {
+          ensureIconLink('image/png', originalFaviconHref);
+          return;
+        }
+        var canvas = document.createElement('canvas');
+        canvas.width = 64;
+        canvas.height = 64;
+        var ctx = canvas.getContext('2d');
+        ctx.clearRect(0, 0, 64, 64);
+        ctx.drawImage(faviconImage, 0, 0, 64, 64);
+        var label = count > 99 ? '99+' : String(count);
+        ctx.fillStyle = '#EF4444';
+        ctx.beginPath();
+        ctx.arc(46, 18, 16, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#FFFFFF';
+        ctx.font = '700 ' + (label.length > 2 ? 19 : 24) + 'px Arial, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(label, 46, 19);
+        ensureIconLink('image/png', canvas.toDataURL('image/png'));
+      }
+
+      window.updateFaviconBadge = function (count) {
+        drawBadge(Math.max(0, Number(count) || 0));
+      };
+
+      faviconImage.onload = function () {
+        faviconReady = true;
+        drawBadge(pendingCount);
+      };
+      faviconImage.src = originalFaviconHref;
+    })();
+  </script>
+  <script>
+    (function () {
+      var cacheResetVersion = 'pm-chat-mobile-input-20260530-1';
 
       function dismissBoot() {
         var boot = document.getElementById('pm-boot');

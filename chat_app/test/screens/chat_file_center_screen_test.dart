@@ -25,7 +25,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(service.downloadedIds, ['2']);
-    expect(find.text('已下载 doc.pdf (3 B)'), findsOneWidget);
+    expect(find.text('已取回 doc.pdf (3 B)'), findsOneWidget);
   });
 
   testWidgets('filters file center by image type', (tester) async {
@@ -46,6 +46,30 @@ void main() {
     expect(service.requestedTypes.last, MessageType.image);
     expect(find.text('photo.png'), findsOneWidget);
     expect(find.text('doc.pdf'), findsNothing);
+  });
+
+  testWidgets('desktop grid keeps image file details visible', (tester) async {
+    tester.view.physicalSize = const Size(1400, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+    final service = FakeFileCenterChatService();
+
+    await tester.pumpWidget(MaterialApp(
+      home: ChatFileCenterScreen(
+        chatRoomId: '42',
+        chatRoomName: 'Project Room',
+        chatService: service,
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(find.text('photo.png'), findsOneWidget);
+    expect(find.text('2 B · Alice'), findsOneWidget);
+    expect(find.byType(CustomPaint), findsWidgets);
   });
 }
 

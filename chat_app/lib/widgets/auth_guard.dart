@@ -9,10 +9,12 @@ class AuthGuard extends StatefulWidget {
     super.key,
     required this.child,
     this.authService,
+    this.authCheck,
   });
 
   final Widget child;
   final AuthService? authService;
+  final Future<bool> Function()? authCheck;
 
   @override
   State<AuthGuard> createState() => _AuthGuardState();
@@ -28,7 +30,8 @@ class _AuthGuardState extends State<AuthGuard> {
     super.initState();
     _authService = widget.authService ?? AuthService();
     _authService.addListener(_handleAuthChanged);
-    _authFuture = _authService.ensureAuthenticated();
+    _authFuture =
+        widget.authCheck?.call() ?? _authService.ensureAuthenticated();
   }
 
   @override

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../constants/app_colors.dart';
+import '../../design/design.dart';
 import '../../services/auth_service.dart';
 import '../../services/bot_service.dart';
 import '../../services/encryption_service.dart';
@@ -7,6 +8,7 @@ import '../../services/user_profile_service.dart';
 import '../../widgets/pm_brand.dart';
 import '../../widgets/pm_responsive.dart';
 import '../profile/profile_edit_screen.dart';
+import 'chat_preferences_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -19,14 +21,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final AuthService _authService = AuthService();
   final EncryptionService _encryptionService = EncryptionService();
   final UserProfileService _profileService = UserProfileService();
+  final TextEditingController _searchController = TextEditingController();
   bool _e2eeEnabled = false;
+  bool _isGeneratingE2ee = false;
   bool _notificationsEnabled = true;
   UserAppSettings _appSettings = const UserAppSettings();
+  String _settingsQuery = '';
 
   @override
   void initState() {
     super.initState();
     _loadSettings();
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadSettings() async {
@@ -67,6 +78,41 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
+  Future<void> _handleE2eeChanged(bool value) async {
+    if (!value) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('暂不支持在客户端删除已生成的端到端加密密钥')),
+      );
+      return;
+    }
+    if (_e2eeEnabled || _isGeneratingE2ee) return;
+
+    setState(() => _isGeneratingE2ee = true);
+    try {
+      final success = await _encryptionService.generateAndUploadKeys();
+      if (!mounted) return;
+      setState(() {
+        _e2eeEnabled = success;
+        _isGeneratingE2ee = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(success ? '加密密钥已生成并上传' : '加密密钥生成失败'),
+          backgroundColor: success ? AppColors.success : AppColors.error,
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _isGeneratingE2ee = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('加密密钥生成失败: $error'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    }
+  }
+
   Future<void> _openProfileEditor() async {
     final user = _authService.currentUser;
     if (user == null) {
@@ -91,8 +137,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
 
     return Scaffold(
-      appBar: AppBar(title: const Text('设置')),
-      body: _buildSettingsList(),
+      appBar: AppBar(title: const Text('设置中心')),
+      body: _buildSettingsList(showMobilePolicy: true),
     );
   }
 
@@ -107,24 +153,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
               children: [
                 PMDesktopHeader(
                   title: '设置中心',
-                  subtitle: '管理安全、通知、Bot、账号和合规信息',
+                  subtitle: '管理隐私安全、通知、账号和合规信息',
                   icon: Icons.settings,
                   actions: [
-                    OutlinedButton.icon(
+                    PMButton(
+                      label: '返回',
+                      icon: Icons.arrow_back,
                       onPressed: () => Navigator.of(context).maybePop(),
-                      icon: const Icon(Icons.arrow_back, size: 18),
-                      label: const Text('返回'),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: AppColors.textPrimary,
-                        side: const BorderSide(color: AppColors.border),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 14,
-                          vertical: 13,
-                        ),
-                      ),
+                      variant: PMButtonVariant.secondary,
+                      compact: true,
                     ),
                   ],
                 ),
@@ -142,87 +179,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ),
                       const SizedBox(width: 24),
                       SizedBox(
-                        width: 340,
-                        child: Column(
-                          children: [
-                            PMDesktopCard(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  const Text(
-                                    '当前策略',
-                                    style: TextStyle(
-                                      fontSize: 18,
-                                      fontWeight: FontWeight.w900,
-                                      color: AppColors.textPrimary,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 14),
-                                  _DesktopStatusRow(
-                                    icon: Icons.lock_outline,
-                                    label: '端到端加密',
-                                    value: _e2eeEnabled ? '已启用' : '未启用',
-                                  ),
-                                  const SizedBox(height: 12),
-                                  _DesktopStatusRow(
-                                    icon: Icons.notifications,
-                                    label: '消息通知',
-                                    value:
-                                        _notificationsEnabled ? '已开启' : '已关闭',
-                                  ),
-                                  const SizedBox(height: 12),
-                                  const _DesktopStatusRow(
-                                    icon: Icons.verified_user_outlined,
-                                    label: '隐私控制',
-                                    value: '已连接后端设置',
-                                  ),
-                                ],
-                              ),
-                            ),
-                            const SizedBox(height: 16),
-                            PMDesktopCard(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.stretch,
-                                children: [
-                                  const Text(
-                                    '账户',
-                                    style: TextStyle(
-                                      fontSize: 18,
-                                      fontWeight: FontWeight.w900,
-                                      color: AppColors.textPrimary,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 12),
-                                  FilledButton.icon(
-                                    onPressed: _openProfileEditor,
-                                    icon: const Icon(Icons.edit, size: 18),
-                                    label: const Text('修改个人资料'),
-                                  ),
-                                  const SizedBox(height: 10),
-                                  OutlinedButton.icon(
-                                    onPressed: () {
-                                      Navigator.push(
-                                        context,
-                                        MaterialPageRoute(
-                                          builder: (_) => ChangePasswordScreen(
-                                            authService: _authService,
-                                          ),
-                                        ),
-                                      );
-                                    },
-                                    icon: const Icon(Icons.password, size: 18),
-                                    label: const Text('修改密码'),
-                                    style: OutlinedButton.styleFrom(
-                                      shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(8),
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
+                        width: 260,
+                        child: _buildPolicyPanel(),
                       ),
                     ],
                   ),
@@ -235,96 +193,168 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  Widget _buildSettingsList() {
+  Widget _buildSettingsList({bool showMobilePolicy = false}) {
+    final sections = [
+      _buildPrivacySection(),
+      _buildNotificationSection(),
+      _buildAccountSection(),
+      _buildAboutSection(),
+      _buildDangerSection(),
+    ].whereType<Widget>().toList();
+
     return ListView(
-      padding: const EdgeInsets.symmetric(vertical: 8),
+      padding: const EdgeInsets.all(PMSpacing.xl),
       children: [
-        // Privacy & Security
-        _buildSectionHeader('隐私与安全'),
-        SwitchListTile(
+        _buildSettingsSearchBox(),
+        if (_isGeneratingE2ee) ...[
+          const SizedBox(height: PMSpacing.l),
+          const PMProgressStrip(label: '正在生成端到端加密密钥...'),
+        ],
+        const SizedBox(height: PMSpacing.l),
+        if (sections.isEmpty)
+          PMEmptyState(
+            icon: Icons.search_off,
+            title: '没有找到相关设置',
+            subtitle: '换一个关键词试试，例如「通知」「隐私」或「密码」。',
+            variant: EmptyStateVariant.muted,
+            action: PMButton(
+              label: '清空搜索',
+              icon: Icons.close,
+              onPressed: () {
+                _searchController.clear();
+                setState(() => _settingsQuery = '');
+              },
+              variant: PMButtonVariant.secondary,
+            ),
+          )
+        else
+          for (var i = 0; i < sections.length; i++) ...[
+            sections[i],
+            if (i != sections.length - 1) const SizedBox(height: PMSpacing.l),
+          ],
+        if (showMobilePolicy) ...[
+          const SizedBox(height: PMSpacing.l),
+          _buildMobilePolicyCard(),
+        ],
+        const SizedBox(height: PMSpacing.xl),
+      ],
+    );
+  }
+
+  Widget? _buildPrivacySection() {
+    final rows = <Widget>[
+      if (_matchesSetting('端到端加密', ['密钥', 'e2ee', '隐私', '安全']))
+        PMListRow(
+          leading: _settingsIcon(Icons.lock_outline, AppColors.primary),
           title: const Text('端到端加密'),
-          subtitle: Text(_e2eeEnabled ? '已启用' : '未启用'),
-          value: _e2eeEnabled,
-          onChanged: (value) async {
-            if (value) {
-              final success = await _encryptionService.generateAndUploadKeys();
-              setState(() => _e2eeEnabled = success);
-              if (success && mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('加密密钥已生成并上传')),
-                );
-              }
-            }
-          },
-          secondary: const Icon(Icons.lock),
-        ),
-        const ListTile(
-          leading: Icon(Icons.timer),
-          title: Text('阅后即焚默认时间'),
-          subtitle: Text('关闭'),
-          trailing: Icon(Icons.chevron_right),
-        ),
-
-        // Notifications
-        _buildSectionHeader('通知'),
-        SwitchListTile(
-          title: const Text('消息通知'),
-          value: _notificationsEnabled,
-          onChanged: (value) => _saveAppSettings(
-            _appSettings.copyWith(messageNotificationsEnabled: value),
-          ),
-          secondary: const Icon(Icons.notifications),
-        ),
-
-        // LLM Bot
-        _buildSectionHeader('AI 机器人'),
-        ListTile(
-          leading: const Icon(Icons.smart_toy),
-          title: const Text('管理机器人'),
-          subtitle: const Text('创建和管理AI聊天机器人'),
-          trailing: const Icon(Icons.chevron_right),
-          onTap: () {
-            Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => const BotManagementScreen(),
-                ));
-          },
-        ),
-
-        // Account
-        _buildSectionHeader('账户'),
-        ListTile(
-          leading: const Icon(Icons.person),
-          title: const Text('修改个人资料'),
-          trailing: const Icon(Icons.chevron_right),
-          onTap: _openProfileEditor,
-        ),
-        ListTile(
-          leading: const Icon(Icons.lock_outline),
-          title: const Text('修改密码'),
-          trailing: const Icon(Icons.chevron_right),
-          onTap: () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => ChangePasswordScreen(authService: _authService),
+          subtitle: Text(_e2eeEnabled ? '已启用，新消息会使用本地密钥保护' : '为新消息生成并上传公钥'),
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (_e2eeEnabled)
+                const PMChip(
+                  label: '已启用',
+                  icon: Icons.verified_user_outlined,
+                  selected: true,
+                  color: AppColors.success,
+                ),
+              if (_e2eeEnabled) const SizedBox(width: PMSpacing.s),
+              Switch(
+                value: _e2eeEnabled,
+                onChanged: _isGeneratingE2ee ? null : _handleE2eeChanged,
               ),
-            );
-          },
+            ],
+          ),
         ),
+      if (_matchesSetting('显示在线状态', ['隐私', '在线', '状态']))
+        PMListRow(
+          leading: _settingsIcon(Icons.circle, AppColors.success),
+          title: const Text('显示在线状态'),
+          subtitle: const Text('允许联系人看到你的在线、离开或忙碌状态'),
+          trailing: Switch(
+            value: _appSettings.showOnlineStatus,
+            onChanged: (value) => _saveAppSettings(
+              _appSettings.copyWith(showOnlineStatus: value),
+            ),
+          ),
+        ),
+      if (_matchesSetting('允许好友请求', ['隐私', '联系人']))
+        PMListRow(
+          leading:
+              _settingsIcon(Icons.person_add_alt_1, AppColors.secondaryDark),
+          title: const Text('允许好友请求'),
+          subtitle: const Text('关闭后仅能由你主动添加联系人'),
+          trailing: Switch(
+            value: _appSettings.allowFriendRequests,
+            onChanged: (value) => _saveAppSettings(
+              _appSettings.copyWith(allowFriendRequests: value),
+            ),
+          ),
+        ),
+      if (_matchesSetting('允许私聊', ['隐私', '聊天']))
+        PMListRow(
+          leading:
+              _settingsIcon(Icons.chat_bubble_outline, AppColors.primaryDark),
+          title: const Text('允许私聊'),
+          subtitle: const Text('允许好友创建与你的私聊会话'),
+          trailing: Switch(
+            value: _appSettings.allowDirectMessages,
+            onChanged: (value) => _saveAppSettings(
+              _appSettings.copyWith(allowDirectMessages: value),
+            ),
+          ),
+        ),
+      if (_matchesSetting('阅后即焚默认时间', ['安全', '计时', '消息']))
+        PMListRow(
+          leading: _settingsIcon(Icons.timer_outlined, AppColors.warning),
+          title: const Text('阅后即焚默认时间'),
+          subtitle: const Text('关闭'),
+          trailing:
+              const Icon(Icons.chevron_right, color: AppColors.textTertiary),
+        ),
+    ];
+    return _sectionOrNull(
+      title: '隐私安全',
+      subtitle: '加密、在线状态和联系人可见性',
+      rows: rows,
+    );
+  }
 
-        // About
-        _buildSectionHeader('关于'),
-        const ListTile(
-          leading: Icon(Icons.info),
-          title: Text('版本'),
-          subtitle: Text('1.0.0'),
+  Widget? _buildNotificationSection() {
+    final rows = <Widget>[
+      if (_matchesSetting('消息通知', ['通知', '提醒', '推送']))
+        PMListRow(
+          leading:
+              _settingsIcon(Icons.notifications_outlined, AppColors.primary),
+          title: const Text('消息通知'),
+          subtitle: const Text('接收离线推送和会话提醒'),
+          trailing: Switch(
+            value: _notificationsEnabled,
+            onChanged: (value) => _saveAppSettings(
+              _appSettings.copyWith(messageNotificationsEnabled: value),
+            ),
+          ),
         ),
-        ListTile(
-          leading: const Icon(Icons.notifications_active),
+      if (_matchesSetting('已读回执', ['通知', '回执', '已读']))
+        PMListRow(
+          leading: _settingsIcon(Icons.done_all, AppColors.secondaryDark),
+          title: const Text('已读回执'),
+          subtitle: const Text('允许发送已读状态'),
+          trailing: Switch(
+            value: _appSettings.readReceiptsEnabled,
+            onChanged: (value) => _saveAppSettings(
+              _appSettings.copyWith(readReceiptsEnabled: value),
+            ),
+          ),
+        ),
+      if (_matchesSetting('通知设置', ['通知', '高级']))
+        PMListRow(
+          leading: _settingsIcon(
+              Icons.notifications_active_outlined, AppColors.accent),
           title: const Text('通知设置'),
-          trailing: const Icon(Icons.chevron_right),
+          subtitle: const Text('进入完整通知设置页'),
+          trailing:
+              const Icon(Icons.chevron_right, color: AppColors.textTertiary),
           onTap: () async {
             final updated = await Navigator.push<UserAppSettings>(
               context,
@@ -343,10 +373,88 @@ class _SettingsScreenState extends State<SettingsScreen> {
             }
           },
         ),
-        ListTile(
-          leading: const Icon(Icons.privacy_tip),
+    ];
+    return _sectionOrNull(
+      title: '通知',
+      subtitle: '消息提醒、已读回执和推送偏好',
+      rows: rows,
+    );
+  }
+
+  Widget? _buildAccountSection() {
+    final rows = <Widget>[
+      if (_matchesSetting('修改个人资料', ['账号', '头像', '资料']))
+        PMListRow(
+          leading: _settingsIcon(Icons.person_outline, AppColors.primary),
+          title: const Text('修改个人资料'),
+          subtitle: const Text('头像、昵称、简介和联系方式'),
+          trailing:
+              const Icon(Icons.chevron_right, color: AppColors.textTertiary),
+          onTap: _openProfileEditor,
+        ),
+      if (_matchesSetting('聊天偏好', ['账号', '外观', '背景', '头像框', '气泡']))
+        PMListRow(
+          leading: _settingsIcon(Icons.palette_outlined, AppColors.accent),
+          title: const Text('聊天偏好'),
+          subtitle: const Text('聊天背景、头像框和自己发送的气泡样式'),
+          trailing:
+              const Icon(Icons.chevron_right, color: AppColors.textTertiary),
+          onTap: () async {
+            final updated = await Navigator.push<UserAppSettings>(
+              context,
+              MaterialPageRoute(
+                builder: (_) => ChatPreferencesScreen(
+                  initialSettings: _appSettings,
+                  profileService: _profileService,
+                ),
+              ),
+            );
+            if (updated != null) {
+              setState(() => _appSettings = updated);
+            } else {
+              await _loadSettings();
+            }
+          },
+        ),
+      if (_matchesSetting('修改密码', ['账号', '安全', '登录']))
+        PMListRow(
+          leading:
+              _settingsIcon(Icons.password_outlined, AppColors.primaryDark),
+          title: const Text('修改密码'),
+          subtitle: const Text('更新当前账号的登录密码'),
+          trailing:
+              const Icon(Icons.chevron_right, color: AppColors.textTertiary),
+          onTap: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => ChangePasswordScreen(authService: _authService),
+              ),
+            );
+          },
+        ),
+      if (_matchesSetting('管理机器人', ['AI', 'Bot', '机器人', '账号']))
+        PMListRow(
+          leading:
+              _settingsIcon(Icons.smart_toy_outlined, AppColors.secondaryDark),
+          title: const Text('管理机器人'),
+          subtitle: const Text('创建和管理 AI 聊天机器人'),
+          trailing:
+              const Icon(Icons.chevron_right, color: AppColors.textTertiary),
+          onTap: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const BotManagementScreen()),
+            );
+          },
+        ),
+      if (_matchesSetting('隐私设置', ['账号', '隐私', '高级']))
+        PMListRow(
+          leading: _settingsIcon(Icons.privacy_tip_outlined, AppColors.warning),
           title: const Text('隐私设置'),
-          trailing: const Icon(Icons.chevron_right),
+          subtitle: const Text('进入完整隐私设置页'),
+          trailing:
+              const Icon(Icons.chevron_right, color: AppColors.textTertiary),
           onTap: () async {
             final updated = await Navigator.push<UserAppSettings>(
               context,
@@ -362,10 +470,30 @@ class _SettingsScreenState extends State<SettingsScreen> {
             }
           },
         ),
-        ListTile(
-          leading: const Icon(Icons.description),
+    ];
+    return _sectionOrNull(
+      title: '账号',
+      subtitle: '个人资料、密码和机器人入口',
+      rows: rows,
+    );
+  }
+
+  Widget? _buildAboutSection() {
+    final rows = <Widget>[
+      if (_matchesSetting('版本', ['关于']))
+        PMListRow(
+          leading: _settingsIcon(Icons.info_outline, AppColors.primary),
+          title: const Text('版本'),
+          subtitle: const Text('1.0.0'),
+        ),
+      if (_matchesSetting('隐私政策', ['关于', '合规']))
+        PMListRow(
+          leading: _settingsIcon(
+              Icons.description_outlined, AppColors.secondaryDark),
           title: const Text('隐私政策'),
-          trailing: const Icon(Icons.chevron_right),
+          subtitle: const Text('查看数据使用和附件鉴权说明'),
+          trailing:
+              const Icon(Icons.chevron_right, color: AppColors.textTertiary),
           onTap: () => Navigator.push(
             context,
             MaterialPageRoute(
@@ -377,10 +505,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ),
         ),
-        ListTile(
-          leading: const Icon(Icons.article),
+      if (_matchesSetting('用户协议', ['关于', '协议']))
+        PMListRow(
+          leading: _settingsIcon(Icons.article_outlined, AppColors.accent),
           title: const Text('用户协议'),
-          trailing: const Icon(Icons.chevron_right),
+          subtitle: const Text('查看内部部署和使用边界'),
+          trailing:
+              const Icon(Icons.chevron_right, color: AppColors.textTertiary),
           onTap: () => Navigator.push(
             context,
             MaterialPageRoute(
@@ -392,58 +523,205 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ),
         ),
-
-        // Logout
-        const SizedBox(height: 20),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          child: ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.red,
-              foregroundColor: Colors.white,
-              minimumSize: const Size.fromHeight(48),
-            ),
-            onPressed: () async {
-              final navigator = Navigator.of(context);
-              final confirm = await showDialog<bool>(
-                context: context,
-                builder: (ctx) => AlertDialog(
-                  title: const Text('确认退出'),
-                  content: const Text('确定要退出登录吗？'),
-                  actions: [
-                    TextButton(
-                        onPressed: () => Navigator.pop(ctx, false),
-                        child: const Text('取消')),
-                    TextButton(
-                        onPressed: () => Navigator.pop(ctx, true),
-                        child: const Text('退出')),
-                  ],
-                ),
-              );
-              if (confirm == true) {
-                await _authService.logout();
-                if (!mounted) return;
-                navigator.pushNamedAndRemoveUntil('/login', (route) => false);
-              }
-            },
-            child: const Text('退出登录'),
-          ),
-        ),
-        const SizedBox(height: 40),
-      ],
+    ];
+    return _sectionOrNull(
+      title: '关于',
+      subtitle: '版本、协议和合规文档',
+      rows: rows,
     );
   }
 
-  Widget _buildSectionHeader(String title) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 20, 16, 8),
-      child: Text(title,
-          style: TextStyle(
-            fontSize: 13,
-            fontWeight: FontWeight.w600,
-            color: Theme.of(context).colorScheme.primary,
-          )),
+  Widget? _buildDangerSection() {
+    final rows = <Widget>[
+      if (_matchesSetting('退出登录', ['危险', '账号']))
+        PMListRow(
+          leading: _settingsIcon(Icons.logout, AppColors.error),
+          title: const Text(
+            '退出登录',
+            style: TextStyle(color: AppColors.error),
+          ),
+          subtitle: const Text('清除本机登录态并返回登录页'),
+          trailing: const Icon(Icons.chevron_right, color: AppColors.error),
+          onTap: _confirmLogout,
+        ),
+    ];
+    return _sectionOrNull(
+      title: '危险操作',
+      subtitle: '这些操作会影响当前登录会话',
+      rows: rows,
     );
+  }
+
+  Widget? _sectionOrNull({
+    required String title,
+    required String subtitle,
+    required List<Widget> rows,
+  }) {
+    if (rows.isEmpty) return null;
+    return PMSectionCard(title: title, subtitle: subtitle, children: rows);
+  }
+
+  Widget _buildSettingsSearchBox() {
+    return TextField(
+      controller: _searchController,
+      onChanged: (value) => setState(() => _settingsQuery = value.trim()),
+      decoration: InputDecoration(
+        hintText: '搜索设置项',
+        prefixIcon: const Icon(Icons.search),
+        suffixIcon: _settingsQuery.isEmpty
+            ? null
+            : IconButton(
+                tooltip: '清空搜索',
+                onPressed: () {
+                  _searchController.clear();
+                  setState(() => _settingsQuery = '');
+                },
+                icon: const Icon(Icons.close),
+              ),
+      ),
+    );
+  }
+
+  Widget _settingsIcon(IconData icon, Color color) {
+    return Container(
+      width: 40,
+      height: 40,
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(PMRadius.m),
+      ),
+      child: Icon(icon, color: color, size: 20),
+    );
+  }
+
+  bool _matchesSetting(String title, List<String> keywords) {
+    final query = _settingsQuery.toLowerCase();
+    if (query.isEmpty) return true;
+    final haystack = [title, ...keywords].join(' ').toLowerCase();
+    return haystack.contains(query);
+  }
+
+  Widget _buildPolicyPanel() {
+    return PMCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            '当前策略',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w900,
+              color: AppColors.textPrimary,
+            ),
+          ),
+          const SizedBox(height: PMSpacing.m),
+          _DesktopStatusRow(
+            icon: Icons.lock_outline,
+            label: '端到端加密',
+            value: _e2eeEnabled ? '已启用' : '未启用',
+          ),
+          const SizedBox(height: PMSpacing.m),
+          _DesktopStatusRow(
+            icon: Icons.notifications_outlined,
+            label: '消息通知',
+            value: _notificationsEnabled ? '已开启' : '已关闭',
+          ),
+          const SizedBox(height: PMSpacing.m),
+          _DesktopStatusRow(
+            icon: Icons.done_all,
+            label: '已读回执',
+            value: _appSettings.readReceiptsEnabled ? '允许发送' : '不发送',
+          ),
+          const SizedBox(height: PMSpacing.m),
+          const _DesktopStatusRow(
+            icon: Icons.verified_user_outlined,
+            label: '隐私控制',
+            value: '已连接后端设置',
+          ),
+          const Spacer(),
+          PMButton(
+            label: '修改个人资料',
+            icon: Icons.edit_outlined,
+            onPressed: _openProfileEditor,
+            variant: PMButtonVariant.secondary,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMobilePolicyCard() {
+    return PMCard(
+      padding: EdgeInsets.zero,
+      child: Theme(
+        data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+        child: ExpansionTile(
+          tilePadding: const EdgeInsets.symmetric(
+            horizontal: PMSpacing.l,
+            vertical: PMSpacing.s,
+          ),
+          childrenPadding: const EdgeInsets.fromLTRB(
+            PMSpacing.l,
+            0,
+            PMSpacing.l,
+            PMSpacing.l,
+          ),
+          title: const Text(
+            '当前策略',
+            style: TextStyle(
+              color: AppColors.textPrimary,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          subtitle: const Text('桌面右侧策略卡在移动端折叠到这里'),
+          children: [
+            _DesktopStatusRow(
+              icon: Icons.lock_outline,
+              label: '端到端加密',
+              value: _e2eeEnabled ? '已启用' : '未启用',
+            ),
+            const SizedBox(height: PMSpacing.m),
+            _DesktopStatusRow(
+              icon: Icons.notifications_outlined,
+              label: '消息通知',
+              value: _notificationsEnabled ? '已开启' : '已关闭',
+            ),
+            const SizedBox(height: PMSpacing.m),
+            _DesktopStatusRow(
+              icon: Icons.done_all,
+              label: '已读回执',
+              value: _appSettings.readReceiptsEnabled ? '允许发送' : '不发送',
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _confirmLogout() async {
+    final navigator = Navigator.of(context);
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('确认退出'),
+        content: const Text('确定要退出登录吗？'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('退出'),
+          ),
+        ],
+      ),
+    );
+    if (confirm == true) {
+      await _authService.logout();
+      if (!mounted) return;
+      navigator.pushNamedAndRemoveUntil('/login', (route) => false);
+    }
   }
 }
 

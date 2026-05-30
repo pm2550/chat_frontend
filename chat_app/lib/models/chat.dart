@@ -5,6 +5,9 @@ class Chat {
   final String id;
   final String name;
   final String? description;
+  final String? announcement;
+  final DateTime? announcementUpdatedAt;
+  final String? announcementUpdatedBy;
   final ChatType type;
   final String? avatarUrl;
   final List<User> participants;
@@ -20,11 +23,17 @@ class Chat {
   final bool isPrivate;
   final int maxMembers;
   final bool anonymousEnabled;
+  final String anonymousTheme;
+  final String? customBackgroundPreset;
+  final String? customBackgroundUrl;
 
   const Chat({
     required this.id,
     required this.name,
     this.description,
+    this.announcement,
+    this.announcementUpdatedAt,
+    this.announcementUpdatedBy,
     this.type = ChatType.private,
     this.avatarUrl,
     this.participants = const [],
@@ -40,6 +49,9 @@ class Chat {
     this.isPrivate = true,
     this.maxMembers = 500,
     this.anonymousEnabled = false,
+    this.anonymousTheme = 'default',
+    this.customBackgroundPreset,
+    this.customBackgroundUrl,
   });
 
   factory Chat.fromJson(Map<String, dynamic> json) {
@@ -49,6 +61,15 @@ class Chat {
       id: json['id']?.toString() ?? '',
       name: json['name'] ?? '',
       description: json['description'],
+      announcement: json['announcement']?.toString(),
+      announcementUpdatedAt: json['announcementUpdatedAt'] != null ||
+              json['announcement_updated_at'] != null
+          ? DateTime.tryParse(
+              (json['announcementUpdatedAt'] ?? json['announcement_updated_at'])
+                  .toString())
+          : null,
+      announcementUpdatedBy: json['announcementUpdatedBy']?.toString() ??
+          json['announcement_updated_by']?.toString(),
       type: ChatType.values.firstWhere(
         (e) => e.name.toUpperCase() == typeValue.toString().toUpperCase(),
         orElse: () => ChatType.private,
@@ -68,6 +89,12 @@ class Chat {
       maxMembers: json['maxMembers'] ?? json['max_members'] ?? 500,
       anonymousEnabled:
           json['anonymousEnabled'] ?? json['anonymous_enabled'] ?? false,
+      anonymousTheme:
+          json['anonymousTheme'] ?? json['anonymous_theme'] ?? 'default',
+      customBackgroundPreset:
+          json['customBackgroundPreset'] ?? json['custom_background_preset'],
+      customBackgroundUrl:
+          json['customBackgroundUrl'] ?? json['custom_background_url'],
       createdAt: DateTime.tryParse(
               (json['createdAt'] ?? json['created_at']).toString()) ??
           DateTime.now(),
@@ -87,6 +114,9 @@ class Chat {
       'id': id,
       'name': name,
       'description': description,
+      'announcement': announcement,
+      'announcementUpdatedAt': announcementUpdatedAt?.toIso8601String(),
+      'announcementUpdatedBy': announcementUpdatedBy,
       'type': type.name.toUpperCase(),
       'avatarUrl': avatarUrl,
       'participants': participants.map((user) => user.toJson()).toList(),
@@ -95,6 +125,9 @@ class Chat {
       'isPrivate': isPrivate,
       'maxMembers': maxMembers,
       'anonymousEnabled': anonymousEnabled,
+      'anonymousTheme': anonymousTheme,
+      'customBackgroundPreset': customBackgroundPreset,
+      'customBackgroundUrl': customBackgroundUrl,
       'createdAt': createdAt.toIso8601String(),
       'updatedAt': updatedAt?.toIso8601String(),
       'lastMessage': lastMessage?.toJson(),
@@ -106,6 +139,9 @@ class Chat {
     String? id,
     String? name,
     String? description,
+    String? announcement,
+    DateTime? announcementUpdatedAt,
+    String? announcementUpdatedBy,
     ChatType? type,
     String? avatarUrl,
     List<User>? participants,
@@ -114,6 +150,9 @@ class Chat {
     bool? isPrivate,
     int? maxMembers,
     bool? anonymousEnabled,
+    String? anonymousTheme,
+    String? customBackgroundPreset,
+    String? customBackgroundUrl,
     DateTime? createdAt,
     DateTime? updatedAt,
     Message? lastMessage,
@@ -125,6 +164,11 @@ class Chat {
       id: id ?? this.id,
       name: name ?? this.name,
       description: description ?? this.description,
+      announcement: announcement ?? this.announcement,
+      announcementUpdatedAt:
+          announcementUpdatedAt ?? this.announcementUpdatedAt,
+      announcementUpdatedBy:
+          announcementUpdatedBy ?? this.announcementUpdatedBy,
       type: type ?? this.type,
       avatarUrl: avatarUrl ?? this.avatarUrl,
       participants: participants ?? this.participants,
@@ -133,6 +177,10 @@ class Chat {
       isPrivate: isPrivate ?? this.isPrivate,
       maxMembers: maxMembers ?? this.maxMembers,
       anonymousEnabled: anonymousEnabled ?? this.anonymousEnabled,
+      anonymousTheme: anonymousTheme ?? this.anonymousTheme,
+      customBackgroundPreset:
+          customBackgroundPreset ?? this.customBackgroundPreset,
+      customBackgroundUrl: customBackgroundUrl ?? this.customBackgroundUrl,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       lastMessage: lastMessage ?? this.lastMessage,

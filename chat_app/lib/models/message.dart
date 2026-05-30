@@ -5,6 +5,8 @@ enum MessageType {
   voice('语音'),
   video('视频'),
   location('位置'),
+  sticker('贴纸'),
+  poll('投票'),
   system('系统消息');
 
   const MessageType(this.description);
@@ -22,6 +24,85 @@ enum MessageStatus {
   final String description;
 }
 
+class LinkPreview {
+  const LinkPreview({
+    required this.url,
+    this.title,
+    this.description,
+    this.imageUrl,
+    this.siteName,
+    this.faviconUrl,
+  });
+
+  final String url;
+  final String? title;
+  final String? description;
+  final String? imageUrl;
+  final String? siteName;
+  final String? faviconUrl;
+
+  factory LinkPreview.fromJson(Map<String, dynamic> json) {
+    return LinkPreview(
+      url: json['url']?.toString() ?? '',
+      title: _stringOrNull(json['title']),
+      description: _stringOrNull(json['description']),
+      imageUrl: _stringOrNull(json['imageUrl'] ?? json['image_url']),
+      siteName: _stringOrNull(json['siteName'] ?? json['site_name']),
+      faviconUrl: _stringOrNull(json['faviconUrl'] ?? json['favicon_url']),
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'url': url,
+        'title': title,
+        'description': description,
+        'imageUrl': imageUrl,
+        'siteName': siteName,
+        'faviconUrl': faviconUrl,
+      };
+
+  static String? _stringOrNull(dynamic value) {
+    final string = value?.toString().trim();
+    return string == null || string.isEmpty ? null : string;
+  }
+}
+
+class MessageReaction {
+  const MessageReaction({
+    required this.emoji,
+    required this.count,
+    this.userIds = const [],
+    this.currentUserReacted = false,
+  });
+
+  final String emoji;
+  final int count;
+  final List<String> userIds;
+  final bool currentUserReacted;
+
+  factory MessageReaction.fromJson(Map<String, dynamic> json) {
+    final rawUserIds = json['userIds'] ?? json['user_ids'];
+    return MessageReaction(
+      emoji: json['emoji']?.toString() ?? '',
+      count: json['count'] is int
+          ? json['count'] as int
+          : int.tryParse(json['count']?.toString() ?? '') ?? 0,
+      userIds: rawUserIds is List
+          ? rawUserIds.map((item) => item.toString()).toList()
+          : const [],
+      currentUserReacted: json['currentUserReacted'] == true ||
+          json['current_user_reacted'] == true,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'emoji': emoji,
+        'count': count,
+        'userIds': userIds,
+        'currentUserReacted': currentUserReacted,
+      };
+}
+
 class Message {
   final String id;
   final String content;
@@ -35,12 +116,15 @@ class Message {
   final DateTime? editedAt;
   final String? replyToId;
   final Message? replyToMessage;
+  final List<String> mentionedUserIds;
   final Map<String, dynamic>? metadata;
   final String? replyToMessageId;
   final String? fileUrl;
   final String? fileName;
   final int? fileSize;
   final String? fileType;
+  final int? stickerId;
+  final int? pollId;
   final bool isDeleted;
   final bool isRecalled;
   final String? encryptedContent;
@@ -49,6 +133,9 @@ class Message {
   final String? anonymousIdentityId;
   final String? anonymousName;
   final String? anonymousAvatar;
+  final LinkPreview? linkPreview;
+  final List<MessageReaction> reactions;
+  final int readCount;
 
   const Message({
     required this.id,
@@ -63,12 +150,15 @@ class Message {
     this.editedAt,
     this.replyToId,
     this.replyToMessage,
+    this.mentionedUserIds = const [],
     this.metadata,
     this.replyToMessageId,
     this.fileUrl,
     this.fileName,
     this.fileSize,
     this.fileType,
+    this.stickerId,
+    this.pollId,
     this.isDeleted = false,
     this.isRecalled = false,
     this.encryptedContent,
@@ -77,6 +167,9 @@ class Message {
     this.anonymousIdentityId,
     this.anonymousName,
     this.anonymousAvatar,
+    this.linkPreview,
+    this.reactions = const [],
+    this.readCount = 0,
   });
 
   factory Message.fromJson(Map<String, dynamic> json,
@@ -98,6 +191,7 @@ class Message {
     final isAnonymous = _parseBool(json['isAnonymous'] ?? json['is_anonymous']);
     final anonymousName = json['anonymousName'] ?? json['anonymous_name'];
     final anonymousAvatar = json['anonymousAvatar'] ?? json['anonymous_avatar'];
+    final linkPreviewJson = json['linkPreview'] ?? json['link_preview'];
     final regularSenderName = json['senderName'] ??
         json['sender_name'] ??
         senderJson?['displayName'] ??
@@ -149,6 +243,12 @@ class Message {
               fallbackChatRoomId: fallbackChatRoomId,
             )
           : null,
+      mentionedUserIds: _parseStringList(
+        json['mentionedUserIds'] ??
+            json['mentioned_user_ids'] ??
+            json['mentions'] ??
+            json['mentionedUsers'],
+      ),
       metadata: json['metadata'] as Map<String, dynamic>?,
       replyToMessageId: json['replyToMessageId']?.toString() ??
           json['reply_to_message_id']?.toString(),
@@ -156,6 +256,8 @@ class Message {
       fileName: json['fileName'] ?? json['file_name'],
       fileSize: _parseInt(json['fileSize'] ?? json['file_size']),
       fileType: json['fileType'] ?? json['file_type'],
+      stickerId: _parseInt(json['stickerId'] ?? json['sticker_id']),
+      pollId: _parseInt(json['pollId'] ?? json['poll_id']),
       isDeleted: _parseBool(json['isDeleted'] ?? json['is_deleted']),
       isRecalled: _parseBool(json['isRecalled'] ?? json['is_recalled']) ||
           (json['content']?.toString() == '[消息已撤回]'),
@@ -167,6 +269,11 @@ class Message {
           json['anonymous_identity_id']?.toString(),
       anonymousName: anonymousName?.toString(),
       anonymousAvatar: anonymousAvatar?.toString(),
+      linkPreview: linkPreviewJson is Map<String, dynamic>
+          ? LinkPreview.fromJson(linkPreviewJson)
+          : null,
+      reactions: _parseReactions(json['reactions']),
+      readCount: _parseInt(json['readCount'] ?? json['read_count']) ?? 0,
     );
   }
 
@@ -184,12 +291,15 @@ class Message {
       'editedAt': editedAt?.toIso8601String(),
       'replyToId': replyToId,
       'replyToMessage': replyToMessage?.toJson(),
+      'mentionedUserIds': mentionedUserIds,
       'metadata': metadata,
       'replyToMessageId': replyToMessageId,
       'fileUrl': fileUrl,
       'fileName': fileName,
       'fileSize': fileSize,
       'fileType': fileType,
+      'stickerId': stickerId,
+      'pollId': pollId,
       'isDeleted': isDeleted,
       'isRecalled': isRecalled,
       'encryptedContent': encryptedContent,
@@ -198,6 +308,9 @@ class Message {
       'anonymousIdentityId': anonymousIdentityId,
       'anonymousName': anonymousName,
       'anonymousAvatar': anonymousAvatar,
+      'linkPreview': linkPreview?.toJson(),
+      'reactions': reactions.map((item) => item.toJson()).toList(),
+      'readCount': readCount,
     };
   }
 
@@ -214,12 +327,15 @@ class Message {
     DateTime? editedAt,
     String? replyToId,
     Message? replyToMessage,
+    List<String>? mentionedUserIds,
     Map<String, dynamic>? metadata,
     String? replyToMessageId,
     String? fileUrl,
     String? fileName,
     int? fileSize,
     String? fileType,
+    int? stickerId,
+    int? pollId,
     bool? isDeleted,
     bool? isRecalled,
     String? encryptedContent,
@@ -228,6 +344,9 @@ class Message {
     String? anonymousIdentityId,
     String? anonymousName,
     String? anonymousAvatar,
+    LinkPreview? linkPreview,
+    List<MessageReaction>? reactions,
+    int? readCount,
   }) {
     return Message(
       id: id ?? this.id,
@@ -242,12 +361,15 @@ class Message {
       editedAt: editedAt ?? this.editedAt,
       replyToId: replyToId ?? this.replyToId,
       replyToMessage: replyToMessage ?? this.replyToMessage,
+      mentionedUserIds: mentionedUserIds ?? this.mentionedUserIds,
       metadata: metadata ?? this.metadata,
       replyToMessageId: replyToMessageId ?? this.replyToMessageId,
       fileUrl: fileUrl ?? this.fileUrl,
       fileName: fileName ?? this.fileName,
       fileSize: fileSize ?? this.fileSize,
       fileType: fileType ?? this.fileType,
+      stickerId: stickerId ?? this.stickerId,
+      pollId: pollId ?? this.pollId,
       isDeleted: isDeleted ?? this.isDeleted,
       isRecalled: isRecalled ?? this.isRecalled,
       encryptedContent: encryptedContent ?? this.encryptedContent,
@@ -256,12 +378,17 @@ class Message {
       anonymousIdentityId: anonymousIdentityId ?? this.anonymousIdentityId,
       anonymousName: anonymousName ?? this.anonymousName,
       anonymousAvatar: anonymousAvatar ?? this.anonymousAvatar,
+      linkPreview: linkPreview ?? this.linkPreview,
+      reactions: reactions ?? this.reactions,
+      readCount: readCount ?? this.readCount,
     );
   }
 
   bool get isEdited => editedAt != null;
   bool get hasReply => replyToMessage != null;
   bool get isRemoved => isDeleted || isRecalled;
+  bool mentionsUser(String? userId) =>
+      userId != null && mentionedUserIds.contains(userId);
   bool get isEncrypted =>
       encryptedContent != null && encryptedContent!.isNotEmpty;
   bool get isImageMessage => type == MessageType.image;
@@ -272,10 +399,14 @@ class Message {
       type == MessageType.video ||
       (fileType?.toLowerCase().startsWith('video/') ?? false);
   bool get isLocationMessage => type == MessageType.location;
+  bool get isStickerMessage => type == MessageType.sticker;
+  bool get isPollMessage => type == MessageType.poll;
   bool get isFileMessage =>
       type == MessageType.file ||
       (fileUrl != null &&
           !isImageMessage &&
+          !isStickerMessage &&
+          !isPollMessage &&
           !isVoiceMessage &&
           !isVideoMessage);
   String get resolvedFileLabel {
@@ -288,10 +419,22 @@ class Message {
     if (isVideoMessage) {
       return fileName?.isNotEmpty == true ? '[视频] $fileName' : '[视频]';
     }
+    if (isStickerMessage) {
+      return fileName?.isNotEmpty == true ? '[贴纸] $fileName' : '[贴纸]';
+    }
+    if (isPollMessage) {
+      return content.isNotEmpty ? content : '[投票]';
+    }
     if (isFileMessage) {
       return fileName?.isNotEmpty == true ? '[文件] $fileName' : '[文件]';
     }
     return content;
+  }
+
+  bool hasReactionFrom(String emoji, String? userId) {
+    if (userId == null) return false;
+    return reactions.any((reaction) =>
+        reaction.emoji == emoji && reaction.userIds.contains(userId));
   }
 
   @override
@@ -319,5 +462,24 @@ class Message {
     if (value == null) return false;
     if (value is bool) return value;
     return value.toString().toLowerCase() == 'true';
+  }
+
+  static List<String> _parseStringList(dynamic value) {
+    if (value is List) {
+      return value
+          .map((item) => item?.toString() ?? '')
+          .where((item) => item.isNotEmpty)
+          .toList(growable: false);
+    }
+    return const [];
+  }
+
+  static List<MessageReaction> _parseReactions(dynamic value) {
+    if (value is! List) return const [];
+    return value
+        .whereType<Map<String, dynamic>>()
+        .map(MessageReaction.fromJson)
+        .where((reaction) => reaction.emoji.isNotEmpty && reaction.count > 0)
+        .toList();
   }
 }

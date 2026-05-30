@@ -23,6 +23,39 @@ class UpdateService {
     return 'WEB';
   }
 
+  static String currentPlatformName() => _platformName();
+
+  static bool shouldHandleUpdateForPlatform(
+    String? updatePlatform, {
+    String? currentPlatform,
+  }) {
+    final update = updatePlatform?.trim().toUpperCase();
+    if (update == null || update.isEmpty) return false;
+    final current = (currentPlatform ?? _platformName()).trim().toUpperCase();
+
+    // Native/desktop apps are strict. Web is also used as a production
+    // smoke/redirect surface, so it can surface any published client build.
+    return current == update || current == 'WEB';
+  }
+
+  static AppVersionCheck checkFromWebSocketPayload(
+    Map<String, dynamic> payload,
+  ) {
+    return AppVersionCheck(
+      updateAvailable: true,
+      forceUpdate: payload['forceUpdate'] == true,
+      latestVersion: payload['versionName']?.toString(),
+      latestVersionCode: payload['versionCode'] is int
+          ? payload['versionCode'] as int
+          : int.tryParse(payload['versionCode']?.toString() ?? ''),
+      releaseNotes: payload['releaseNotes']?.toString(),
+      downloadUrl: payload['downloadUrl']?.toString(),
+      fileSize: payload['fileSize'] is int
+          ? payload['fileSize'] as int
+          : int.tryParse(payload['fileSize']?.toString() ?? ''),
+    );
+  }
+
   /// Check the backend for a newer version.
   static Future<AppVersionCheck> checkForUpdate() async {
     try {

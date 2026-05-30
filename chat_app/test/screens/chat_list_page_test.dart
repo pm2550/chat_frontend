@@ -6,6 +6,8 @@ import 'package:chat_app/models/message.dart';
 import 'package:chat_app/models/user.dart';
 import 'package:chat_app/screens/home/chat_list_page.dart';
 import 'package:chat_app/services/chat_data_service.dart';
+import 'package:chat_app/services/desktop_notification_service.dart';
+import 'package:chat_app/services/desktop_notification_stub.dart';
 import 'package:chat_app/services/websocket_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -14,6 +16,7 @@ void main() {
   Widget buildTestWidget(
     ChatDataService service, {
     FakeRealtimeService? realtimeService,
+    DesktopNotificationService? notificationService,
     String currentUserId = 'me',
   }) {
     return MaterialApp(
@@ -23,6 +26,7 @@ void main() {
       home: ChatListPage(
         chatService: service,
         realtimeService: realtimeService ?? FakeRealtimeService(),
+        notificationService: notificationService,
         currentUserId: currentUserId,
       ),
     );
@@ -119,6 +123,112 @@ void main() {
       expect(realtime.connectCalls, 1);
     });
 
+    testWidgets('syncs favicon unread badge and desktop notification state',
+        (tester) async {
+      final realtime = FakeRealtimeService();
+      final backend = StubDesktopNotificationBackend(
+        supported: true,
+        permissionGranted: true,
+        visible: false,
+      );
+      final notificationService = DesktopNotificationService(backend: backend);
+      final service = FakeChatListService(chats: [
+        Chat(
+          id: '1',
+          name: '通知群聊',
+          type: ChatType.group,
+          createdAt: DateTime.parse('2024-01-01T10:00:00'),
+          unreadCount: 2,
+        ),
+      ]);
+
+      await tester.pumpWidget(buildTestWidget(
+        service,
+        realtimeService: realtime,
+        notificationService: notificationService,
+      ));
+      await tester.pump();
+
+      expect(backend.lastUnreadCount, 2);
+
+      realtime.emitMessage(Message(
+        id: 'm2',
+        content: '桌面通知消息',
+        senderId: 'alice',
+        senderName: 'Alice',
+        chatRoomId: '1',
+        timestamp: DateTime.parse('2024-01-01T10:02:00'),
+      ));
+      await tester.pump();
+
+      expect(backend.lastUnreadCount, 3);
+      expect(backend.shownNotifications, hasLength(1));
+      expect(backend.shownNotifications.single.title, '通知群聊');
+      expect(backend.shownNotifications.single.body, '桌面通知消息');
+    });
+
+    testWidgets('shows @ badge for unread latest mention', (tester) async {
+      final service = FakeChatListService(chats: [
+        Chat(
+          id: '1',
+          name: '提醒群聊',
+          type: ChatType.group,
+          createdAt: DateTime.parse('2024-01-01T10:00:00'),
+          lastMessage: Message(
+            id: 'm1',
+            content: '@Me 看这里',
+            senderId: 'alice',
+            senderName: 'Alice',
+            chatRoomId: '1',
+            timestamp: DateTime.parse('2024-01-01T10:01:00'),
+            mentionedUserIds: const ['me'],
+          ),
+          unreadCount: 1,
+        ),
+      ]);
+
+      await tester.pumpWidget(buildTestWidget(service));
+      await tester.pump();
+
+      expect(find.text('@'), findsOneWidget);
+    });
+
+    testWidgets('@me filter loads mentioned messages', (tester) async {
+      final service = FakeChatListService(
+        chats: [
+          Chat(
+            id: '1',
+            name: '提醒群聊',
+            type: ChatType.group,
+            createdAt: DateTime.parse('2024-01-01T10:00:00'),
+          ),
+        ],
+        mentionedMessages: {
+          '1': [
+            Message(
+              id: 'm1',
+              content: '@Me 需要你看',
+              senderId: 'alice',
+              senderName: 'Alice',
+              chatRoomId: '1',
+              timestamp: DateTime.parse('2024-01-01T10:01:00'),
+              mentionedUserIds: const ['me'],
+            ),
+          ],
+        },
+      );
+
+      await tester.pumpWidget(buildTestWidget(service));
+      await tester.pump();
+
+      await tester.tap(find.text('@我'));
+      await tester.pump();
+      await tester.pump();
+
+      expect(service.loadedMentionRoomIds, ['1']);
+      expect(find.text('@Me 需要你看'), findsOneWidget);
+    });
+
     testWidgets('updates participant online status from realtime status event',
         (tester) async {
       final realtime = FakeRealtimeService();
@@ -174,11 +284,14 @@ void main() {
 class FakeChatListService extends ChatDataService {
   FakeChatListService({
     this.chats = const [],
+    this.mentionedMessages = const {},
     this.error,
   }) : super(authenticatedRequest: _unusedRequest);
 
   final List<Chat> chats;
+  final Map<String, List<Message>> mentionedMessages;
   final Object? error;
+  final List<String> loadedMentionRoomIds = [];
 
   static Future<dynamic> _unusedRequest(
     String method,
@@ -192,14 +305,33 @@ class FakeChatListService extends ChatDataService {
   @override
   Future<List<Chat>> getChatRooms({
     int page = 0,
-    int size = 50,
+    int size = 30,
     bool includeDetails = true,
+    int detailLimit = 8,
   }) async {
     final err = error;
     if (err != null) {
       throw err;
     }
     return chats;
+  }
+
+  @override
+  Future<MessagePage> getMentionedMessages(
+    String chatRoomId, {
+    int page = 0,
+    int size = 20,
+  }) async {
+    loadedMentionRoomIds.add(chatRoomId);
+    final messages = mentionedMessages[chatRoomId] ?? const <Message>[];
+    return MessagePage(
+      messages: messages,
+      currentPage: page,
+      totalPages: messages.isEmpty ? 0 : 1,
+      totalElements: messages.length,
+      hasNext: false,
+      hasPrevious: false,
+    );
   }
 }
 
@@ -245,6 +377,7 @@ class FakeRealtimeService implements ChatRealtimeService {
     int chatRoomId,
     String content, {
     bool isAnonymous = false,
+    String? replyToId,
   }) =>
       false;
 

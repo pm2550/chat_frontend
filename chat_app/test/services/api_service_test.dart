@@ -55,7 +55,7 @@ void main() {
     });
 
     test('wsEndpoint uses ws protocol', () {
-      expect(ApiConstants.wsEndpoint, startsWith('ws://'));
+      expect(ApiConstants.wsEndpoint, matches(RegExp(r'^wss?://')));
     });
 
     test('chat room dynamic endpoints include room ID', () {
@@ -89,6 +89,8 @@ void main() {
     test('anonymous dynamic endpoints include room ID', () {
       expect(ApiConstants.enterAnonymous(8), contains('8'));
       expect(ApiConstants.renameAnonymous(8), contains('8'));
+      expect(ApiConstants.rerollAnonymous(8), contains('8'));
+      expect(ApiConstants.anonymousQuota, contains('/anonymous/quota'));
       expect(ApiConstants.toggleAnonymous(8), contains('8'));
     });
 

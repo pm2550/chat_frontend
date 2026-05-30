@@ -13,6 +13,11 @@ class PMBreakpoints {
     final width = MediaQuery.sizeOf(context).width;
     return width >= desktop || (kIsWeb && width >= webDesktop);
   }
+
+  static bool isTablet(BuildContext context) {
+    final width = MediaQuery.sizeOf(context).width;
+    return width >= 600 && !isDesktop(context);
+  }
 }
 
 class PMDesktopPage extends StatelessWidget {

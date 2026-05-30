@@ -17,15 +17,30 @@ class ChatCallService extends ChangeNotifier {
   bool get isSupported => false;
 
   Future<void> handleSignal(Map<String, dynamic> signal) async {
-    if (signal['action']?.toString() == 'invite') {
+    final action = signal['action']?.toString();
+    if (action == 'invite') {
+      final peerId = _asInt(signal['fromUserId']);
       _state = ChatCallState(
         phase: CallPhase.incoming,
         callId: signal['callId']?.toString(),
         chatRoomId: _asInt(signal['chatRoomId']),
-        peerUserId: _asInt(signal['fromUserId']),
-        peerName: signal['fromName']?.toString(),
         mediaKind: CallMediaKind.fromWire(signal['mediaType']),
+        participants: [
+          if (peerId != null)
+            CallParticipant(
+              userId: peerId,
+              displayName: signal['fromName']?.toString() ?? '联系人',
+            ),
+        ],
         errorMessage: '当前平台暂不支持浏览器实时通话',
+      );
+      notifyListeners();
+    } else if ((action == 'hangup' || action == 'reject') &&
+        signal['callId']?.toString() == _state.callId) {
+      _state = ChatCallState(
+        phase: CallPhase.ended,
+        mediaKind: _state.mediaKind,
+        errorMessage: action == 'reject' ? '对方已拒绝通话' : '通话已结束',
       );
       notifyListeners();
     }
@@ -35,6 +50,7 @@ class ChatCallService extends ChangeNotifier {
     required int chatRoomId,
     required CallMediaKind mediaKind,
     required String peerName,
+    int? peerUserId,
   }) async {
     throw UnsupportedError('当前平台暂不支持浏览器实时通话');
   }
@@ -44,7 +60,7 @@ class ChatCallService extends ChangeNotifier {
       'action': 'reject',
       'chatRoomId': state.chatRoomId,
       'callId': state.callId,
-      'toUserId': state.peerUserId,
+      'toUserId': state.others.isNotEmpty ? state.others.first.userId : null,
       'mediaType': state.mediaKind.wireName,
     });
     _state = const ChatCallState(
@@ -59,7 +75,7 @@ class ChatCallService extends ChangeNotifier {
       'action': 'reject',
       'chatRoomId': state.chatRoomId,
       'callId': state.callId,
-      'toUserId': state.peerUserId,
+      'toUserId': state.others.isNotEmpty ? state.others.first.userId : null,
       'mediaType': state.mediaKind.wireName,
     });
     clear();

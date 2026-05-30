@@ -91,13 +91,20 @@ class _SplashScreenState extends State<SplashScreen>
       return null;
     }
 
-    final route = fragment.split('?').first;
+    final requestedRoute = fragment.startsWith('/') ? fragment : '/$fragment';
+    final route = requestedRoute.split('?').first;
+    if (route == '/home' || route.startsWith('/home/')) {
+      return requestedRoute;
+    }
+    if (route == '/chat' || route.startsWith('/chat/')) {
+      return requestedRoute;
+    }
+
     const allowedColdStartRoutes = {
-      '/home',
       '/settings',
       '/register',
     };
-    return allowedColdStartRoutes.contains(route) ? route : null;
+    return allowedColdStartRoutes.contains(route) ? requestedRoute : null;
   }
 
   @override

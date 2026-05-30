@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:chat_app/design/design.dart';
 import 'package:chat_app/widgets/message_bubble.dart';
 import 'package:chat_app/models/message.dart';
 
@@ -21,6 +22,12 @@ void main() {
     String? fileName,
     int? fileSize,
     String? fileType,
+    Message? replyToMessage,
+    String? replyToId,
+    bool isAnonymous = false,
+    String? anonymousName,
+    String? anonymousAvatar,
+    LinkPreview? linkPreview,
   }) {
     return Message(
       id: id,
@@ -36,6 +43,13 @@ void main() {
       fileName: fileName,
       fileSize: fileSize,
       fileType: fileType,
+      replyToMessage: replyToMessage,
+      replyToId: replyToId,
+      replyToMessageId: replyToId,
+      isAnonymous: isAnonymous,
+      anonymousName: anonymousName,
+      anonymousAvatar: anonymousAvatar,
+      linkPreview: linkPreview,
     );
   }
 
@@ -56,6 +70,95 @@ void main() {
       ));
 
       expect(find.text('你好，世界！'), findsOneWidget);
+    });
+
+    testWidgets('loads and renders link preview for text messages',
+        (tester) async {
+      final message = createMessage(
+        content: '看看 https://example.com/post',
+      );
+
+      await tester.pumpWidget(buildTestWidget(
+        MessageBubble(
+          message: message,
+          isMe: false,
+          linkPreviewLoader: (url) async {
+            expect(url, 'https://example.com/post');
+            return const LinkPreview(
+              url: 'https://example.com/post',
+              title: 'Example title',
+              description: 'Example description',
+              siteName: 'example.com',
+            );
+          },
+        ),
+      ));
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.text('看看 https://example.com/post'), findsOneWidget);
+      expect(find.text('Example title'), findsOneWidget);
+      expect(find.text('Example description'), findsOneWidget);
+      expect(find.text('example.com'), findsOneWidget);
+    });
+
+    testWidgets('renders stored link preview without loader', (tester) async {
+      final message = createMessage(
+        content: '链接 https://example.com',
+        linkPreview: const LinkPreview(
+          url: 'https://example.com',
+          title: 'Stored preview',
+          siteName: 'example.com',
+        ),
+      );
+
+      await tester.pumpWidget(buildTestWidget(
+        MessageBubble(message: message, isMe: false),
+      ));
+
+      expect(find.text('Stored preview'), findsOneWidget);
+      expect(find.text('example.com'), findsOneWidget);
+    });
+
+    testWidgets('renders quoted reply block when replyToMessage is present',
+        (tester) async {
+      final quoted = createMessage(
+        id: 'quoted-1',
+        content: '这是被引用的原消息内容',
+        senderName: '原作者',
+      );
+      final message = createMessage(
+        content: '这是回复',
+        replyToId: quoted.id,
+        replyToMessage: quoted,
+      );
+
+      await tester.pumpWidget(buildTestWidget(
+        MessageBubble(message: message, isMe: false),
+      ));
+
+      expect(find.text('原作者'), findsOneWidget);
+      expect(find.text('这是被引用的原消息内容'), findsOneWidget);
+      expect(find.text('这是回复'), findsOneWidget);
+    });
+
+    testWidgets('highlights mentions and taps profile callback',
+        (tester) async {
+      String? tappedMention;
+      final message = createMessage(content: '请看 @Alice 的更新');
+
+      await tester.pumpWidget(buildTestWidget(
+        MessageBubble(
+          message: message,
+          isMe: false,
+          onMentionTap: (label) => tappedMention = label,
+        ),
+      ));
+
+      expect(find.text('@Alice'), findsOneWidget);
+      await tester.tap(find.text('@Alice'));
+
+      expect(tappedMention, 'Alice');
     });
 
     testWidgets('renders sent message (isMe=true) aligned to the right',
@@ -113,7 +216,7 @@ void main() {
       expect(find.byIcon(Icons.check), findsNothing);
     });
 
-    testWidgets('shows CircleAvatar when showAvatar is true and isMe is false',
+    testWidgets('shows PMUserAvatar when showAvatar is true and isMe is false',
         (tester) async {
       final message = createMessage(
         content: 'Group message',
@@ -124,8 +227,9 @@ void main() {
         MessageBubble(message: message, isMe: false, showAvatar: true),
       ));
 
-      // Should find a CircleAvatar.
-      expect(find.byType(CircleAvatar), findsOneWidget);
+      // Non-anonymous avatars use the PM design-system avatar so frame
+      // overlays can be applied consistently across the app.
+      expect(find.byType(PMUserAvatar), findsOneWidget);
       // The avatar fallback shows first letter of senderName uppercased.
       expect(find.text('B'), findsOneWidget);
     });
@@ -155,7 +259,7 @@ void main() {
       expect(find.byType(CircleAvatar), findsNothing);
     });
 
-    testWidgets('does not show avatar or sender name for sent messages',
+    testWidgets('shows PMUserAvatar for sent messages when showAvatar is true',
         (tester) async {
       final message = createMessage(
         content: 'My message',
@@ -166,9 +270,27 @@ void main() {
         MessageBubble(message: message, isMe: true, showAvatar: true),
       ));
 
-      // Even with showAvatar true, avatar should not show for isMe messages
-      // because the code checks `!isMe && showAvatar`.
-      expect(find.byType(CircleAvatar), findsNothing);
+      expect(find.byType(PMUserAvatar), findsOneWidget);
+      expect(find.text('M'), findsOneWidget);
+    });
+
+    testWidgets('shows anonymous avatar for sent anonymous messages',
+        (tester) async {
+      final message = createMessage(
+        content: 'Anonymous message',
+        senderName: '匿名鹿',
+        isAnonymous: true,
+        anonymousName: '匿名鹿',
+        anonymousAvatar: '#7C3AED',
+      );
+
+      await tester.pumpWidget(buildTestWidget(
+        MessageBubble(message: message, isMe: true, showAvatar: true),
+      ));
+
+      expect(find.byType(CircleAvatar), findsOneWidget);
+      expect(find.text('匿'), findsOneWidget);
+      expect(find.byIcon(Icons.masks), findsWidgets);
     });
 
     testWidgets('displays formatted timestamp for today', (tester) async {
@@ -386,6 +508,107 @@ void main() {
 
       expect(find.byType(Image), findsOneWidget);
       expect(find.text('photo.png'), findsOneWidget);
+    });
+
+    testWidgets('tapping image attachment opens attachment action',
+        (tester) async {
+      final message = createMessage(
+        content: 'photo.png',
+        type: MessageType.image,
+        fileUrl: '/api/files/chat/photo.png',
+        fileName: 'photo.png',
+        fileType: 'image/png',
+      );
+      Message? opened;
+
+      await tester.pumpWidget(buildTestWidget(
+        MessageBubble(
+          message: message,
+          isMe: false,
+          imageLoader: (_) async => Uint8List.fromList([
+            137,
+            80,
+            78,
+            71,
+            13,
+            10,
+            26,
+            10,
+            0,
+            0,
+            0,
+            13,
+            73,
+            72,
+            68,
+            82,
+            0,
+            0,
+            0,
+            1,
+            0,
+            0,
+            0,
+            1,
+            8,
+            6,
+            0,
+            0,
+            0,
+            31,
+            21,
+            196,
+            137,
+            0,
+            0,
+            0,
+            13,
+            73,
+            68,
+            65,
+            84,
+            120,
+            156,
+            99,
+            248,
+            207,
+            192,
+            80,
+            15,
+            0,
+            5,
+            131,
+            2,
+            127,
+            150,
+            236,
+            250,
+            87,
+            0,
+            0,
+            0,
+            0,
+            73,
+            69,
+            78,
+            68,
+            174,
+            66,
+            96,
+            130,
+          ]),
+          onOpenAttachment: (message) async {
+            opened = message;
+          },
+        ),
+      ));
+      await tester.pump();
+
+      expect(find.byIcon(Icons.zoom_out_map), findsOneWidget);
+      await tester.tap(find.byType(Image));
+      await tester.pump();
+
+      expect(opened, message);
     });
 
     testWidgets('renders file attachment card with size and download icon',

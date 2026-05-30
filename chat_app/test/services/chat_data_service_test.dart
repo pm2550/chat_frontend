@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:chat_app/constants/api_constants.dart';
 import 'package:chat_app/models/chat.dart';
 import 'package:chat_app/models/message.dart';
 import 'package:chat_app/services/chat_data_service.dart';
@@ -33,6 +34,108 @@ void main() {
       expect(rooms.first.id, '10');
       expect(rooms.first.name, 'Backend Room');
       expect(rooms.first.type, ChatType.group);
+    });
+
+    test('getChatRoom reads backend chatRoom detail response', () async {
+      final service = ChatDataService(
+        authenticatedRequest: (method, url, {headers, body}) async {
+          expect(method, 'GET');
+          expect(url, contains('/chat-rooms/42'));
+          return jsonResponse({
+            'chatRoom': {
+              'id': 42,
+              'name': 'Direct Room',
+              'roomType': 'GROUP',
+              'isPrivate': false,
+              'createdAt': '2024-01-01T10:00:00',
+            },
+          });
+        },
+      );
+
+      final room = await service.getChatRoom('42', includeDetails: false);
+
+      expect(room.id, '42');
+      expect(room.name, 'Direct Room');
+      expect(room.type, ChatType.group);
+    });
+
+    test('room background preset endpoint maps returned chat room', () async {
+      Object? sentBody;
+      final service = ChatDataService(
+        authenticatedRequest: (method, url, {headers, body}) async {
+          expect(method, 'PUT');
+          expect(url, ApiConstants.chatRoomBackgroundPreset(42));
+          sentBody = body;
+          return jsonResponse({
+            'chatRoom': {
+              'id': 42,
+              'name': 'Room',
+              'roomType': 'GROUP',
+              'isPrivate': false,
+              'customBackgroundPreset': 'aurora',
+              'createdAt': '2024-01-01T10:00:00',
+            },
+          });
+        },
+      );
+
+      final room = await service.updateRoomBackgroundPreset('42', 'aurora');
+
+      expect(sentBody, {'preset': 'aurora'});
+      expect(room.customBackgroundPreset, 'aurora');
+    });
+
+    test('room background upload uses multipart file request', () async {
+      PickedChatFile? uploaded;
+      final service = ChatDataService(
+        multipartRequest: (url, {required fields, required file}) async {
+          expect(url, ApiConstants.chatRoomBackgroundUpload(42));
+          expect(fields, isEmpty);
+          uploaded = file;
+          return jsonResponse({
+            'chatRoom': {
+              'id': 42,
+              'name': 'Room',
+              'roomType': 'GROUP',
+              'isPrivate': false,
+              'customBackgroundUrl': '/api/files/background/room.png',
+              'createdAt': '2024-01-01T10:00:00',
+            },
+          });
+        },
+      );
+
+      final room = await service.uploadRoomBackground(
+        '42',
+        const PickedChatFile(name: 'room.png', size: 3, bytes: [1, 2, 3]),
+      );
+
+      expect(uploaded?.name, 'room.png');
+      expect(room.customBackgroundUrl, '/api/files/background/room.png');
+    });
+
+    test('clear room background calls delete endpoint', () async {
+      final service = ChatDataService(
+        authenticatedRequest: (method, url, {headers, body}) async {
+          expect(method, 'DELETE');
+          expect(url, ApiConstants.chatRoomBackground(42));
+          return jsonResponse({
+            'chatRoom': {
+              'id': 42,
+              'name': 'Room',
+              'roomType': 'GROUP',
+              'isPrivate': false,
+              'createdAt': '2024-01-01T10:00:00',
+            },
+          });
+        },
+      );
+
+      final room = await service.clearRoomBackground('42');
+
+      expect(room.customBackgroundPreset, isNull);
+      expect(room.customBackgroundUrl, isNull);
     });
 
     test('getMessages maps backend REST messages and sorts ascending',
@@ -114,6 +217,39 @@ void main() {
       expect(page.hasPrevious, isTrue);
     });
 
+    test('getMentionedMessages calls @me endpoint and parses mention ids',
+        () async {
+      final service = ChatDataService(
+        authenticatedRequest: (method, url, {headers, body}) async {
+          expect(method, 'GET');
+          expect(url, contains('/chat-rooms/42/mentions/me'));
+          expect(url, contains('page=0'));
+          return jsonResponse({
+            'messages': [
+              {
+                'id': 8,
+                'content': '@Me 需要看这里',
+                'messageType': 'TEXT',
+                'messageStatus': 'SENT',
+                'createdAt': '2024-01-01T10:04:00',
+                'senderId': 7,
+                'senderName': 'Sender',
+                'mentionedUserIds': [5],
+              },
+            ],
+            'currentPage': 0,
+            'totalPages': 1,
+            'totalElements': 1,
+          });
+        },
+      );
+
+      final page = await service.getMentionedMessages('42');
+
+      expect(page.messages.single.mentionedUserIds, ['5']);
+      expect(page.messages.single.mentionsUser('5'), isTrue);
+    });
+
     test('sendTextMessage posts expected body and reads data message',
         () async {
       Object? capturedBody;
@@ -135,9 +271,14 @@ void main() {
         },
       );
 
-      final message = await service.sendTextMessage('42', 'hello');
+      final message =
+          await service.sendTextMessage('42', 'hello', replyToId: '88');
 
-      expect(capturedBody, {'chatRoomId': 42, 'content': 'hello'});
+      expect(capturedBody, {
+        'chatRoomId': 42,
+        'content': 'hello',
+        'replyToId': 88,
+      });
       expect(message.id, '99');
       expect(message.chatRoomId, '42');
       expect(message.senderName, 'Sender');
@@ -179,6 +320,107 @@ void main() {
       expect(message.isAnonymous, isTrue);
       expect(message.senderName, '神秘海豚');
       expect(message.anonymousIdentityId, '3');
+    });
+
+    test('sendStickerMessage posts sticker body and maps response', () async {
+      Object? capturedBody;
+      final service = ChatDataService(
+        authenticatedRequest: (method, url, {headers, body}) async {
+          expect(method, 'POST');
+          capturedBody = body;
+          return jsonResponse({
+            'message': '消息发送成功',
+            'data': {
+              'id': 102,
+              'content': '[贴纸]',
+              'messageType': 'STICKER',
+              'messageStatus': 'SENT',
+              'createdAt': '2024-01-01T10:03:00',
+              'senderId': 7,
+              'senderName': 'Sender',
+              'stickerId': 9,
+              'fileName': '😀',
+            },
+          });
+        },
+      );
+
+      final message =
+          await service.sendStickerMessage('42', 9, isAnonymous: true);
+
+      expect(capturedBody, {
+        'chatRoomId': 42,
+        'messageType': 'STICKER',
+        'stickerId': 9,
+        'isAnonymous': true,
+      });
+      expect(message.type, MessageType.sticker);
+      expect(message.stickerId, 9);
+    });
+
+    test('addReaction posts emoji and maps aggregate', () async {
+      Object? capturedBody;
+      final service = ChatDataService(
+        authenticatedRequest: (method, url, {headers, body}) async {
+          expect(method, 'POST');
+          expect(url, contains('/api/v1/messages/102/reactions'));
+          capturedBody = body;
+          return jsonResponse({
+            'data': [
+              {
+                'emoji': '👍',
+                'count': 1,
+                'userIds': [7],
+              }
+            ],
+          });
+        },
+      );
+
+      final reactions = await service.addReaction('102', '👍');
+
+      expect(capturedBody, {'emoji': '👍'});
+      expect(reactions.single.emoji, '👍');
+      expect(reactions.single.userIds, ['7']);
+    });
+
+    test('createPoll posts poll request and maps response', () async {
+      Object? capturedBody;
+      final service = ChatDataService(
+        authenticatedRequest: (method, url, {headers, body}) async {
+          expect(method, 'POST');
+          expect(url, contains('/api/v1/polls'));
+          capturedBody = body;
+          return jsonResponse({
+            'data': {
+              'id': 3,
+              'messageId': 303,
+              'question': '午饭吃什么',
+              'options': [
+                {'index': 0, 'text': '面', 'votes': 0, 'voterIds': []},
+                {'index': 1, 'text': '饭', 'votes': 0, 'voterIds': []},
+              ],
+              'totalVotes': 0,
+            },
+          });
+        },
+      );
+
+      final poll = await service.createPoll(
+        '42',
+        question: '午饭吃什么',
+        options: ['面', '饭'],
+      );
+
+      expect(capturedBody, {
+        'chatRoomId': 42,
+        'question': '午饭吃什么',
+        'options': ['面', '饭'],
+        'multiSelect': false,
+        'anonymous': false,
+      });
+      expect(poll.id, 3);
+      expect(poll.options.length, 2);
     });
 
     test('sendEncryptedTextMessage posts encrypted envelope fields', () async {
@@ -300,11 +542,43 @@ void main() {
 
       final page = await service.searchMessages('42', 'needle');
 
-      expect(capturedUrl, contains('/api/v1/messages/search'));
-      expect(capturedUrl, contains('chatRoomId=42'));
-      expect(capturedUrl, contains('keyword=needle'));
+      expect(capturedUrl, contains('/api/v1/chat-rooms/42/messages/search'));
+      expect(capturedUrl, contains('q=needle'));
+      expect(capturedUrl, contains('limit=20'));
       expect(page.messages.single.content, 'needle result');
       expect(page.totalElements, 1);
+    });
+
+    test('fetchUrlPreview posts url and maps response data', () async {
+      Object? capturedBody;
+      final service = ChatDataService(
+        authenticatedRequest: (method, url, {headers, body}) async {
+          expect(method, 'POST');
+          expect(url, contains('/api/v1/url-preview'));
+          capturedBody = body;
+          return jsonResponse({
+            'message': '链接预览生成成功',
+            'data': {
+              'url': 'https://example.com/post',
+              'title': 'Example title',
+              'description': 'Example description',
+              'imageUrl': 'https://example.com/cover.png',
+              'siteName': 'example.com',
+              'faviconUrl': 'https://example.com/favicon.ico',
+            },
+          });
+        },
+      );
+
+      final preview = await service.fetchUrlPreview('https://example.com/post');
+
+      expect(capturedBody, {'url': 'https://example.com/post'});
+      expect(preview.url, 'https://example.com/post');
+      expect(preview.title, 'Example title');
+      expect(preview.description, 'Example description');
+      expect(preview.imageUrl, 'https://example.com/cover.png');
+      expect(preview.siteName, 'example.com');
+      expect(preview.faviconUrl, 'https://example.com/favicon.ico');
     });
 
     test('getFileMessages calls room files endpoint with optional type',
@@ -440,7 +714,10 @@ void main() {
         fileName: 'doc.pdf',
       ));
 
-      expect(capturedUrl, 'http://localhost:18080/api/files/chat/doc.pdf');
+      expect(
+        capturedUrl,
+        'https://gateway.chat.pm2550.com/api/files/chat/doc.pdf',
+      );
       expect(downloaded.name, 'doc.pdf');
       expect(downloaded.mimeType, 'application/pdf');
       expect(downloaded.bytes, [1, 2, 3]);

@@ -8,6 +8,7 @@ class ChatRoomMember {
     required this.role,
     this.roleDescription,
     this.nickname,
+    this.memberTitle,
     this.isMuted = false,
     this.isPinned = false,
     this.isAdmin = false,
@@ -22,6 +23,7 @@ class ChatRoomMember {
   final String role;
   final String? roleDescription;
   final String? nickname;
+  final String? memberTitle;
   final bool isMuted;
   final bool isPinned;
   final bool isAdmin;
@@ -62,6 +64,9 @@ class ChatRoomMember {
       roleDescription: json['roleDescription']?.toString() ??
           json['role_description']?.toString(),
       nickname: json['nickname']?.toString(),
+      memberTitle: json['memberTitle']?.toString() ??
+          json['member_title']?.toString() ??
+          json['title']?.toString(),
       isMuted: json['isMuted'] ?? json['is_muted'] ?? false,
       isPinned: json['isPinned'] ?? json['is_pinned'] ?? false,
       isAdmin: json['isAdmin'] ??
@@ -83,6 +88,9 @@ class ChatRoomMember {
 
   String get displayName =>
       nickname?.isNotEmpty == true ? nickname! : user.displayName;
+
+  String get displayTitle =>
+      memberTitle?.isNotEmpty == true ? memberTitle! : roleDescription ?? role;
 
   bool get canBeManaged => role.toUpperCase() != 'OWNER';
 }

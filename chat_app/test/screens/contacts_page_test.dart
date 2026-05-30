@@ -9,8 +9,14 @@ import 'package:http/http.dart' as http;
 void main() {
   Widget buildTestWidget(ContactDataService service) {
     return MaterialApp(
-      routes: {
-        '/chat': (context) => const Scaffold(body: Text('Chat Page')),
+      onGenerateRoute: (settings) {
+        if ((settings.name ?? '').startsWith('/chat')) {
+          return MaterialPageRoute(
+            settings: settings,
+            builder: (context) => const Scaffold(body: Text('Chat Page')),
+          );
+        }
+        return null;
       },
       home: ContactsPage(contactService: service),
     );

@@ -10,6 +10,8 @@ import 'package:web/web.dart' as web;
 import '../constants/api_constants.dart';
 import '../models/call_state.dart';
 import 'auth_service.dart';
+import 'call_ice_config.dart';
+import 'call_mesh_policy.dart';
 import 'websocket_service.dart';
 
 class ChatCallService extends ChangeNotifier {
@@ -27,22 +29,28 @@ class ChatCallService extends ChangeNotifier {
   ChatCallState get state => _state;
   bool get isSupported => true;
 
-  web.RTCPeerConnection? _peerConnection;
+  final Map<int, _PeerSession> _peers = {};
+  final Map<int, Future<_PeerSession>> _pendingPeerSessions = {};
   web.MediaStream? _localStream;
-  web.MediaStream? _remoteStream;
   web.HTMLVideoElement? _localVideo;
-  web.HTMLVideoElement? _remoteVideo;
-  StreamSubscription<web.RTCPeerConnectionIceEvent>? _iceSubscription;
-  StreamSubscription<web.RTCTrackEvent>? _trackSubscription;
-  StreamSubscription<web.Event>? _connectionSubscription;
+  Timer? _iceConfigRefreshTimer;
+  CallIceConfig? _cachedIceConfig;
+  bool _disposed = false;
 
   Future<void> startOutgoingCall({
     required int chatRoomId,
     required CallMediaKind mediaKind,
     required String peerName,
+    int? peerUserId,
   }) async {
     if (_state.isActive) {
       await hangUp(sendSignal: true);
+    }
+
+    final selfUserId = _currentUserId();
+    if (selfUserId == null) {
+      _fail('无法识别当前用户，不能发起通话');
+      return;
     }
 
     final callId = _newCallId();
@@ -50,16 +58,26 @@ class ChatCallService extends ChangeNotifier {
       phase: CallPhase.outgoing,
       callId: callId,
       chatRoomId: chatRoomId,
-      peerName: peerName,
       mediaKind: mediaKind,
+      selfUserId: selfUserId,
+      participants: [
+        CallParticipant(
+          userId: selfUserId,
+          displayName: _selfDisplayName(),
+          state: PeerConnectionState.connected,
+        ),
+      ],
     ));
 
     try {
-      await _preparePeer(mediaKind);
+      await _ensureLocalMedia(mediaKind);
+      _setState(_state.copyWith(phase: CallPhase.connected, clearError: true));
+      _sendJoin();
       _sendSignal({
         'action': 'invite',
         'chatRoomId': chatRoomId,
         'callId': callId,
+        if (peerUserId != null) 'toUserId': peerUserId,
         'mediaType': mediaKind.wireName,
       });
     } catch (error) {
@@ -67,11 +85,52 @@ class ChatCallService extends ChangeNotifier {
     }
   }
 
+  Future<void> joinExistingCall(
+    String callId,
+    int chatRoomId, {
+    CallMediaKind mediaKind = CallMediaKind.audio,
+  }) async {
+    if (_state.isFull) {
+      _fail('通话已满 $kCallMeshParticipantLimit/$kCallMeshParticipantLimit');
+      return;
+    }
+
+    final selfUserId = _currentUserId();
+    if (selfUserId == null) {
+      _fail('无法识别当前用户，不能加入通话');
+      return;
+    }
+
+    if (!_state.isActive || _state.callId != callId) {
+      _setState(ChatCallState(
+        phase: CallPhase.connecting,
+        callId: callId,
+        chatRoomId: chatRoomId,
+        mediaKind: mediaKind,
+        selfUserId: selfUserId,
+        participants: [
+          CallParticipant(
+            userId: selfUserId,
+            displayName: _selfDisplayName(),
+            state: PeerConnectionState.connected,
+          ),
+        ],
+      ));
+    }
+
+    try {
+      await _ensureLocalMedia(_state.mediaKind);
+      _sendJoin();
+    } catch (error) {
+      _fail('无法加入${mediaKind.label}通话: $error');
+    }
+  }
+
   Future<void> handleSignal(Map<String, dynamic> signal) async {
     final action = signal['action']?.toString();
     final fromUserId = _asInt(signal['fromUserId']);
     final toUserId = _asInt(signal['toUserId']);
-    final selfUserId = _asInt(_authService.currentUser?.id);
+    final selfUserId = _currentUserId();
     if (selfUserId != null && fromUserId == selfUserId) {
       return;
     }
@@ -82,6 +141,18 @@ class ChatCallService extends ChangeNotifier {
     switch (action) {
       case 'invite':
         _receiveInvite(signal);
+        break;
+      case 'join_accepted':
+        await _handleJoinAccepted(signal);
+        break;
+      case 'participant_joined':
+        await _handleParticipantJoined(signal);
+        break;
+      case 'participant_left':
+        _handleParticipantLeft(signal);
+        break;
+      case 'error':
+        _handleCallError(signal);
         break;
       case 'accept':
         await _handleAccept(signal);
@@ -99,7 +170,7 @@ class ChatCallService extends ChangeNotifier {
         await _handleIce(signal);
         break;
       case 'hangup':
-        _endRemote('通话已结束');
+        _handleParticipantLeft(signal);
         break;
     }
   }
@@ -107,26 +178,36 @@ class ChatCallService extends ChangeNotifier {
   Future<void> acceptIncoming() async {
     if (_state.phase != CallPhase.incoming ||
         _state.chatRoomId == null ||
-        _state.callId == null ||
-        _state.peerUserId == null) {
+        _state.callId == null) {
       return;
     }
+    final selfUserId = _currentUserId();
+    if (selfUserId == null) {
+      _fail('无法识别当前用户，不能接听通话');
+      return;
+    }
+
     try {
-      await _preparePeer(_state.mediaKind);
-      _setState(_state.copyWith(phase: CallPhase.connecting, clearError: true));
-      _sendSignal({
-        'action': 'accept',
-        'chatRoomId': _state.chatRoomId,
-        'callId': _state.callId,
-        'toUserId': _state.peerUserId,
-        'mediaType': _state.mediaKind.wireName,
-      });
+      _setState(_state
+          .addParticipant(CallParticipant(
+            userId: selfUserId,
+            displayName: _selfDisplayName(),
+            state: PeerConnectionState.connected,
+          ))
+          .copyWith(
+            selfUserId: selfUserId,
+            phase: CallPhase.connecting,
+            clearError: true,
+          ));
+      await _ensureLocalMedia(_state.mediaKind);
+      _sendJoin();
     } catch (error) {
+      final inviter = _state.others.isNotEmpty ? _state.others.first : null;
       _sendSignal({
         'action': 'reject',
         'chatRoomId': _state.chatRoomId,
         'callId': _state.callId,
-        'toUserId': _state.peerUserId,
+        if (inviter != null) 'toUserId': inviter.userId,
         'mediaType': _state.mediaKind.wireName,
       });
       _fail('无法接听${_state.mediaKind.label}通话: $error');
@@ -135,11 +216,12 @@ class ChatCallService extends ChangeNotifier {
 
   void rejectIncoming() {
     if (_state.phase == CallPhase.incoming) {
+      final inviter = _state.others.isNotEmpty ? _state.others.first : null;
       _sendSignal({
         'action': 'reject',
         'chatRoomId': _state.chatRoomId,
         'callId': _state.callId,
-        'toUserId': _state.peerUserId,
+        if (inviter != null) 'toUserId': inviter.userId,
         'mediaType': _state.mediaKind.wireName,
       });
     }
@@ -149,15 +231,25 @@ class ChatCallService extends ChangeNotifier {
   Future<void> hangUp({bool sendSignal = true}) async {
     if (sendSignal && _state.isActive) {
       _sendSignal({
+        'action': 'leave',
+        'chatRoomId': _state.chatRoomId,
+        'callId': _state.callId,
+        'mediaType': _state.mediaKind.wireName,
+      });
+      _sendSignal({
         'action': 'hangup',
         'chatRoomId': _state.chatRoomId,
         'callId': _state.callId,
-        if (_state.peerUserId != null) 'toUserId': _state.peerUserId,
         'mediaType': _state.mediaKind.wireName,
       });
     }
-    _disposePeer();
-    _setState(const ChatCallState(phase: CallPhase.ended));
+    _disposeAllPeers();
+    _stopLocalMedia();
+    _setState(ChatCallState(
+      phase: CallPhase.ended,
+      mediaKind: _state.mediaKind,
+      selfUserId: _state.selfUserId,
+    ));
     Future<void>.delayed(const Duration(milliseconds: 900), () {
       if (_state.phase == CallPhase.ended) {
         clear();
@@ -166,102 +258,180 @@ class ChatCallService extends ChangeNotifier {
   }
 
   void toggleMicrophone() {
-    final muted = !_state.microphoneMuted;
+    final self = _state.self;
+    final muted = !(self?.micMuted ?? false);
     for (final track in _localStream?.getAudioTracks().toDart ?? const []) {
       track.enabled = !muted;
     }
-    _setState(_state.copyWith(microphoneMuted: muted));
+    final selfUserId = _state.selfUserId;
+    if (selfUserId != null) {
+      _setState(_state.updateParticipant(
+        selfUserId,
+        (participant) => participant.copyWith(micMuted: muted),
+      ));
+    }
   }
 
   void toggleCamera() {
-    final off = !_state.cameraOff;
+    final self = _state.self;
+    final off = !(self?.cameraOff ?? false);
     for (final track in _localStream?.getVideoTracks().toDart ?? const []) {
       track.enabled = !off;
     }
-    _setState(_state.copyWith(cameraOff: off));
+    final selfUserId = _state.selfUserId;
+    if (selfUserId != null) {
+      _setState(_state.updateParticipant(
+        selfUserId,
+        (participant) => participant.copyWith(cameraOff: off),
+      ));
+    }
   }
 
   void clear() {
-    _disposePeer();
+    _disposeAllPeers();
+    _stopLocalMedia();
     _setState(const ChatCallState());
   }
 
   void _receiveInvite(Map<String, dynamic> signal) {
+    final callerUserId = _asInt(signal['fromUserId']);
+    if (callerUserId == null) return;
+
     if (_state.isActive) {
+      if (_state.callId == signal['callId']?.toString()) return;
       _sendSignal({
         'action': 'reject',
         'chatRoomId': _asInt(signal['chatRoomId']),
         'callId': signal['callId']?.toString(),
-        'toUserId': _asInt(signal['fromUserId']),
+        'toUserId': callerUserId,
         'mediaType': CallMediaKind.fromWire(signal['mediaType']).wireName,
       });
       return;
     }
+
     _setState(ChatCallState(
       phase: CallPhase.incoming,
       callId: signal['callId']?.toString(),
       chatRoomId: _asInt(signal['chatRoomId']),
-      peerUserId: _asInt(signal['fromUserId']),
-      peerName: signal['fromName']?.toString(),
       mediaKind: CallMediaKind.fromWire(signal['mediaType']),
+      selfUserId: _currentUserId(),
+      participants: [
+        CallParticipant(
+          userId: callerUserId,
+          displayName: _participantName(signal, fallback: '联系人'),
+        ),
+      ],
     ));
   }
 
-  Future<void> _handleAccept(Map<String, dynamic> signal) async {
-    if (!_isCurrentCall(signal) || _state.phase != CallPhase.outgoing) {
-      return;
-    }
-    final peerUserId = _asInt(signal['fromUserId']);
-    if (peerUserId == null) return;
+  Future<void> _handleJoinAccepted(Map<String, dynamic> signal) async {
+    if (!_isCurrentCall(signal)) return;
+    final selfUserId = _state.selfUserId ?? _currentUserId();
+    if (selfUserId == null) return;
+
     _setState(_state.copyWith(
-      phase: CallPhase.connecting,
-      peerUserId: peerUserId,
-      peerName: signal['fromName']?.toString(),
+      phase: CallPhase.connected,
+      selfUserId: selfUserId,
       clearError: true,
     ));
-    await _ensurePeer();
-    final offer = await _peerConnection!.createOffer().toDart;
-    if (offer == null) {
-      throw StateError('浏览器没有生成 WebRTC offer');
+
+    for (final peerUserId in _intList(signal['existingParticipantIds'])) {
+      if (peerUserId == selfUserId) continue;
+      final peerName = _knownParticipantName(peerUserId);
+      final isOfferer = shouldCreateMeshOffer(
+        selfUserId: selfUserId,
+        peerUserId: peerUserId,
+      );
+      await _ensurePeerSession(
+        peerUserId,
+        peerName: peerName,
+        isOfferer: isOfferer,
+      );
     }
-    await _peerConnection!
-        .setLocalDescription(web.RTCLocalSessionDescriptionInit(
-          type: offer.type,
-          sdp: offer.sdp,
-        ))
-        .toDart;
-    _sendSignal({
-      'action': 'offer',
-      'chatRoomId': _state.chatRoomId,
-      'callId': _state.callId,
-      'toUserId': peerUserId,
-      'mediaType': _state.mediaKind.wireName,
-      'sdpType': offer.type,
-      'sdp': offer.sdp,
-    });
+  }
+
+  Future<void> _handleParticipantJoined(Map<String, dynamic> signal) async {
+    if (!_isCurrentCall(signal)) return;
+    if (_state.phase == CallPhase.incoming) return;
+    final peerUserId = _asInt(signal['userId'] ?? signal['fromUserId']);
+    final selfUserId = _state.selfUserId ?? _currentUserId();
+    if (peerUserId == null || selfUserId == null || peerUserId == selfUserId) {
+      return;
+    }
+
+    final peerName = _participantName(signal, fallback: '成员 $peerUserId');
+    final isOfferer = shouldCreateMeshOffer(
+      selfUserId: selfUserId,
+      peerUserId: peerUserId,
+    );
+    await _ensurePeerSession(
+      peerUserId,
+      peerName: peerName,
+      isOfferer: isOfferer,
+    );
+  }
+
+  void _handleParticipantLeft(Map<String, dynamic> signal) {
+    if (!_isCurrentCall(signal)) return;
+    final peerUserId = _asInt(signal['userId'] ?? signal['fromUserId']);
+    if (peerUserId == null) return;
+    _disposePeerSession(peerUserId);
+    final next = _state.removeParticipant(peerUserId);
+    _setState(next.others.isEmpty && next.self != null
+        ? next.copyWith(phase: CallPhase.ended)
+        : next);
+  }
+
+  void _handleCallError(Map<String, dynamic> signal) {
+    if (!_isCurrentCall(signal)) return;
+    final error = signal['error']?.toString();
+    if (error == 'ROOM_FULL') {
+      _fail(
+          '通话已满 ${signal['current'] ?? kCallMeshParticipantLimit}/${signal['max'] ?? kCallMeshParticipantLimit}');
+      return;
+    }
+    _fail(error == null || error.isEmpty ? '通话信令失败' : error);
+  }
+
+  Future<void> _handleAccept(Map<String, dynamic> signal) async {
+    if (!_isCurrentCall(signal)) return;
+    final peerUserId = _asInt(signal['fromUserId']);
+    final selfUserId = _state.selfUserId ?? _currentUserId();
+    if (peerUserId == null || selfUserId == null) return;
+
+    final isOfferer = shouldCreateMeshOffer(
+      selfUserId: selfUserId,
+      peerUserId: peerUserId,
+    );
+    await _ensurePeerSession(
+      peerUserId,
+      peerName: _participantName(signal, fallback: '联系人'),
+      isOfferer: isOfferer,
+    );
   }
 
   Future<void> _handleOffer(Map<String, dynamic> signal) async {
     if (!_isCurrentCall(signal)) return;
-    await _ensurePeer();
+    if (_state.phase == CallPhase.incoming) return;
     final fromUserId = _asInt(signal['fromUserId']);
-    _setState(_state.copyWith(
-      phase: CallPhase.connecting,
-      peerUserId: fromUserId,
-      peerName: signal['fromName']?.toString(),
-      clearError: true,
-    ));
-    await _peerConnection!
+    if (fromUserId == null) return;
+
+    final session = await _ensurePeerSession(
+      fromUserId,
+      peerName: _participantName(signal, fallback: '联系人'),
+      isOfferer: false,
+    );
+    await session.pc
         .setRemoteDescription(web.RTCSessionDescriptionInit(
           type: signal['sdpType']?.toString() ?? 'offer',
           sdp: signal['sdp']?.toString() ?? '',
         ))
         .toDart;
-    final answer = await _peerConnection!.createAnswer().toDart;
+    final answer = await session.pc.createAnswer().toDart;
     if (answer == null) {
       throw StateError('浏览器没有生成 WebRTC answer');
     }
-    await _peerConnection!
+    await session.pc
         .setLocalDescription(web.RTCLocalSessionDescriptionInit(
           type: answer.type,
           sdp: answer.sdp,
@@ -279,23 +449,32 @@ class ChatCallService extends ChangeNotifier {
   }
 
   Future<void> _handleAnswer(Map<String, dynamic> signal) async {
-    if (!_isCurrentCall(signal) || _peerConnection == null) return;
-    await _peerConnection!
+    if (!_isCurrentCall(signal)) return;
+    final fromUserId = _asInt(signal['fromUserId']);
+    if (fromUserId == null) return;
+    final session = _peers[fromUserId];
+    if (session == null) return;
+    await session.pc
         .setRemoteDescription(web.RTCSessionDescriptionInit(
           type: signal['sdpType']?.toString() ?? 'answer',
           sdp: signal['sdp']?.toString() ?? '',
         ))
         .toDart;
-    _setState(_state.copyWith(phase: CallPhase.connected, clearError: true));
+    _markPeerState(fromUserId, PeerConnectionState.connected);
   }
 
   Future<void> _handleIce(Map<String, dynamic> signal) async {
-    if (!_isCurrentCall(signal) || _peerConnection == null) return;
+    if (!_isCurrentCall(signal)) return;
+    final fromUserId = _asInt(signal['fromUserId']);
+    if (fromUserId == null) return;
+    final session = _peers[fromUserId];
+    if (session == null) return;
+
     final rawCandidate = signal['candidate'];
     if (rawCandidate is! Map) return;
     final candidate = rawCandidate['candidate']?.toString();
     if (candidate == null || candidate.isEmpty) return;
-    await _peerConnection!
+    await session.pc
         .addIceCandidate(web.RTCIceCandidateInit(
           candidate: candidate,
           sdpMid: rawCandidate['sdpMid']?.toString(),
@@ -304,8 +483,12 @@ class ChatCallService extends ChangeNotifier {
         .toDart;
   }
 
-  Future<void> _preparePeer(CallMediaKind mediaKind) async {
-    _disposePeer();
+  Future<void> _ensureLocalMedia(CallMediaKind mediaKind) async {
+    if (_localStream != null) {
+      _registerSelfParticipant(mediaKind);
+      return;
+    }
+
     final constraints = web.MediaStreamConstraints(
       audio: true.toJS,
       video: (mediaKind == CallMediaKind.video).toJS,
@@ -313,32 +496,87 @@ class ChatCallService extends ChangeNotifier {
     _localStream = await web.window.navigator.mediaDevices
         .getUserMedia(constraints)
         .toDart;
-    final iceServers = await _loadIceServers();
-    _peerConnection = web.RTCPeerConnection(web.RTCConfiguration(
-      iceServers: iceServers.toJS,
-    ));
-
     _registerLocalVideo(_localStream!, mediaKind);
-    for (final track in _localStream!.getTracks().toDart) {
-      _peerConnection!.addTrack(track, _localStream!);
+    _registerSelfParticipant(mediaKind);
+  }
+
+  Future<_PeerSession> _ensurePeerSession(
+    int peerUserId, {
+    required String peerName,
+    required bool isOfferer,
+  }) async {
+    final existing = _peers[peerUserId];
+    if (existing != null) {
+      _setState(_state.addParticipant(CallParticipant(
+        userId: peerUserId,
+        displayName: peerName,
+        remoteViewId: existing.remoteViewId,
+        state: existing.toParticipantState(),
+      )));
+      return existing;
     }
 
-    _iceSubscription = web.EventStreamProviders.iceCandidateEvent
-        .forTarget(_peerConnection)
+    final pending = _pendingPeerSessions[peerUserId];
+    if (pending != null) {
+      final session = await pending;
+      _setState(_state.addParticipant(CallParticipant(
+        userId: peerUserId,
+        displayName: peerName,
+        remoteViewId: session.remoteViewId,
+        state: session.toParticipantState(),
+      )));
+      return session;
+    }
+
+    final future = _createPeerSession(
+      peerUserId,
+      peerName: peerName,
+      isOfferer: isOfferer,
+    );
+    _pendingPeerSessions[peerUserId] = future;
+    try {
+      return await future;
+    } finally {
+      _pendingPeerSessions.remove(peerUserId);
+    }
+  }
+
+  Future<_PeerSession> _createPeerSession(
+    int peerUserId, {
+    required String peerName,
+    required bool isOfferer,
+  }) async {
+    await _ensureLocalMedia(_state.mediaKind);
+    final iceConfig = await _loadIceConfig();
+    final pc = web.RTCPeerConnection(web.RTCConfiguration(
+      iceServers: _webIceServersFromConfig(iceConfig).toJS,
+      iceTransportPolicy: 'all',
+      bundlePolicy: 'max-bundle',
+      rtcpMuxPolicy: 'require',
+    ));
+    for (final track in _localStream!.getTracks().toDart) {
+      pc.addTrack(track, _localStream!);
+    }
+
+    final session = _PeerSession(peerUserId: peerUserId, pc: pc);
+    _peers[peerUserId] = session;
+    _setState(_state.addParticipant(CallParticipant(
+      userId: peerUserId,
+      displayName: peerName,
+      state: PeerConnectionState.connecting,
+    )));
+
+    session.iceSubscription = web.EventStreamProviders.iceCandidateEvent
+        .forTarget(pc)
         .listen((event) {
       final candidate = event.candidate;
-      if (candidate == null ||
-          _state.chatRoomId == null ||
-          _state.callId == null ||
-          _state.peerUserId == null) {
-        return;
-      }
+      if (candidate == null || _state.chatRoomId == null) return;
       final init = candidate.toJSON();
       _sendSignal({
         'action': 'ice',
         'chatRoomId': _state.chatRoomId,
         'callId': _state.callId,
-        'toUserId': _state.peerUserId,
+        'toUserId': peerUserId,
         'mediaType': _state.mediaKind.wireName,
         'candidate': {
           'candidate': init.candidate,
@@ -348,137 +586,197 @@ class ChatCallService extends ChangeNotifier {
       });
     });
 
-    _trackSubscription = web.EventStreamProviders.trackEvent
-        .forTarget(_peerConnection)
-        .listen((event) {
+    session.trackSubscription =
+        web.EventStreamProviders.trackEvent.forTarget(pc).listen((event) {
       final streams = event.streams.toDart;
-      _remoteStream = streams.isNotEmpty ? streams.first : web.MediaStream();
+      session.remoteStream =
+          streams.isNotEmpty ? streams.first : web.MediaStream();
       if (streams.isEmpty) {
-        _remoteStream!.addTrack(event.track);
+        session.remoteStream!.addTrack(event.track);
       }
-      _registerRemoteVideo(_remoteStream!, _state.mediaKind);
-      _setState(_state.copyWith(
-        phase: CallPhase.connected,
-        remoteViewId: _state.remoteViewId,
-        clearError: true,
-      ));
+      _registerRemoteVideo(peerUserId, session.remoteStream!);
+      _markPeerState(peerUserId, PeerConnectionState.connected);
+      _setState(_state.copyWith(phase: CallPhase.connected, clearError: true));
     });
 
-    _connectionSubscription = web
+    session.connectionSubscription = web
         .EventStreamProviders.connectionStateChangeEvent
-        .forTarget(_peerConnection)
+        .forTarget(pc)
         .listen((_) {
-      final state = _peerConnection?.connectionState;
-      if (state == 'connected') {
+      final connectionState = pc.connectionState;
+      if (connectionState == 'connected') {
+        _markPeerState(peerUserId, PeerConnectionState.connected);
         _setState(
             _state.copyWith(phase: CallPhase.connected, clearError: true));
-      } else if (state == 'failed' ||
-          state == 'disconnected' ||
-          state == 'closed') {
-        _fail('媒体连接已断开');
+      } else if (connectionState == 'disconnected') {
+        _markPeerState(peerUserId, PeerConnectionState.disconnected);
+      } else if (connectionState == 'failed' || connectionState == 'closed') {
+        _markPeerState(peerUserId, PeerConnectionState.failed);
       }
     });
+
+    if (isOfferer) {
+      final offer = await pc.createOffer().toDart;
+      if (offer == null) {
+        throw StateError('浏览器没有生成 WebRTC offer');
+      }
+      await pc
+          .setLocalDescription(web.RTCLocalSessionDescriptionInit(
+            type: offer.type,
+            sdp: offer.sdp,
+          ))
+          .toDart;
+      _sendSignal({
+        'action': 'offer',
+        'chatRoomId': _state.chatRoomId,
+        'callId': _state.callId,
+        'toUserId': peerUserId,
+        'mediaType': _state.mediaKind.wireName,
+        'sdpType': offer.type,
+        'sdp': offer.sdp,
+      });
+    }
+
+    return session;
   }
 
-  Future<void> _ensurePeer() async {
-    if (_peerConnection == null || _localStream == null) {
-      await _preparePeer(_state.mediaKind);
-    }
+  void _registerSelfParticipant(CallMediaKind mediaKind) {
+    final selfUserId = _state.selfUserId ?? _currentUserId();
+    if (selfUserId == null) return;
+    final existing = _state.self;
+    final nextSelf = (existing ??
+            CallParticipant(
+              userId: selfUserId,
+              displayName: _selfDisplayName(),
+              state: PeerConnectionState.connected,
+            ))
+        .copyWith(
+      localViewId: existing?.localViewId ?? _currentLocalViewId(),
+      state: PeerConnectionState.connected,
+    );
+    _setState(_state
+        .copyWith(mediaKind: mediaKind, selfUserId: selfUserId)
+        .addParticipant(nextSelf));
   }
 
   void _registerLocalVideo(web.MediaStream stream, CallMediaKind mediaKind) {
+    if (_localVideo != null) return;
     final viewId = _newViewId('local');
     _localVideo = _buildVideoElement(stream, muted: true);
     ui_web.platformViewRegistry
         .registerViewFactory(viewId, (int _) => _localVideo!);
-    _setState(_state.copyWith(localViewId: viewId, mediaKind: mediaKind));
-  }
-
-  web.RTCIceServer _buildIceServer(String url) {
-    final lowerUrl = url.toLowerCase();
-    final requiresCredentials =
-        lowerUrl.startsWith('turn:') || lowerUrl.startsWith('turns:');
-    if (requiresCredentials && ApiConstants.hasWebrtcTurnCredentials) {
-      return web.RTCIceServer(
-        urls: url.toJS,
-        username: ApiConstants.webrtcTurnUsername,
-        credential: ApiConstants.webrtcTurnCredential,
-      );
+    final selfUserId = _state.selfUserId ?? _currentUserId();
+    if (selfUserId != null) {
+      _setState(_state
+          .copyWith(mediaKind: mediaKind, selfUserId: selfUserId)
+          .addParticipant(CallParticipant(
+            userId: selfUserId,
+            displayName: _selfDisplayName(),
+            localViewId: viewId,
+            state: PeerConnectionState.connected,
+          )));
     }
-    return web.RTCIceServer(urls: url.toJS);
   }
 
-  Future<List<web.RTCIceServer>> _loadIceServers() async {
+  void _registerRemoteVideo(int peerUserId, web.MediaStream stream) {
+    final viewId = _newViewId('remote-$peerUserId');
+    final video = _buildVideoElement(stream, muted: false);
+    ui_web.platformViewRegistry.registerViewFactory(viewId, (int _) => video);
+    final session = _peers[peerUserId];
+    if (session != null) {
+      session.remoteViewId = viewId;
+    }
+    _setState(_state.updateParticipant(
+      peerUserId,
+      (participant) => participant.copyWith(
+        remoteViewId: viewId,
+        state: PeerConnectionState.connected,
+      ),
+    ));
+  }
+
+  Future<CallIceConfig> _loadIceConfig() async {
+    final now = DateTime.now().toUtc();
+    final cached = _cachedIceConfig;
+    if (cached != null && cached.canReuse(now)) {
+      return cached;
+    }
+
     try {
-      final response = await _authService.authenticatedRequest(
-        'GET',
-        ApiConstants.callIceServers,
-      );
-      if (response.statusCode >= 200 && response.statusCode < 300) {
-        final decoded = jsonDecode(utf8.decode(response.bodyBytes));
-        final payload = decoded is Map<String, dynamic>
-            ? decoded['data'] ?? decoded
-            : decoded;
-        if (payload is Map<String, dynamic>) {
-          final rawServers = payload['iceServers'];
-          if (rawServers is List) {
-            final servers = rawServers
-                .whereType<Map>()
-                .map(_iceServerFromJson)
-                .whereType<web.RTCIceServer>()
-                .toList(growable: false);
-            if (servers.isNotEmpty) {
-              return servers;
-            }
-          }
-        }
-      }
+      final config = await _fetchIceConfig(now: now);
+      _cacheIceConfig(config);
+      return config;
     } catch (_) {
-      // Fall back to build-time STUN config below.
+      final fallback = CallIceConfig.fallback(now: now);
+      _cacheIceConfig(fallback);
+      _setState(_state.copyWith(errorMessage: '通话可能受限'));
+      return fallback;
     }
-    return ApiConstants.webrtcIceServers
-        .map(_buildIceServer)
+  }
+
+  Future<CallIceConfig> _fetchIceConfig({DateTime? now}) async {
+    final response = await _authService.authenticatedRequest(
+      'GET',
+      ApiConstants.iceServers,
+    );
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw StateError('ICE server endpoint failed: ${response.statusCode}');
+    }
+    final decoded = jsonDecode(utf8.decode(response.bodyBytes));
+    return CallIceConfig.fromApiResponse(
+      decoded,
+      now: now ?? DateTime.now().toUtc(),
+    );
+  }
+
+  void _cacheIceConfig(CallIceConfig config) {
+    _cachedIceConfig = config;
+    _iceConfigRefreshTimer?.cancel();
+    if (_disposed) return;
+
+    final refreshAt = config.expiresAt.subtract(const Duration(seconds: 60));
+    var delay = refreshAt.difference(DateTime.now().toUtc());
+    if (delay.isNegative) {
+      delay = const Duration(seconds: 30);
+    }
+
+    _iceConfigRefreshTimer = Timer(delay, () {
+      unawaited(_refreshIceConfigSilently());
+    });
+  }
+
+  Future<void> _refreshIceConfigSilently() async {
+    if (_disposed) return;
+    try {
+      _cacheIceConfig(await _fetchIceConfig());
+    } catch (_) {
+      // Keep the existing config. The next call falls back only if fresh TURN
+      // credentials cannot be fetched again.
+    }
+  }
+
+  List<web.RTCIceServer> _webIceServersFromConfig(CallIceConfig config) {
+    return config.iceServers
+        .map(_webIceServerFromModel)
         .toList(growable: false);
   }
 
-  web.RTCIceServer? _iceServerFromJson(Map<dynamic, dynamic> json) {
-    final rawUrls = json['urls'];
+  web.RTCIceServer _webIceServerFromModel(CallIceServer server) {
     JSAny urls;
-    if (rawUrls is List) {
-      final parsed = rawUrls
-          .map((url) => url.toString().trim())
-          .where((url) => url.isNotEmpty)
-          .map((url) => url.toJS)
-          .toList(growable: false);
-      if (parsed.isEmpty) return null;
-      urls = parsed.toJS;
+    if (server.urls.length == 1) {
+      urls = server.urls.first.toJS;
     } else {
-      final url = rawUrls?.toString().trim() ?? '';
-      if (url.isEmpty) return null;
-      urls = url.toJS;
+      urls = server.urls.map((url) => url.toJS).toList(growable: false).toJS;
     }
 
-    final username = json['username']?.toString();
-    final credential = json['credential']?.toString();
-    if (username != null &&
-        username.isNotEmpty &&
-        credential != null &&
-        credential.isNotEmpty) {
+    if (server.username != null && server.credential != null) {
       return web.RTCIceServer(
         urls: urls,
-        username: username,
-        credential: credential,
+        username: server.username!,
+        credential: server.credential!,
       );
     }
     return web.RTCIceServer(urls: urls);
-  }
-
-  void _registerRemoteVideo(web.MediaStream stream, CallMediaKind mediaKind) {
-    final viewId = _newViewId('remote');
-    _remoteVideo = _buildVideoElement(stream, muted: false);
-    ui_web.platformViewRegistry
-        .registerViewFactory(viewId, (int _) => _remoteVideo!);
-    _setState(_state.copyWith(remoteViewId: viewId, mediaKind: mediaKind));
   }
 
   web.HTMLVideoElement _buildVideoElement(
@@ -507,6 +805,15 @@ class ChatCallService extends ChangeNotifier {
         _asInt(signal['chatRoomId']) == _state.chatRoomId;
   }
 
+  void _sendJoin() {
+    _sendSignal({
+      'action': 'join',
+      'chatRoomId': _state.chatRoomId,
+      'callId': _state.callId,
+      'mediaType': _state.mediaKind.wireName,
+    });
+  }
+
   void _sendSignal(Map<String, dynamic> signal) {
     final ok = _webSocketService.sendCallSignal(signal);
     if (!ok) {
@@ -514,12 +821,21 @@ class ChatCallService extends ChangeNotifier {
     }
   }
 
+  void _markPeerState(int peerUserId, PeerConnectionState state) {
+    _setState(_state.updateParticipant(
+      peerUserId,
+      (participant) => participant.copyWith(state: state),
+    ));
+  }
+
   void _endRemote(String message) {
-    _disposePeer();
+    _disposeAllPeers();
+    _stopLocalMedia();
     _setState(ChatCallState(
       phase: CallPhase.ended,
       mediaKind: _state.mediaKind,
       errorMessage: message,
+      selfUserId: _state.selfUserId,
     ));
     Future<void>.delayed(const Duration(milliseconds: 1200), () {
       if (_state.phase == CallPhase.ended) {
@@ -529,39 +845,83 @@ class ChatCallService extends ChangeNotifier {
   }
 
   void _fail(String message) {
-    _disposePeer();
+    _disposeAllPeers();
+    _stopLocalMedia();
     _setState(ChatCallState(
       phase: CallPhase.failed,
       mediaKind: _state.mediaKind,
       errorMessage: message,
+      selfUserId: _state.selfUserId,
     ));
   }
 
-  void _disposePeer() {
-    _iceSubscription?.cancel();
-    _trackSubscription?.cancel();
-    _connectionSubscription?.cancel();
-    _iceSubscription = null;
-    _trackSubscription = null;
-    _connectionSubscription = null;
+  void _disposeAllPeers() {
+    for (final peerUserId in List<int>.from(_peers.keys)) {
+      _disposePeerSession(peerUserId);
+    }
+  }
+
+  void _disposePeerSession(int peerUserId) {
+    final session = _peers.remove(peerUserId);
+    try {
+      session?.dispose();
+    } catch (_) {
+      // Peer cleanup should never surface as a call signaling failure.
+    }
+  }
+
+  void _stopLocalMedia() {
     for (final track in _localStream?.getTracks().toDart ?? const []) {
       track.stop();
     }
-    for (final track in _remoteStream?.getTracks().toDart ?? const []) {
-      track.stop();
-    }
-    _peerConnection?.close();
-    _peerConnection = null;
     _localStream = null;
-    _remoteStream = null;
     _localVideo = null;
-    _remoteVideo = null;
   }
 
   void _setState(ChatCallState next) {
     _state = next;
     notifyListeners();
   }
+
+  String? _currentLocalViewId() {
+    final self = _state.self;
+    return self?.localViewId;
+  }
+
+  String _knownParticipantName(int userId) {
+    for (final participant in _state.participants) {
+      if (participant.userId == userId) {
+        return participant.displayName;
+      }
+    }
+    return '成员 $userId';
+  }
+
+  String _participantName(
+    Map<String, dynamic> signal, {
+    required String fallback,
+  }) {
+    final name = signal['name']?.toString() ?? signal['fromName']?.toString();
+    return name == null || name.isEmpty ? fallback : name;
+  }
+
+  List<int> _intList(dynamic value) {
+    if (value is Iterable) {
+      return value.map(_asInt).whereType<int>().toList(growable: false);
+    }
+    return const [];
+  }
+
+  String _selfDisplayName() {
+    final user = _authService.currentUser;
+    final displayName = user?.displayName;
+    if (displayName != null && displayName.isNotEmpty) return displayName;
+    final username = user?.username;
+    if (username != null && username.isNotEmpty) return username;
+    return '我';
+  }
+
+  int? _currentUserId() => _asInt(_authService.currentUser?.id);
 
   String _newCallId() {
     final now = DateTime.now().microsecondsSinceEpoch.toRadixString(36);
@@ -582,7 +942,52 @@ class ChatCallService extends ChangeNotifier {
 
   @override
   void dispose() {
-    _disposePeer();
+    _disposed = true;
+    _iceConfigRefreshTimer?.cancel();
+    _disposeAllPeers();
+    _stopLocalMedia();
     super.dispose();
+  }
+}
+
+class _PeerSession {
+  _PeerSession({
+    required this.peerUserId,
+    required this.pc,
+  }) : createdAt = DateTime.now().toUtc();
+
+  final int peerUserId;
+  final web.RTCPeerConnection pc;
+  final DateTime createdAt;
+  web.MediaStream? remoteStream;
+  String? remoteViewId;
+  StreamSubscription<web.RTCPeerConnectionIceEvent>? iceSubscription;
+  StreamSubscription<web.RTCTrackEvent>? trackSubscription;
+  StreamSubscription<web.Event>? connectionSubscription;
+
+  PeerConnectionState toParticipantState() {
+    final state = pc.connectionState;
+    if (state == 'connected') return PeerConnectionState.connected;
+    if (state == 'disconnected') return PeerConnectionState.disconnected;
+    if (state == 'failed' || state == 'closed') {
+      return PeerConnectionState.failed;
+    }
+    return PeerConnectionState.connecting;
+  }
+
+  void dispose() {
+    iceSubscription?.cancel();
+    trackSubscription?.cancel();
+    connectionSubscription?.cancel();
+    try {
+      for (final track in remoteStream?.getTracks().toDart ?? const []) {
+        track.stop();
+      }
+    } catch (_) {
+      // Some browsers expose remote stream tracks as native JS arrays that can
+      // outlive Dart's typed wrapper during teardown. Closing the peer
+      // connection below is the authoritative cleanup.
+    }
+    pc.close();
   }
 }

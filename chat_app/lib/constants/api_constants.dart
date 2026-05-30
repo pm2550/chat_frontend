@@ -1,16 +1,17 @@
 class ApiConstants {
   // Base URLs configurable at build time via --dart-define.
   // Example:
-  //   flutter build web --dart-define=API_BASE_URL=https://chat.example.com \
-  //                     --dart-define=WS_BASE_URL=wss://chat.example.com
-  // Defaults match the local dev backend on port 18080.
+  //   flutter run --dart-define=API_BASE_URL=http://localhost:18080 \
+  //               --dart-define=WS_BASE_URL=ws://localhost:18080
+  // Defaults match the live PM chat gateway because build/web is served
+  // directly in production.
   static const String baseUrl = String.fromEnvironment(
     'API_BASE_URL',
-    defaultValue: 'http://localhost:18080',
+    defaultValue: 'https://gateway.chat.pm2550.com',
   );
   static const String wsBaseUrl = String.fromEnvironment(
     'WS_BASE_URL',
-    defaultValue: 'ws://localhost:18080',
+    defaultValue: 'wss://gateway.chat.pm2550.com',
   );
   static const String webAppUrl = String.fromEnvironment(
     'WEB_APP_URL',
@@ -56,6 +57,7 @@ class ApiConstants {
   static const String profileBaseUrl = '$baseUrl$apiPrefix/profile';
   static const String profile = profileBaseUrl;
   static const String profileAvatar = '$profileBaseUrl/avatar';
+  static const String profileChatBackground = '$profileBaseUrl/chat-background';
   static const String profileHeartbeat = '$profileBaseUrl/heartbeat';
   static const String profileSettings = '$profileBaseUrl/settings';
   static const String profilePassword = '$profileBaseUrl/password';
@@ -84,12 +86,22 @@ class ApiConstants {
       '$apiBaseUrl/chat-rooms/$roomId/members/$userId/toggle-admin';
   static String toggleChatRoomMute(int roomId, int userId) =>
       '$apiBaseUrl/chat-rooms/$roomId/members/$userId/toggle-mute';
+  static String chatRoomMemberProfile(int roomId, int userId) =>
+      '$apiBaseUrl/chat-rooms/$roomId/members/$userId/profile';
   static String joinChatRoom(int roomId) =>
       '$apiBaseUrl/chat-rooms/$roomId/join';
   static String leaveChatRoom(int roomId) =>
       '$apiBaseUrl/chat-rooms/$roomId/leave';
   static String chatRoomNotificationSettings(int roomId) =>
       '$apiBaseUrl/chat-rooms/$roomId/notification-settings';
+  static String chatRoomBackgroundPreset(int roomId) =>
+      '$apiBaseUrl/chat-rooms/$roomId/background-preset';
+  static String chatRoomBackgroundUpload(int roomId) =>
+      '$apiBaseUrl/chat-rooms/$roomId/background-upload';
+  static String chatRoomBackground(int roomId) =>
+      '$apiBaseUrl/chat-rooms/$roomId/background';
+  static String chatRoomMentionsMe(int roomId) =>
+      '$apiBaseUrl/chat-rooms/$roomId/mentions/me';
   static const String searchChatRooms = '$apiBaseUrl/chat-rooms/search';
 
   // Message endpoints
@@ -103,6 +115,8 @@ class ApiConstants {
       '$apiBaseUrl/messages/chat-room/$roomId/files';
   static String markMessageRead(int messageId) =>
       '$apiBaseUrl/messages/$messageId/read';
+  static String messageReadBy(int messageId) =>
+      '$apiBaseUrl/messages/$messageId/read-by';
   static String markAllRead(int roomId) =>
       '$apiBaseUrl/messages/chat-room/$roomId/read-all';
   static String clearChatHistory(int roomId) =>
@@ -111,8 +125,15 @@ class ApiConstants {
       '$apiBaseUrl/messages/$messageId/recall';
   static String deleteMessage(int messageId) =>
       '$apiBaseUrl/messages/$messageId';
+  static String messageReactions(int messageId) =>
+      '$apiBaseUrl/messages/$messageId/reactions';
+  static String messageReaction(int messageId, String emoji) =>
+      '$apiBaseUrl/messages/$messageId/reactions/${Uri.encodeComponent(emoji)}';
   static const String searchMessages = '$apiBaseUrl/messages/search';
+  static String searchMessagesInRoom(int roomId) =>
+      '$apiBaseUrl/chat-rooms/$roomId/messages/search';
   static const String unreadCount = '$apiBaseUrl/messages/unread-count';
+  static const String urlPreview = '$apiBaseUrl/url-preview';
 
   // File endpoints
   static const String filesBaseUrl = '$baseUrl$apiPrefix/files';
@@ -152,8 +173,15 @@ class ApiConstants {
       '$apiBaseUrl/chat-rooms/$roomId/anonymous/enter';
   static String renameAnonymous(int roomId) =>
       '$apiBaseUrl/chat-rooms/$roomId/anonymous/rename';
+  static String rerollAnonymous(int roomId) =>
+      '$apiBaseUrl/chat-rooms/$roomId/anonymous/reroll';
+  static const String anonymousQuota = '$apiBaseUrl/anonymous/quota';
   static String toggleAnonymous(int roomId) =>
       '$apiBaseUrl/chat-rooms/$roomId/anonymous/toggle';
+  static String anonymousThemes(int roomId) =>
+      '$apiBaseUrl/chat-rooms/$roomId/anonymous/themes';
+  static String anonymousTheme(int roomId) =>
+      '$apiBaseUrl/chat-rooms/$roomId/anonymous/theme';
 
   // Bot endpoints
   static const String createBot = '$apiBaseUrl/bots';
@@ -163,13 +191,28 @@ class ApiConstants {
       '$apiBaseUrl/bots/chat-rooms/$roomId/bots/$botId/add';
   static String removeBotFromRoom(int roomId, int botId) =>
       '$apiBaseUrl/bots/chat-rooms/$roomId/bots/$botId';
+  static String updateRoomBot(int roomId, int botId) =>
+      '$apiBaseUrl/bots/chat-rooms/$roomId/bots/$botId';
   static String botsInRoom(int roomId) =>
       '$apiBaseUrl/bots/chat-rooms/$roomId/bots';
 
   // Agent workflow endpoints
   static const String agentTasks = '$apiBaseUrl/agent-tasks';
 
+  // Sticker endpoints
+  static const String stickerPacks = '$apiBaseUrl/sticker-packs';
+  static String stickerPackStickers(int packId) =>
+      '$apiBaseUrl/sticker-packs/$packId/stickers';
+  static String subscribeStickerPack(int packId) =>
+      '$apiBaseUrl/sticker-packs/$packId/subscribe';
+
+  // Poll endpoints
+  static const String polls = '$apiBaseUrl/polls';
+  static String pollDetail(int pollId) => '$apiBaseUrl/polls/$pollId';
+  static String pollVotes(int pollId) => '$apiBaseUrl/polls/$pollId/votes';
+
   // Call / WebRTC endpoints
+  static const String iceServers = '$apiBaseUrl/ice-servers';
   static const String callIceServers = '$apiBaseUrl/calls/ice-servers';
 
   // Workspace file library

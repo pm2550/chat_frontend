@@ -10,6 +10,7 @@ import 'screens/chat/chat_screen.dart';
 import 'screens/settings/settings_screen.dart';
 import 'constants/app_brand.dart';
 import 'constants/app_colors.dart';
+import 'widgets/app_update_listener.dart';
 import 'widgets/auth_guard.dart';
 
 void main() {
@@ -121,6 +122,9 @@ class ChatApp extends StatelessWidget {
         ),
       ),
       initialRoute: '/',
+      builder: (context, child) => AppUpdateListener(
+        child: child ?? const SizedBox.shrink(),
+      ),
       routes: {
         '/': (context) => const SplashScreen(),
         '/login': (context) => const LoginScreen(),
@@ -130,6 +134,38 @@ class ChatApp extends StatelessWidget {
         '/chat': (context) => const AuthGuard(child: ChatScreen()),
         '/settings': (context) => const AuthGuard(child: SettingsScreen()),
       },
+      onGenerateRoute: (settings) {
+        final routeName = settings.name ?? '';
+        if (_isHomeRoute(routeName)) {
+          return MaterialPageRoute(
+            settings: settings,
+            builder: (context) => const AuthGuard(child: HomeScreen()),
+          );
+        }
+        if (_isChatRoute(routeName)) {
+          return MaterialPageRoute(
+            settings: settings,
+            builder: (context) => const AuthGuard(child: ChatScreen()),
+          );
+        }
+        return null;
+      },
     );
   }
+}
+
+bool _isHomeRoute(String routeName) {
+  final uri = Uri.tryParse(routeName);
+  if (uri == null || uri.pathSegments.isEmpty) {
+    return false;
+  }
+  return uri.pathSegments.first == 'home';
+}
+
+bool _isChatRoute(String routeName) {
+  final uri = Uri.tryParse(routeName);
+  if (uri == null || uri.pathSegments.isEmpty) {
+    return false;
+  }
+  return uri.pathSegments.first == 'chat';
 }

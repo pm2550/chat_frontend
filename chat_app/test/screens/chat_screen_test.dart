@@ -1,11 +1,22 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/gestures.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:emoji_picker_flutter/emoji_picker_flutter.dart';
 import 'package:chat_app/screens/chat/chat_screen.dart';
+import 'package:chat_app/models/call_state.dart';
 import 'package:chat_app/models/chat.dart';
 import 'package:chat_app/models/user.dart';
 import 'package:chat_app/models/message.dart';
+import 'package:chat_app/models/sticker.dart';
 import 'package:chat_app/services/chat_data_service.dart';
+import 'package:chat_app/services/chat_call_service.dart';
+import 'package:chat_app/services/contact_data_service.dart';
+import 'package:chat_app/services/auth_service.dart';
+import 'package:chat_app/services/websocket_service.dart';
 import 'package:chat_app/widgets/message_bubble.dart';
+import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   final testMessages = [
@@ -31,18 +42,20 @@ void main() {
 
   // Create a test Chat object with participants.
   Chat createTestChat({
+    String id = 'chat1',
     String name = '测试聊天',
     ChatType type = ChatType.private,
+    String participantId = 'user2',
   }) {
     final now = DateTime.now();
     return Chat(
-      id: 'chat1',
+      id: id,
       name: name,
       type: type,
       createdAt: now,
       participants: [
         User(
-          id: 'user2',
+          id: participantId,
           username: 'friend',
           email: 'friend@example.com',
           displayName: '好友',
@@ -58,6 +71,9 @@ void main() {
   Widget buildTestWidget(
     Chat chat, {
     ChatDataService? chatService,
+    ChatCallService? callService,
+    ContactDataService? contactService,
+    AuthService? authService,
     ChatAttachmentPicker? imagePicker,
     ChatAttachmentPicker? filePicker,
   }) {
@@ -73,6 +89,9 @@ void main() {
                 builder: (context) => ChatScreen(
                   chatService: chatService ??
                       FakeChatDataService(messages: testMessages),
+                  callService: callService,
+                  contactService: contactService,
+                  authService: authService,
                   imagePicker: imagePicker,
                   filePicker: filePicker,
                 ),
@@ -80,6 +99,22 @@ void main() {
             },
           );
         },
+      ),
+    );
+  }
+
+  Widget buildRouteOnlyWidget(
+    String routeName, {
+    required ChatDataService chatService,
+  }) {
+    return MaterialApp(
+      home: Navigator(
+        onGenerateInitialRoutes: (navigator, initialRoute) => [
+          MaterialPageRoute(
+            settings: RouteSettings(name: routeName),
+            builder: (context) => ChatScreen(chatService: chatService),
+          ),
+        ],
       ),
     );
   }
@@ -92,6 +127,303 @@ void main() {
       await tester.pump();
 
       expect(find.text('李四'), findsOneWidget);
+    });
+
+    testWidgets('mobile composer moves above keyboard viewInsets',
+        (tester) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      tester.view.viewInsets = const FakeViewPadding(bottom: 250);
+      addTearDown(() {
+        tester.view.resetPhysicalSize();
+        tester.view.resetDevicePixelRatio();
+        tester.view.resetViewInsets();
+      });
+
+      final chat = createTestChat();
+
+      await tester.pumpWidget(buildTestWidget(
+        chat,
+        chatService: FakeChatDataService(messages: const []),
+      ));
+      await tester.pump();
+
+      final shellFinder =
+          find.byKey(const ValueKey('chat-composer-text-field-shell'));
+      expect(shellFinder, findsOneWidget);
+      final shellBottom = tester.getBottomLeft(shellFinder).dy;
+      const keyboardTop = 844 - 250;
+
+      expect(shellBottom, lessThanOrEqualTo(keyboardTop + 4));
+      expect(shellBottom, greaterThan(keyboardTop - 60));
+    });
+
+    testWidgets('mobile composer sits near bottom when keyboard is closed',
+        (tester) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(() {
+        tester.view.resetPhysicalSize();
+        tester.view.resetDevicePixelRatio();
+      });
+
+      final chat = createTestChat();
+
+      await tester.pumpWidget(buildTestWidget(
+        chat,
+        chatService: FakeChatDataService(messages: const []),
+      ));
+      await tester.pump();
+
+      final shellFinder =
+          find.byKey(const ValueKey('chat-composer-text-field-shell'));
+      expect(shellFinder, findsOneWidget);
+      final shellBottom = tester.getBottomLeft(shellFinder).dy;
+
+      expect(shellBottom, greaterThan(760));
+      expect(shellBottom, lessThanOrEqualTo(844));
+    });
+
+    testWidgets('375px composer collapses leading actions into more menu',
+        (tester) async {
+      tester.view.physicalSize = const Size(375, 667);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(() {
+        tester.view.resetPhysicalSize();
+        tester.view.resetDevicePixelRatio();
+      });
+
+      final chat = createTestChat();
+
+      await tester.pumpWidget(buildTestWidget(
+        chat,
+        chatService: FakeChatDataService(messages: const []),
+      ));
+      await tester.pump();
+
+      expect(find.byTooltip('其它操作'), findsOneWidget);
+      expect(find.byTooltip('表情'), findsNothing);
+      expect(find.byTooltip('贴纸'), findsNothing);
+      expect(find.byTooltip('Agent 命令'), findsNothing);
+
+      await tester.tap(find.byTooltip('其它操作'));
+      await tester.pumpAndSettle();
+
+      for (final label in [
+        '表情',
+        '贴纸',
+        'Agent 命令',
+        '拍照',
+        '相册',
+        '文件',
+        '位置',
+        '投票',
+      ]) {
+        expect(find.text(label), findsOneWidget);
+      }
+
+      final shellWidth = tester
+          .getSize(find.byKey(const ValueKey('chat-composer-text-field-shell')))
+          .width;
+      expect(shellWidth, greaterThanOrEqualTo(180));
+    });
+
+    testWidgets('375px more menu launches emoji panel', (tester) async {
+      tester.view.physicalSize = const Size(375, 667);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(() {
+        tester.view.resetPhysicalSize();
+        tester.view.resetDevicePixelRatio();
+      });
+
+      final chat = createTestChat();
+
+      await tester.pumpWidget(buildTestWidget(
+        chat,
+        chatService: FakeChatDataService(messages: const []),
+      ));
+      await tester.pump();
+
+      await tester.tap(find.byTooltip('其它操作'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('表情'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(EmojiPicker), findsOneWidget);
+    });
+
+    testWidgets('375px more menu launches sticker panel', (tester) async {
+      tester.view.physicalSize = const Size(375, 667);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(() {
+        tester.view.resetPhysicalSize();
+        tester.view.resetDevicePixelRatio();
+      });
+
+      final chat = createTestChat();
+
+      await tester.pumpWidget(buildTestWidget(
+        chat,
+        chatService: FakeChatDataService(messages: const []),
+      ));
+      await tester.pump();
+
+      await tester.tap(find.byTooltip('其它操作'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('贴纸'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('暂无贴纸包'), findsOneWidget);
+    });
+
+    testWidgets('375px more menu launches Agent command panel', (tester) async {
+      tester.view.physicalSize = const Size(375, 667);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(() {
+        tester.view.resetPhysicalSize();
+        tester.view.resetDevicePixelRatio();
+      });
+
+      final chat = createTestChat();
+
+      await tester.pumpWidget(buildTestWidget(
+        chat,
+        chatService: FakeChatDataService(messages: const []),
+      ));
+      await tester.pump();
+
+      await tester.tap(find.byTooltip('其它操作'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Agent 命令'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('/ask · 问 AI'), findsOneWidget);
+    });
+
+    testWidgets('375x812 composer more sheet exposes eight actions',
+        (tester) async {
+      tester.view.physicalSize = const Size(375, 812);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(() {
+        tester.view.resetPhysicalSize();
+        tester.view.resetDevicePixelRatio();
+      });
+
+      final chat = createTestChat();
+
+      await tester.pumpWidget(buildTestWidget(
+        chat,
+        chatService: FakeChatDataService(messages: const []),
+      ));
+      await tester.pump();
+
+      expect(find.byTooltip('其它操作'), findsOneWidget);
+
+      await tester.tap(find.byTooltip('其它操作'));
+      await tester.pumpAndSettle();
+
+      for (final label in [
+        '表情',
+        '贴纸',
+        'Agent 命令',
+        '拍照',
+        '相册',
+        '文件',
+        '位置',
+        '投票',
+      ]) {
+        expect(find.text(label), findsOneWidget);
+      }
+    });
+
+    testWidgets('414px composer collapses when usable row width is tight',
+        (tester) async {
+      tester.view.physicalSize = const Size(414, 896);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(() {
+        tester.view.resetPhysicalSize();
+        tester.view.resetDevicePixelRatio();
+      });
+
+      final chat = createTestChat();
+
+      await tester.pumpWidget(buildTestWidget(
+        chat,
+        chatService: FakeChatDataService(messages: const []),
+      ));
+      await tester.pump();
+
+      expect(find.byTooltip('其它操作'), findsOneWidget);
+      expect(find.byTooltip('表情'), findsNothing);
+      expect(find.byTooltip('贴纸'), findsNothing);
+      expect(find.byTooltip('Agent 命令'), findsNothing);
+
+      final shellWidth = tester
+          .getSize(find.byKey(const ValueKey('chat-composer-text-field-shell')))
+          .width;
+      expect(shellWidth, greaterThanOrEqualTo(180));
+    });
+
+    testWidgets('720px composer keeps primary actions inline', (tester) async {
+      tester.view.physicalSize = const Size(720, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(() {
+        tester.view.resetPhysicalSize();
+        tester.view.resetDevicePixelRatio();
+      });
+
+      final chat = createTestChat();
+
+      await tester.pumpWidget(buildTestWidget(
+        chat,
+        chatService: FakeChatDataService(messages: const []),
+      ));
+      await tester.pump();
+
+      expect(find.byTooltip('表情'), findsOneWidget);
+      expect(find.byTooltip('贴纸'), findsOneWidget);
+      expect(find.byTooltip('Agent 命令'), findsOneWidget);
+      expect(find.byTooltip('附件'), findsOneWidget);
+
+      final shellWidth = tester
+          .getSize(find.byKey(const ValueKey('chat-composer-text-field-shell')))
+          .width;
+      expect(shellWidth, greaterThanOrEqualTo(180));
+    });
+
+    testWidgets('loads chat by route id when arguments are missing',
+        (tester) async {
+      final routeChat = createTestChat(id: '42', name: '直链房间');
+      final service = FakeChatDataService(
+        messages: const [],
+        routeChat: routeChat,
+      );
+
+      await tester.pumpWidget(buildRouteOnlyWidget(
+        '/chat/42',
+        chatService: service,
+      ));
+      await tester.pump();
+      await tester.pump();
+
+      expect(service.loadedChatRoomIds, ['42']);
+      expect(find.text('直链房间'), findsWidgets);
+      expect(find.text('无法打开聊天'), findsNothing);
+    });
+
+    testWidgets('shows friendly error instead of crashing without chat id',
+        (tester) async {
+      final service = FakeChatDataService(messages: const []);
+
+      await tester.pumpWidget(buildRouteOnlyWidget(
+        '/chat',
+        chatService: service,
+      ));
+      await tester.pump();
+
+      expect(tester.takeException(), isNull);
+      expect(find.text('无法打开聊天'), findsOneWidget);
+      expect(find.textContaining('缺少聊天室编号'), findsOneWidget);
     });
 
     testWidgets('renders message input hint text', (tester) async {
@@ -119,7 +451,7 @@ void main() {
       await tester.pump();
 
       // When no text is entered, should show mic button instead of send.
-      expect(find.byIcon(Icons.mic), findsOneWidget);
+      expect(find.byTooltip('语音消息'), findsOneWidget);
     });
 
     testWidgets('shows send button when text is typed', (tester) async {
@@ -133,8 +465,146 @@ void main() {
       await tester.pump();
 
       // Now the send icon should appear.
-      expect(find.byIcon(Icons.send), findsOneWidget);
-      expect(find.byIcon(Icons.mic), findsNothing);
+      expect(find.byTooltip('发送'), findsOneWidget);
+      expect(find.byTooltip('语音消息'), findsNothing);
+    });
+
+    testWidgets('typing @ opens mention picker with keyboard selection',
+        (tester) async {
+      final now = DateTime.now();
+      final groupChat = Chat(
+        id: 'chat1',
+        name: 'Mention Room',
+        type: ChatType.group,
+        createdAt: now,
+        participants: [
+          User(
+            id: '2',
+            username: 'alice',
+            email: 'alice@test.com',
+            displayName: 'Alice',
+            createdAt: now,
+          ),
+          User(
+            id: '3',
+            username: 'bob',
+            email: 'bob@test.com',
+            displayName: 'Bob',
+            createdAt: now,
+          ),
+        ],
+      );
+
+      await tester.pumpWidget(buildTestWidget(
+        groupChat,
+        chatService: FakeChatDataService(messages: const []),
+      ));
+      await tester.pump();
+
+      await tester.tap(find.byType(TextField));
+      await tester.enterText(find.byType(TextField), '@');
+      await tester.pump();
+
+      expect(find.text('Alice'), findsWidgets);
+      expect(find.text('Bob'), findsWidgets);
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pump();
+
+      final editable = tester.widget<EditableText>(find.byType(EditableText));
+      expect(editable.controller.text, '@Bob ');
+    });
+
+    testWidgets('pressing Enter sends message and clears input',
+        (tester) async {
+      final chat = createTestChat();
+      final service = FakeChatDataService(messages: const []);
+
+      await tester.pumpWidget(buildTestWidget(chat, chatService: service));
+      await tester.pump();
+
+      await tester.tap(find.byType(TextField));
+      await tester.enterText(find.byType(TextField), 'Enter 发送');
+      await tester.pump();
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pump();
+
+      expect(service.sentTexts, ['Enter 发送']);
+      expect(find.text('Enter 发送'), findsOneWidget);
+      final editable = tester.widget<EditableText>(find.byType(EditableText));
+      expect(editable.controller.text, isEmpty);
+    });
+
+    testWidgets('pressing Shift Enter keeps newline without sending',
+        (tester) async {
+      final chat = createTestChat();
+      final service = FakeChatDataService(messages: const []);
+
+      await tester.pumpWidget(buildTestWidget(chat, chatService: service));
+      await tester.pump();
+
+      await tester.tap(find.byType(TextField));
+      await tester.enterText(find.byType(TextField), '第一行');
+      await tester.pump();
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
+      await tester.pump();
+
+      expect(service.sentTexts, isEmpty);
+      final editable = tester.widget<EditableText>(find.byType(EditableText));
+      expect(editable.controller.text, '第一行\n');
+    });
+
+    testWidgets('long press quote sends replyToId with next message',
+        (tester) async {
+      final chat = createTestChat();
+      final service = FakeChatDataService(messages: testMessages);
+
+      await tester.pumpWidget(buildTestWidget(chat, chatService: service));
+      await tester.pump();
+
+      await tester.longPress(find.text('后端消息一'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('引用'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('回复 好友'), findsOneWidget);
+      expect(find.text('后端消息一'), findsWidgets);
+
+      await tester.enterText(find.byType(TextField), '回复内容');
+      await tester.pump();
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pump();
+
+      expect(service.sentTexts, ['回复内容']);
+      expect(service.sentReplyIds, ['1']);
+      expect(find.text('回复 好友'), findsNothing);
+    });
+
+    testWidgets('desktop secondary click opens message actions',
+        (tester) async {
+      final chat = createTestChat();
+      final service = FakeChatDataService(messages: testMessages);
+
+      await tester.pumpWidget(buildTestWidget(chat, chatService: service));
+      await tester.pump();
+
+      final center = tester.getCenter(find.text('后端消息一'));
+      final gesture = await tester.createGesture(
+        kind: PointerDeviceKind.mouse,
+        buttons: kSecondaryMouseButton,
+      );
+      await gesture.addPointer(location: center);
+      await tester.pump();
+      await gesture.down(center);
+      await gesture.up();
+      await gesture.removePointer();
+      await tester.pumpAndSettle();
+
+      expect(find.text('查看已读'), findsOneWidget);
+      expect(find.text('引用'), findsOneWidget);
     });
 
     testWidgets('renders loaded messages as MessageBubble widgets',
@@ -157,16 +627,71 @@ void main() {
       expect(find.text('后端消息二'), findsOneWidget);
     });
 
-    testWidgets('renders app bar action buttons (call, video, more)',
+    testWidgets('announcement banner dismiss persists seen state',
+        (tester) async {
+      final updatedAt = DateTime.now();
+      SharedPreferences.setMockInitialValues({});
+      final chat = Chat(
+        id: 'group1',
+        name: '公告群',
+        description: '群描述',
+        announcement: '今天十点部署，请留意通知。',
+        announcementUpdatedAt: updatedAt,
+        announcementUpdatedBy: '1',
+        type: ChatType.group,
+        createdAt: updatedAt,
+      );
+
+      await tester.pumpWidget(buildTestWidget(
+        chat,
+        chatService: FakeChatDataService(messages: const []),
+      ));
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.text('群公告'), findsOneWidget);
+      expect(find.text('今天十点部署，请留意通知。'), findsOneWidget);
+
+      await tester.tap(find.byTooltip('关闭群公告'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('今天十点部署，请留意通知。'), findsNothing);
+      final prefs = await SharedPreferences.getInstance();
+      expect(
+        prefs.getBool(
+          'announcement_seen:group1:${updatedAt.toIso8601String()}',
+        ),
+        isTrue,
+      );
+    });
+
+    testWidgets('renders app bar action buttons (call, video, settings, more)',
         (tester) async {
       final chat = createTestChat();
 
       await tester.pumpWidget(buildTestWidget(chat));
       await tester.pump();
 
-      expect(find.byIcon(Icons.call), findsOneWidget);
-      expect(find.byIcon(Icons.videocam), findsOneWidget);
-      expect(find.byIcon(Icons.more_vert), findsOneWidget);
+      expect(find.byTooltip('语音通话'), findsOneWidget);
+      expect(find.byTooltip('视频通话'), findsOneWidget);
+      expect(find.byTooltip('聊天信息'), findsWidgets);
+      expect(find.byTooltip('更多'), findsOneWidget);
+    });
+
+    testWidgets('voice call passes private peer id to call service',
+        (tester) async {
+      final chat = createTestChat(id: '42', participantId: '7');
+      final callService = RecordingCallService();
+
+      await tester.pumpWidget(buildTestWidget(chat, callService: callService));
+      await tester.pump();
+
+      await tester.tap(find.byTooltip('语音通话'));
+      await tester.pump();
+
+      expect(callService.startedRoomId, 42);
+      expect(callService.startedPeerUserId, 7);
+      expect(callService.startedMediaKind, CallMediaKind.audio);
     });
 
     testWidgets('renders add button for input options', (tester) async {
@@ -175,7 +700,7 @@ void main() {
       await tester.pumpWidget(buildTestWidget(chat));
       await tester.pump();
 
-      expect(find.byIcon(Icons.add), findsOneWidget);
+      expect(find.byTooltip('附件'), findsOneWidget);
     });
 
     testWidgets('shows online status for private chat with online participant',
@@ -226,6 +751,73 @@ void main() {
       expect(find.text('3人'), findsOneWidget);
     });
 
+    testWidgets('desktop members panel can send friend request to group member',
+        (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      tester.view.physicalSize = const Size(1400, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      final now = DateTime.now();
+      final authService = AuthService();
+      await authService.replaceCurrentUser(User(
+        id: '1',
+        username: 'me',
+        email: 'me@test.com',
+        displayName: '我',
+        createdAt: now,
+      ));
+      addTearDown(authService.clearLocalSession);
+
+      final friend = User(
+        id: '2',
+        username: 'friend',
+        email: 'friend@test.com',
+        displayName: '已好友',
+        createdAt: now,
+      );
+      final stranger = User(
+        id: '3',
+        username: 'stranger',
+        email: 'stranger@test.com',
+        displayName: '陌生人',
+        createdAt: now,
+      );
+      final groupChat = Chat(
+        id: 'group1',
+        name: '群成员加好友',
+        type: ChatType.group,
+        createdAt: now,
+        participants: [
+          authService.currentUser!,
+          friend,
+          stranger,
+        ],
+      );
+      final contactService = FakeContactDataService(friends: [friend]);
+
+      await tester.pumpWidget(buildTestWidget(
+        groupChat,
+        chatService: FakeChatDataService(messages: const []),
+        contactService: contactService,
+        authService: authService,
+      ));
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.byTooltip('已是好友'), findsOneWidget);
+      expect(find.byTooltip('添加好友'), findsOneWidget);
+
+      await tester.tap(find.byTooltip('添加好友'));
+      await tester.pump();
+      await tester.pump();
+
+      expect(contactService.sentFriendRequestIds, ['3']);
+      expect(find.byTooltip('好友请求已发送'), findsOneWidget);
+      expect(find.text('已向 陌生人 发送好友请求'), findsOneWidget);
+    });
+
     testWidgets('renders CircleAvatar in app bar', (tester) async {
       final chat = createTestChat();
 
@@ -252,21 +844,21 @@ void main() {
       await tester.pump();
 
       // Verify initial state has mic button.
-      expect(find.byIcon(Icons.mic), findsOneWidget);
+      expect(find.byTooltip('语音消息'), findsOneWidget);
 
       // Enter text.
       await tester.enterText(find.byType(TextField), '新消息');
       await tester.pump();
 
       // Send button should now be visible.
-      expect(find.byIcon(Icons.send), findsOneWidget);
+      expect(find.byTooltip('发送'), findsOneWidget);
 
       // Clear text.
       await tester.enterText(find.byType(TextField), '');
       await tester.pump();
 
       // Mic button should come back.
-      expect(find.byIcon(Icons.mic), findsOneWidget);
+      expect(find.byTooltip('语音消息'), findsOneWidget);
     });
 
     testWidgets('shows failed message when REST fallback send fails',
@@ -282,7 +874,7 @@ void main() {
 
       await tester.enterText(find.byType(TextField), '发送失败消息');
       await tester.pump();
-      await tester.tap(find.byIcon(Icons.send));
+      await tester.tap(find.byTooltip('发送'));
       await tester.pump();
 
       expect(find.text('发送失败消息'), findsOneWidget);
@@ -305,13 +897,49 @@ void main() {
       ));
       await tester.pump();
 
-      await tester.tap(find.byIcon(Icons.add));
+      await tester.tap(find.byTooltip('附件'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('相册'));
       await tester.pump();
 
       expect(service.sentFiles.single.name, 'photo.png');
       expect(find.text('photo.png'), findsOneWidget);
+    });
+
+    testWidgets('dragging files over chat shows upload overlay',
+        (tester) async {
+      final chat = createTestChat();
+      final service = FakeChatDataService(messages: const []);
+
+      await tester.pumpWidget(buildTestWidget(chat, chatService: service));
+      await tester.pump();
+
+      final target = tester.widget<DragTarget<List<PickedChatFile>>>(
+        find.byKey(const Key('chat-drop-target')),
+      );
+      final accepted = target.onWillAcceptWithDetails?.call(
+        DragTargetDetails<List<PickedChatFile>>(
+          data: [
+            const PickedChatFile(
+              name: 'drop.png',
+              size: 12,
+              mimeType: 'image/png',
+              bytes: [1, 2, 3],
+            ),
+            const PickedChatFile(
+              name: 'notes.txt',
+              size: 8,
+              mimeType: 'text/plain',
+              bytes: [4, 5],
+            ),
+          ],
+          offset: Offset.zero,
+        ),
+      );
+      await tester.pump();
+
+      expect(accepted, isTrue);
+      expect(find.text('释放以发送 2 个文件'), findsOneWidget);
     });
 
     testWidgets('picks generic file and shows failed file message on error',
@@ -334,7 +962,7 @@ void main() {
       ));
       await tester.pump();
 
-      await tester.tap(find.byIcon(Icons.add));
+      await tester.tap(find.byTooltip('附件'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('文件'));
       await tester.pump();
@@ -363,7 +991,7 @@ void main() {
       await tester.pumpWidget(buildTestWidget(chat, chatService: service));
       await tester.pump();
 
-      await tester.tap(find.byIcon(Icons.more_vert));
+      await tester.tap(find.byTooltip('更多'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('搜索聊天记录'));
       await tester.pumpAndSettle();
@@ -400,25 +1028,45 @@ class FakeChatDataService extends ChatDataService {
     this.searchResults = const [],
     this.sendError,
     this.sendFileError,
+    this.routeChat,
   }) : super(authenticatedRequest: _unusedRequest);
 
   final List<Message> messages;
   final List<Message> searchResults;
   final Object? sendError;
   final Object? sendFileError;
+  final Chat? routeChat;
   final List<PickedChatFile> sentFiles = [];
+  final List<String> sentTexts = [];
+  final List<String?> sentReplyIds = [];
   final List<String> searchKeywords = [];
   final List<String> deletedMessageIds = [];
   final List<String> recalledMessageIds = [];
+  final List<String> loadedChatRoomIds = [];
   bool markAllReadCalled = false;
 
-  static Future<dynamic> _unusedRequest(
+  static Future<http.Response> _unusedRequest(
     String method,
     String url, {
     Map<String, String>? headers,
     Object? body,
   }) async {
     throw UnimplementedError();
+  }
+
+  @override
+  Future<Chat> getChatRoom(
+    String chatRoomId, {
+    bool includeDetails = true,
+  }) async {
+    loadedChatRoomIds.add(chatRoomId);
+    return routeChat ??
+        Chat(
+          id: chatRoomId,
+          name: 'Loaded Room',
+          type: ChatType.group,
+          createdAt: DateTime.parse('2024-01-01T10:00:00'),
+        );
   }
 
   @override
@@ -492,16 +1140,27 @@ class FakeChatDataService extends ChatDataService {
     markAllReadCalled = true;
   }
 
+  Message? _findMessage(String? messageId) {
+    if (messageId == null) return null;
+    for (final message in messages) {
+      if (message.id == messageId) return message;
+    }
+    return null;
+  }
+
   @override
   Future<Message> sendTextMessage(
     String chatRoomId,
     String content, {
     bool isAnonymous = false,
+    String? replyToId,
   }) async {
     final error = sendError;
     if (error != null) {
       throw error;
     }
+    sentTexts.add(content);
+    sentReplyIds.add(replyToId);
     return Message(
       id: 'sent-1',
       content: content,
@@ -510,6 +1169,9 @@ class FakeChatDataService extends ChatDataService {
       chatRoomId: chatRoomId,
       status: MessageStatus.sent,
       timestamp: DateTime.parse('2024-01-01T10:02:00'),
+      replyToId: replyToId,
+      replyToMessage: _findMessage(replyToId),
+      replyToMessageId: replyToId,
       isAnonymous: isAnonymous,
       anonymousName: isAnonymous ? '匿名用户' : null,
     );
@@ -553,5 +1215,87 @@ class FakeChatDataService extends ChatDataService {
       bytes: const [1, 2, 3],
       mimeType: message.fileType,
     );
+  }
+
+  @override
+  Future<List<StickerPack>> getStickerPacks() async {
+    return const <StickerPack>[];
+  }
+
+  @override
+  Future<List<StickerItem>> getStickers(int packId) async {
+    return const <StickerItem>[];
+  }
+}
+
+class FakeContactDataService extends ContactDataService {
+  FakeContactDataService({
+    this.friends = const [],
+    this.sentRequests = const [],
+  }) : super(authenticatedRequest: _unusedRequest);
+
+  final List<User> friends;
+  final List<FriendshipRequest> sentRequests;
+  final List<String> sentFriendRequestIds = [];
+
+  static Future<http.Response> _unusedRequest(
+    String method,
+    String url, {
+    Map<String, String>? headers,
+    Object? body,
+  }) async {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<List<User>> getFriends() async => friends;
+
+  @override
+  Future<List<FriendshipRequest>> getSentFriendRequests() async => sentRequests;
+
+  @override
+  Future<FriendshipRequest> sendFriendRequest(String userId) async {
+    sentFriendRequestIds.add(userId);
+    final target = User(
+      id: userId,
+      username: 'target$userId',
+      email: 'target$userId@test.com',
+      displayName: '成员$userId',
+      createdAt: DateTime.parse('2024-01-01T10:00:00'),
+    );
+    return FriendshipRequest(
+      id: 'request-$userId',
+      status: 'PENDING',
+      user: User(
+        id: '1',
+        username: 'me',
+        email: 'me@test.com',
+        displayName: '我',
+        createdAt: DateTime.parse('2024-01-01T10:00:00'),
+      ),
+      friend: target,
+    );
+  }
+}
+
+class RecordingCallService extends ChatCallService {
+  RecordingCallService() : super(webSocketService: WebSocketService());
+
+  int? startedRoomId;
+  int? startedPeerUserId;
+  CallMediaKind? startedMediaKind;
+  String? startedPeerName;
+
+  @override
+  Future<void> startOutgoingCall({
+    required int chatRoomId,
+    required CallMediaKind mediaKind,
+    required String peerName,
+    int? peerUserId,
+  }) async {
+    startedRoomId = chatRoomId;
+    startedMediaKind = mediaKind;
+    startedPeerName = peerName;
+    startedPeerUserId = peerUserId;
   }
 }

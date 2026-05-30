@@ -1,12 +1,16 @@
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart';
 
 import '../constants/api_constants.dart';
 import '../models/agent_task.dart';
 import '../models/chat.dart';
 import '../models/chat_room_member.dart';
 import '../models/message.dart';
+import '../models/poll.dart';
+import '../models/read_receipt.dart';
+import '../models/sticker.dart';
 import '../models/user.dart';
 import 'auth_service.dart';
 
@@ -21,6 +25,12 @@ typedef AuthenticatedMultipartRequest = Future<dynamic> Function(
   String url, {
   required Map<String, String> fields,
   required PickedChatFile file,
+});
+
+typedef AuthenticatedMultipartFilesRequest = Future<dynamic> Function(
+  String url, {
+  required Map<String, String> fields,
+  required Map<String, List<PickedChatFile>> files,
 });
 
 class PickedChatFile {
@@ -83,18 +93,22 @@ class ChatDataService {
     AuthService? authService,
     AuthenticatedRequest? authenticatedRequest,
     AuthenticatedMultipartRequest? multipartRequest,
+    AuthenticatedMultipartFilesRequest? multipartFilesRequest,
   })  : _authService = authService ?? AuthService(),
         _authenticatedRequest = authenticatedRequest,
-        _multipartRequest = multipartRequest;
+        _multipartRequest = multipartRequest,
+        _multipartFilesRequest = multipartFilesRequest;
 
   final AuthService _authService;
   final AuthenticatedRequest? _authenticatedRequest;
   final AuthenticatedMultipartRequest? _multipartRequest;
+  final AuthenticatedMultipartFilesRequest? _multipartFilesRequest;
 
   Future<List<Chat>> getChatRooms({
     int page = 0,
-    int size = 50,
+    int size = 30,
     bool includeDetails = true,
+    int detailLimit = 8,
   }) async {
     final uri = Uri.parse(ApiConstants.chatRooms).replace(
       queryParameters: {
@@ -116,8 +130,87 @@ class ChatDataService {
       return _sortChats(rooms);
     }
 
-    final enriched = await Future.wait(rooms.map(_enrichChat));
-    return _sortChats(enriched);
+    final visibleRooms = rooms.take(detailLimit).toList(growable: false);
+    final remainingRooms = rooms.skip(detailLimit).toList(growable: false);
+    final enrichedVisible = await Future.wait(visibleRooms.map(_enrichChat));
+    return _sortChats([...enrichedVisible, ...remainingRooms]);
+  }
+
+  Future<Chat> getChatRoom(
+    String chatRoomId, {
+    bool includeDetails = true,
+  }) async {
+    final roomId = _parseRoomId(chatRoomId);
+    final response = await _request('GET', ApiConstants.chatRoomDetail(roomId));
+    final data = _decodeResponse(response);
+    final chatRoomJson = data['chatRoom'] ?? data['data'];
+    if (chatRoomJson is! Map<String, dynamic>) {
+      throw const ChatDataException('聊天室详情响应中没有聊天室数据');
+    }
+
+    final chat = Chat.fromJson(chatRoomJson);
+    return includeDetails ? _enrichChat(chat) : chat;
+  }
+
+  Future<Chat> updateChatRoom(
+    String chatRoomId, {
+    String? name,
+    String? description,
+    String? avatarUrl,
+    String? announcement,
+  }) async {
+    final roomId = _parseRoomId(chatRoomId);
+    final response = await _request(
+      'PATCH',
+      ApiConstants.chatRoomDetail(roomId),
+      body: {
+        if (name != null) 'name': name,
+        if (description != null) 'description': description,
+        if (avatarUrl != null) 'avatarUrl': avatarUrl,
+        if (announcement != null) 'announcement': announcement,
+      },
+    );
+    final data = _decodeResponse(response);
+    final chatRoomJson = data['chatRoom'] ?? data['data'];
+    if (chatRoomJson is! Map<String, dynamic>) {
+      throw const ChatDataException('聊天室更新成功但响应中没有聊天室数据');
+    }
+    return Chat.fromJson(chatRoomJson);
+  }
+
+  Future<Chat> updateRoomBackgroundPreset(
+    String chatRoomId,
+    String preset,
+  ) async {
+    final roomId = _parseRoomId(chatRoomId);
+    final response = await _request(
+      'PUT',
+      ApiConstants.chatRoomBackgroundPreset(roomId),
+      body: {'preset': preset},
+    );
+    return _chatFromBackgroundResponse(response);
+  }
+
+  Future<Chat> uploadRoomBackground(
+    String chatRoomId,
+    PickedChatFile file,
+  ) async {
+    final roomId = _parseRoomId(chatRoomId);
+    final response = await _requestMultipart(
+      ApiConstants.chatRoomBackgroundUpload(roomId),
+      fields: const {},
+      file: file,
+    );
+    return _chatFromBackgroundResponse(response);
+  }
+
+  Future<Chat> clearRoomBackground(String chatRoomId) async {
+    final roomId = _parseRoomId(chatRoomId);
+    final response = await _request(
+      'DELETE',
+      ApiConstants.chatRoomBackground(roomId),
+    );
+    return _chatFromBackgroundResponse(response);
   }
 
   Future<Chat> createGroupChat({
@@ -214,6 +307,30 @@ class ChatDataService {
     await _request('POST', ApiConstants.toggleChatRoomMute(roomId, targetId));
   }
 
+  Future<ChatRoomMember> updateChatRoomMemberProfile(
+    String chatRoomId,
+    String userId, {
+    String? nickname,
+    String? memberTitle,
+  }) async {
+    final roomId = _parseRoomId(chatRoomId);
+    final targetId = _parseRoomId(userId);
+    final response = await _request(
+      'PUT',
+      ApiConstants.chatRoomMemberProfile(roomId, targetId),
+      body: {
+        if (nickname != null) 'nickname': nickname,
+        if (memberTitle != null) 'memberTitle': memberTitle,
+      },
+    );
+    final data = _decodeResponse(response);
+    final memberJson = data['member'] ?? data['data'];
+    if (memberJson is! Map<String, dynamic>) {
+      throw const ChatDataException('群名片更新成功但响应中没有成员数据');
+    }
+    return ChatRoomMember.fromJson(memberJson);
+  }
+
   Future<List<Message>> getMessages(
     String chatRoomId, {
     int page = 0,
@@ -260,6 +377,7 @@ class ChatDataService {
     String chatRoomId,
     String content, {
     bool isAnonymous = false,
+    String? replyToId,
   }) async {
     final roomId = _parseRoomId(chatRoomId);
     final response = await _request(
@@ -268,6 +386,7 @@ class ChatDataService {
       body: {
         'chatRoomId': roomId,
         'content': content,
+        if (replyToId != null) 'replyToId': _parseRoomId(replyToId),
         if (isAnonymous) 'isAnonymous': true,
       },
     );
@@ -284,6 +403,7 @@ class ChatDataService {
     String content, {
     MessageType type = MessageType.text,
     bool isAnonymous = false,
+    String? replyToId,
   }) async {
     final roomId = _parseRoomId(chatRoomId);
     final response = await _request(
@@ -293,6 +413,7 @@ class ChatDataService {
         'chatRoomId': roomId,
         'content': content,
         'messageType': type.name.toUpperCase(),
+        if (replyToId != null) 'replyToId': _parseRoomId(replyToId),
         if (isAnonymous) 'isAnonymous': true,
       },
     );
@@ -328,6 +449,158 @@ class ChatDataService {
       throw const ChatDataException('发送成功但响应中没有加密消息数据');
     }
     return Message.fromJson(messageJson, fallbackChatRoomId: chatRoomId);
+  }
+
+  Future<Message> sendStickerMessage(
+    String chatRoomId,
+    int stickerId, {
+    bool isAnonymous = false,
+  }) async {
+    final roomId = _parseRoomId(chatRoomId);
+    final response = await _request(
+      'POST',
+      ApiConstants.sendMessage,
+      body: {
+        'chatRoomId': roomId,
+        'messageType': 'STICKER',
+        'stickerId': stickerId,
+        'isAnonymous': isAnonymous,
+      },
+    );
+    final data = _decodeResponse(response);
+    final messageJson = data['data'] ?? data['message'];
+    if (messageJson is! Map<String, dynamic>) {
+      throw const ChatDataException('发送成功但响应中没有贴纸消息数据');
+    }
+    return Message.fromJson(messageJson, fallbackChatRoomId: chatRoomId);
+  }
+
+  Future<List<MessageReaction>> addReaction(
+    String messageId,
+    String emoji,
+  ) async {
+    final id = _parseRoomId(messageId);
+    final response = await _request(
+      'POST',
+      ApiConstants.messageReactions(id),
+      body: {'emoji': emoji},
+    );
+    return _extractReactions(_decodeResponse(response));
+  }
+
+  Future<List<MessageReaction>> removeReaction(
+    String messageId,
+    String emoji,
+  ) async {
+    final id = _parseRoomId(messageId);
+    final response = await _request(
+      'DELETE',
+      ApiConstants.messageReaction(id, emoji),
+    );
+    return _extractReactions(_decodeResponse(response));
+  }
+
+  Future<PollInfo> createPoll(
+    String chatRoomId, {
+    required String question,
+    required List<String> options,
+    bool multiSelect = false,
+    bool anonymous = false,
+    DateTime? expiresAt,
+  }) async {
+    final roomId = _parseRoomId(chatRoomId);
+    final response = await _request(
+      'POST',
+      ApiConstants.polls,
+      body: {
+        'chatRoomId': roomId,
+        'question': question,
+        'options': options,
+        'multiSelect': multiSelect,
+        'anonymous': anonymous,
+        if (expiresAt != null) 'expiresAt': expiresAt.toIso8601String(),
+      },
+    );
+    return _pollFromResponse(_decodeResponse(response));
+  }
+
+  Future<PollInfo> votePoll(int pollId, List<int> optionIndexes) async {
+    final response = await _request(
+      'POST',
+      ApiConstants.pollVotes(pollId),
+      body: {'optionIndexes': optionIndexes},
+    );
+    return _pollFromResponse(_decodeResponse(response));
+  }
+
+  Future<PollInfo> getPoll(int pollId) async {
+    final response = await _request('GET', ApiConstants.pollDetail(pollId));
+    return _pollFromResponse(_decodeResponse(response));
+  }
+
+  Future<List<ReadReceipt>> getReadBy(String messageId) async {
+    final id = _parseRoomId(messageId);
+    final response = await _request('GET', ApiConstants.messageReadBy(id));
+    final data = _decodeResponse(response);
+    final value = data['data'] ?? data['receipts'] ?? data['readBy'];
+    if (value is! List) return const [];
+    return value
+        .whereType<Map<String, dynamic>>()
+        .map(ReadReceipt.fromJson)
+        .toList();
+  }
+
+  Future<List<StickerPack>> getStickerPacks() async {
+    final response = await _request('GET', ApiConstants.stickerPacks);
+    final data = _decodeResponse(response);
+    final value = data['data'] ?? data['packs'] ?? data['stickerPacks'];
+    if (value is! List) return const [];
+    return value
+        .whereType<Map<String, dynamic>>()
+        .map(StickerPack.fromJson)
+        .toList();
+  }
+
+  Future<List<StickerItem>> getStickers(int packId) async {
+    final response = await _request(
+      'GET',
+      ApiConstants.stickerPackStickers(packId),
+    );
+    final data = _decodeResponse(response);
+    final value = data['data'] ?? data['stickers'];
+    if (value is! List) return const [];
+    return value
+        .whereType<Map<String, dynamic>>()
+        .map(StickerItem.fromJson)
+        .toList();
+  }
+
+  Future<StickerPack> uploadStickerPack({
+    required String name,
+    required List<PickedChatFile> stickers,
+    PickedChatFile? cover,
+    bool isPublic = false,
+  }) async {
+    if (stickers.isEmpty) {
+      throw const ChatDataException('至少选择 1 张贴纸图片');
+    }
+    final response = await _requestMultipartFiles(
+      ApiConstants.stickerPacks,
+      fields: {
+        'name': name.trim().isEmpty ? '我的贴纸包' : name.trim(),
+        'isPublic': isPublic.toString(),
+      },
+      files: {
+        if (cover != null) 'cover': [cover],
+        'files': stickers,
+      },
+    );
+    final data = _decodeResponse(response);
+    final value = data['data'] ?? data['pack'];
+    if (value is! Map<String, dynamic>) {
+      throw const ChatDataException('贴纸包上传成功但响应无数据');
+    }
+    return StickerPack.fromJson(value);
   }
 
   Future<Message> sendFileMessage(
@@ -366,10 +639,41 @@ class ChatDataService {
     int size = 20,
   }) async {
     final roomId = _parseRoomId(chatRoomId);
-    final uri = Uri.parse(ApiConstants.searchMessages).replace(
+    final uri = Uri.parse(ApiConstants.searchMessagesInRoom(roomId)).replace(
       queryParameters: {
-        'chatRoomId': roomId.toString(),
-        'keyword': keyword,
+        'q': keyword,
+        'offset': (page * size).toString(),
+        'limit': size.toString(),
+      },
+    );
+    final response = await _request('GET', uri.toString());
+    final data = _decodeResponse(response);
+    final messages = _extractMessages(data, chatRoomId);
+    return _messagePageFromData(data, messages);
+  }
+
+  Future<LinkPreview> fetchUrlPreview(String url) async {
+    final response = await _request(
+      'POST',
+      ApiConstants.urlPreview,
+      body: {'url': url},
+    );
+    final data = _decodeResponse(response);
+    final previewJson = data['data'] ?? data['preview'];
+    if (previewJson is! Map<String, dynamic>) {
+      throw const ChatDataException('链接预览响应中没有预览数据');
+    }
+    return LinkPreview.fromJson(previewJson);
+  }
+
+  Future<MessagePage> getMentionedMessages(
+    String chatRoomId, {
+    int page = 0,
+    int size = 20,
+  }) async {
+    final roomId = _parseRoomId(chatRoomId);
+    final uri = Uri.parse(ApiConstants.chatRoomMentionsMe(roomId)).replace(
+      queryParameters: {
         'page': page.toString(),
         'size': size.toString(),
       },
@@ -454,6 +758,11 @@ class ChatDataService {
     );
   }
 
+  Future<void> markMessageRead(String messageId) async {
+    final id = _parseRoomId(messageId);
+    await _request('POST', ApiConstants.markMessageRead(id));
+  }
+
   Future<void> clearChatHistory(String chatRoomId) async {
     final roomId = _parseRoomId(chatRoomId);
     await _request('DELETE', ApiConstants.clearChatHistory(roomId));
@@ -474,6 +783,7 @@ class ChatDataService {
     String chatRoomId,
     String prompt, {
     String? botId,
+    String? kind,
     String? artifactWorkspaceId,
     String? artifactFolderId,
     String? artifactFileName,
@@ -484,6 +794,7 @@ class ChatDataService {
       body: {
         'chatRoomId': _parseRoomId(chatRoomId),
         'prompt': prompt,
+        if (kind != null && kind.trim().isNotEmpty) 'kind': kind.trim(),
         if (botId != null) 'botId': _parseRoomId(botId),
         if (artifactWorkspaceId != null)
           'artifactWorkspaceId': _parseRoomId(artifactWorkspaceId),
@@ -582,6 +893,15 @@ class ChatDataService {
     return request(method, url, headers: headers, body: body);
   }
 
+  Chat _chatFromBackgroundResponse(dynamic response) {
+    final data = _decodeResponse(response);
+    final chatRoomJson = data['chatRoom'] ?? data['data'];
+    if (chatRoomJson is! Map<String, dynamic>) {
+      throw const ChatDataException('房间背景更新成功但响应中没有聊天室数据');
+    }
+    return Chat.fromJson(chatRoomJson);
+  }
+
   Future<dynamic> _requestMultipart(
     String url, {
     required Map<String, String> fields,
@@ -605,12 +925,14 @@ class ChatDataService {
           'file',
           bytes,
           filename: file.name,
+          contentType: _mediaTypeFor(file),
         ));
       } else if (file.path != null && file.path!.isNotEmpty) {
         request.files.add(await http.MultipartFile.fromPath(
           'file',
           file.path!,
           filename: file.name,
+          contentType: _mediaTypeFor(file),
         ));
       } else {
         throw const ChatDataException('请选择有效文件');
@@ -627,6 +949,79 @@ class ChatDataService {
       response = await send();
     }
     return response;
+  }
+
+  Future<dynamic> _requestMultipartFiles(
+    String url, {
+    required Map<String, String> fields,
+    required Map<String, List<PickedChatFile>> files,
+  }) async {
+    if (_multipartFilesRequest != null) {
+      return _multipartFilesRequest(url, fields: fields, files: files);
+    }
+
+    Future<http.Response> send() async {
+      final request = http.MultipartRequest('POST', Uri.parse(url));
+      final token = _authService.accessToken;
+      if (token != null) {
+        request.headers['Authorization'] = 'Bearer $token';
+      }
+      request.fields.addAll(fields);
+
+      for (final entry in files.entries) {
+        for (final file in entry.value) {
+          final bytes = file.bytes;
+          if (bytes != null) {
+            request.files.add(http.MultipartFile.fromBytes(
+              entry.key,
+              bytes,
+              filename: file.name,
+              contentType: _mediaTypeFor(file),
+            ));
+          } else if (file.path != null && file.path!.isNotEmpty) {
+            request.files.add(await http.MultipartFile.fromPath(
+              entry.key,
+              file.path!,
+              filename: file.name,
+              contentType: _mediaTypeFor(file),
+            ));
+          } else {
+            throw const ChatDataException('请选择有效文件');
+          }
+        }
+      }
+
+      final streamedResponse =
+          await request.send().timeout(ApiConstants.uploadTimeout);
+      return http.Response.fromStream(streamedResponse);
+    }
+
+    var response = await send();
+    if ((response.statusCode == 401 || response.statusCode == 403) &&
+        await _authService.refreshAccessToken()) {
+      response = await send();
+    }
+    return response;
+  }
+
+  MediaType? _mediaTypeFor(PickedChatFile file) {
+    final mimeType = file.mimeType ?? _mimeTypeFromFileName(file.name);
+    if (mimeType == null) return null;
+    final parts = mimeType.split('/');
+    if (parts.length != 2 || parts.any((part) => part.isEmpty)) return null;
+    return MediaType(parts[0], parts[1]);
+  }
+
+  String? _mimeTypeFromFileName(String name) {
+    final lower = name.toLowerCase();
+    if (lower.endsWith('.png')) return 'image/png';
+    if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) return 'image/jpeg';
+    if (lower.endsWith('.gif')) return 'image/gif';
+    if (lower.endsWith('.webp')) return 'image/webp';
+    if (lower.endsWith('.txt')) return 'text/plain';
+    if (lower.endsWith('.pdf')) return 'application/pdf';
+    if (lower.endsWith('.zip')) return 'application/zip';
+    return null;
   }
 
   List<Chat> _sortChats(List<Chat> chats) {
@@ -712,6 +1107,23 @@ class ChatDataService {
         .whereType<Map<String, dynamic>>()
         .map((json) => Message.fromJson(json, fallbackChatRoomId: chatRoomId))
         .toList();
+  }
+
+  List<MessageReaction> _extractReactions(Map<String, dynamic> data) {
+    final value = data['data'] ?? data['reactions'];
+    if (value is! List) return const [];
+    return value
+        .whereType<Map<String, dynamic>>()
+        .map(MessageReaction.fromJson)
+        .toList();
+  }
+
+  PollInfo _pollFromResponse(Map<String, dynamic> data) {
+    final value = data['data'] ?? data['poll'];
+    if (value is! Map<String, dynamic>) {
+      throw const ChatDataException('投票响应中没有投票数据');
+    }
+    return PollInfo.fromJson(value);
   }
 
   MessagePage _messagePageFromData(

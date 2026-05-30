@@ -5,11 +5,13 @@ import 'package:timeago/timeago.dart' as timeago;
 import '../../constants/api_constants.dart';
 import '../../constants/app_brand.dart';
 import '../../constants/app_colors.dart';
+import '../../design/design.dart';
 import '../../models/chat.dart';
 import '../../models/message.dart';
 import '../../models/user.dart';
 import '../../services/auth_service.dart';
 import '../../services/chat_data_service.dart';
+import '../../services/desktop_notification_service.dart';
 import '../../services/websocket_service.dart';
 import '../../widgets/pm_brand.dart';
 import '../../widgets/pm_responsive.dart';
@@ -19,11 +21,13 @@ class ChatListPage extends StatefulWidget {
     super.key,
     this.chatService,
     this.realtimeService,
+    this.notificationService,
     this.currentUserId,
   });
 
   final ChatDataService? chatService;
   final ChatRealtimeService? realtimeService;
+  final DesktopNotificationService? notificationService;
   final String? currentUserId;
 
   @override
@@ -35,12 +39,17 @@ class _ChatListPageState extends State<ChatListPage> {
   final FocusNode _searchFocusNode = FocusNode();
   late final ChatDataService _chatService;
   late final ChatRealtimeService _realtimeService;
+  late final DesktopNotificationService _notificationService;
   StreamSubscription<Message>? _messageSubscription;
   StreamSubscription<Map<String, dynamic>>? _statusSubscription;
   String _searchQuery = '';
   List<Chat> _chats = [];
+  List<_MentionHit> _mentionHits = [];
   bool _isLoading = true;
+  bool _showMentionsOnly = false;
+  bool _isLoadingMentions = false;
   String? _errorMessage;
+  String? _mentionErrorMessage;
 
   @override
   void initState() {
@@ -48,6 +57,8 @@ class _ChatListPageState extends State<ChatListPage> {
     timeago.setLocaleMessages('zh', timeago.ZhMessages());
     _chatService = widget.chatService ?? ChatDataService();
     _realtimeService = widget.realtimeService ?? WebSocketService();
+    _notificationService =
+        widget.notificationService ?? DesktopNotificationService();
     _loadChats();
     _connectRealtime();
   }
@@ -68,6 +79,10 @@ class _ChatListPageState extends State<ChatListPage> {
         _isLoading = false;
         _errorMessage = null;
       });
+      _syncDesktopUnreadBadge();
+      if (_showMentionsOnly) {
+        unawaited(_loadMentionHits());
+      }
     } catch (e) {
       if (!mounted) return;
       if (_isAuthenticationError(e)) {
@@ -130,14 +145,22 @@ class _ChatListPageState extends State<ChatListPage> {
         unreadCount: nextUnreadCount,
         updatedAt: shouldPromoteToLast ? message.timestamp : original.updatedAt,
       );
+      if (_showMentionsOnly && message.mentionsUser(currentUserId)) {
+        _mentionHits.insert(
+            0, _MentionHit(chat: _chats[index], message: message));
+      }
       _sortChatsInPlace();
     });
+    _syncDesktopUnreadBadge();
 
-    if (isIncoming && !message.isRemoved && !original.isMuted) {
-      _showIncomingMessageNotice(_chats.firstWhere(
-        (chat) => chat.id == message.chatRoomId,
-        orElse: () => original,
-      ));
+    final mentionsMe = message.mentionsUser(currentUserId);
+    if (isIncoming && !message.isRemoved && (!original.isMuted || mentionsMe)) {
+      _showIncomingMessageNotice(
+          _chats.firstWhere(
+            (chat) => chat.id == message.chatRoomId,
+            orElse: () => original,
+          ),
+          mentionOverride: mentionsMe);
     }
   }
 
@@ -178,10 +201,12 @@ class _ChatListPageState extends State<ChatListPage> {
       widget.currentUserId ?? AuthService().currentUser?.id;
 
   bool _isAuthenticationError(Object error) {
-    final message = error.toString();
+    final message = error.toString().toLowerCase();
     return message.contains('登录状态已过期') ||
-        message.contains('Unauthorized') ||
-        message.contains('Forbidden');
+        message.contains('unauthorized') ||
+        message.contains('jwt') ||
+        message.contains('token') ||
+        message.contains('authentication');
   }
 
   void _sortChatsInPlace() {
@@ -192,11 +217,38 @@ class _ChatListPageState extends State<ChatListPage> {
     });
   }
 
-  void _showIncomingMessageNotice(Chat chat) {
+  void _syncDesktopUnreadBadge() {
+    final totalUnread = _chats.fold<int>(
+      0,
+      (sum, chat) => sum + chat.unreadCount,
+    );
+    _notificationService.syncUnreadCount(totalUnread);
+  }
+
+  Future<void> _requestDesktopNotifications() async {
+    final enabled = await _notificationService.requestPermission();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(enabled ? '桌面通知已开启' : '浏览器没有允许桌面通知'),
+        backgroundColor: enabled ? AppColors.success : AppColors.warning,
+      ),
+    );
+  }
+
+  void _showIncomingMessageNotice(
+    Chat chat, {
+    bool mentionOverride = false,
+  }) {
     final route = ModalRoute.of(context);
     if (route != null && !route.isCurrent) return;
 
     final text = chat.lastMessage?.resolvedFileLabel ?? '收到新消息';
+    _notificationService.notifyIncomingMessage(
+      chatName: chat.name,
+      body: text,
+      muted: chat.isMuted && !mentionOverride,
+    );
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text('${chat.name}: $text'),
@@ -214,6 +266,47 @@ class _ChatListPageState extends State<ChatListPage> {
       return chat.name.toLowerCase().contains(_searchQuery.toLowerCase()) ||
           lastMessageText.toLowerCase().contains(_searchQuery.toLowerCase());
     }).toList();
+  }
+
+  Future<void> _toggleMentionsOnly() async {
+    setState(() {
+      _showMentionsOnly = !_showMentionsOnly;
+      _mentionErrorMessage = null;
+    });
+    if (_showMentionsOnly && _mentionHits.isEmpty) {
+      await _loadMentionHits();
+    }
+  }
+
+  Future<void> _loadMentionHits() async {
+    if (!mounted) return;
+    setState(() {
+      _isLoadingMentions = true;
+      _mentionErrorMessage = null;
+    });
+
+    try {
+      final hits = <_MentionHit>[];
+      for (final chat in _chats) {
+        final page = await _chatService.getMentionedMessages(chat.id);
+        hits.addAll(page.messages.map((message) => _MentionHit(
+              chat: chat,
+              message: message,
+            )));
+      }
+      hits.sort((a, b) => b.message.timestamp.compareTo(a.message.timestamp));
+      if (!mounted) return;
+      setState(() {
+        _mentionHits = hits;
+        _isLoadingMentions = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _mentionErrorMessage = e.toString();
+        _isLoadingMentions = false;
+      });
+    }
   }
 
   void _focusSearch() {
@@ -330,6 +423,19 @@ class _ChatListPageState extends State<ChatListPage> {
                 ),
               ),
             ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: PMChip(
+                  label: '@我',
+                  icon: Icons.alternate_email,
+                  selected: _showMentionsOnly,
+                  color: AppColors.primary,
+                  onTap: () => unawaited(_toggleMentionsOnly()),
+                ),
+              ),
+            ),
             Expanded(
               child: _isLoading
                   ? const Center(child: CircularProgressIndicator())
@@ -337,25 +443,29 @@ class _ChatListPageState extends State<ChatListPage> {
                       ? _buildErrorState()
                       : RefreshIndicator(
                           onRefresh: _loadChats,
-                          child: _filteredChats.isEmpty
-                              ? ListView(
-                                  children: [
-                                    SizedBox(
-                                      height:
-                                          MediaQuery.of(context).size.height *
+                          child: _showMentionsOnly
+                              ? _buildMentionHitsList()
+                              : _filteredChats.isEmpty
+                                  ? ListView(
+                                      children: [
+                                        SizedBox(
+                                          height: MediaQuery.of(context)
+                                                  .size
+                                                  .height *
                                               0.55,
-                                      child: _buildEmptyState(),
+                                          child: _buildEmptyState(),
+                                        ),
+                                      ],
+                                    )
+                                  : ListView.builder(
+                                      padding:
+                                          const EdgeInsets.only(bottom: 14),
+                                      itemCount: _filteredChats.length,
+                                      itemBuilder: (context, index) {
+                                        final chat = _filteredChats[index];
+                                        return _buildChatItem(chat);
+                                      },
                                     ),
-                                  ],
-                                )
-                              : ListView.builder(
-                                  padding: const EdgeInsets.only(bottom: 14),
-                                  itemCount: _filteredChats.length,
-                                  itemBuilder: (context, index) {
-                                    final chat = _filteredChats[index];
-                                    return _buildChatItem(chat);
-                                  },
-                                ),
                         ),
             ),
           ],
@@ -389,6 +499,12 @@ class _ChatListPageState extends State<ChatListPage> {
                       icon: Icons.search,
                       label: '搜索',
                       onTap: _focusSearch,
+                    ),
+                    const SizedBox(width: 10),
+                    _buildDesktopHeaderButton(
+                      icon: Icons.notifications_active,
+                      label: '通知',
+                      onTap: _requestDesktopNotifications,
                     ),
                     const SizedBox(width: 10),
                     _buildDesktopHeaderButton(
@@ -431,107 +547,67 @@ class _ChatListPageState extends State<ChatListPage> {
                 ),
                 const SizedBox(height: 18),
                 Expanded(
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Expanded(
-                        flex: 3,
-                        child: PMDesktopCard(
-                          padding: EdgeInsets.zero,
+                  child: PMDesktopCard(
+                    padding: EdgeInsets.zero,
+                    child: Column(
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.all(16),
                           child: Column(
                             children: [
-                              Padding(
-                                padding: const EdgeInsets.all(16),
-                                child: _buildDesktopSearchBox(),
+                              _buildDesktopSearchBox(),
+                              const SizedBox(height: 10),
+                              Align(
+                                alignment: Alignment.centerLeft,
+                                child: PMChip(
+                                  label: '@我',
+                                  icon: Icons.alternate_email,
+                                  selected: _showMentionsOnly,
+                                  color: AppColors.primary,
+                                  onTap: () => unawaited(_toggleMentionsOnly()),
+                                ),
                               ),
-                              const Divider(
-                                  height: 1, color: AppColors.borderLight),
-                              Expanded(
-                                child: _isLoading
-                                    ? const Center(
-                                        child: CircularProgressIndicator(),
-                                      )
-                                    : _errorMessage != null
-                                        ? _buildErrorState()
-                                        : RefreshIndicator(
-                                            onRefresh: _loadChats,
-                                            child: chats.isEmpty
-                                                ? ListView(
-                                                    children: [
-                                                      SizedBox(
-                                                        height: 420,
-                                                        child:
-                                                            _buildEmptyState(),
-                                                      ),
-                                                    ],
-                                                  )
-                                                : ListView.separated(
-                                                    padding:
-                                                        const EdgeInsets.all(
-                                                            12),
-                                                    itemBuilder:
-                                                        (context, index) {
-                                                      return _buildChatItem(
-                                                        chats[index],
-                                                      );
-                                                    },
-                                                    separatorBuilder: (_, __) =>
-                                                        const SizedBox(
-                                                      height: 6,
+                            ],
+                          ),
+                        ),
+                        const Divider(height: 1, color: AppColors.borderLight),
+                        Expanded(
+                          child: _isLoading
+                              ? const Center(
+                                  child: CircularProgressIndicator(),
+                                )
+                              : _errorMessage != null
+                                  ? _buildErrorState()
+                                  : RefreshIndicator(
+                                      onRefresh: _loadChats,
+                                      child: _showMentionsOnly
+                                          ? _buildMentionHitsList()
+                                          : chats.isEmpty
+                                              ? ListView(
+                                                  children: [
+                                                    SizedBox(
+                                                      height: 420,
+                                                      child: _buildEmptyState(),
                                                     ),
-                                                    itemCount: chats.length,
-                                                  ),
-                                          ),
-                              ),
-                            ],
-                          ),
+                                                  ],
+                                                )
+                                              : ListView.separated(
+                                                  padding:
+                                                      const EdgeInsets.all(12),
+                                                  itemBuilder:
+                                                      (context, index) {
+                                                    return _buildChatItem(
+                                                      chats[index],
+                                                    );
+                                                  },
+                                                  separatorBuilder: (_, __) =>
+                                                      const SizedBox(height: 6),
+                                                  itemCount: chats.length,
+                                                ),
+                                    ),
                         ),
-                      ),
-                      const SizedBox(width: 18),
-                      SizedBox(
-                        width: 330,
-                        child: PMDesktopCard(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const PMSectionHeader(
-                                title: '工作区概览',
-                                subtitle: '当前会话、附件和协作状态',
-                              ),
-                              const SizedBox(height: 18),
-                              _buildInsightRow(
-                                Icons.bolt,
-                                '实时连接',
-                                _realtimeService.isConnected ? '已连接' : '连接中',
-                              ),
-                              _buildInsightRow(
-                                Icons.inventory_2_outlined,
-                                '附件入口',
-                                '图片、文件、语音和位置',
-                              ),
-                              _buildInsightRow(
-                                Icons.smart_toy_outlined,
-                                'AI 协作',
-                                'Hermes Bot / Agent 可用',
-                              ),
-                              const Spacer(),
-                              _buildInsightRow(
-                                Icons.schedule,
-                                '最近活跃',
-                                _chats.isEmpty
-                                    ? '暂无会话'
-                                    : timeago.format(
-                                        (_chats.first.lastMessage?.timestamp ??
-                                            _chats.first.updatedAt ??
-                                            _chats.first.createdAt),
-                                        locale: 'zh',
-                                      ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
               ],
@@ -627,47 +703,6 @@ class _ChatListPageState extends State<ChatListPage> {
     );
   }
 
-  Widget _buildInsightRow(IconData icon, String title, String value) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 14),
-      child: Row(
-        children: [
-          Container(
-            width: 36,
-            height: 36,
-            decoration: BoxDecoration(
-              color: AppColors.pixelBlue,
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Icon(icon, color: AppColors.primary, size: 20),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: const TextStyle(
-                    color: AppColors.textPrimary,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                Text(
-                  value,
-                  style: const TextStyle(
-                    color: AppColors.textSecondary,
-                    fontSize: 12,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _buildErrorState() {
     return Center(
       child: Padding(
@@ -740,6 +775,98 @@ class _ChatListPageState extends State<ChatListPage> {
     );
   }
 
+  Widget _buildMentionHitsList() {
+    if (_isLoadingMentions) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (_mentionErrorMessage != null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(
+                Icons.alternate_email,
+                size: 56,
+                color: AppColors.textSecondary,
+              ),
+              const SizedBox(height: 12),
+              const Text(
+                '@我消息加载失败',
+                style: TextStyle(fontWeight: FontWeight.w800),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                _mentionErrorMessage!,
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: AppColors.textSecondary),
+              ),
+              const SizedBox(height: 12),
+              FilledButton(
+                onPressed: _loadMentionHits,
+                child: const Text('重试'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+    if (_mentionHits.isEmpty) {
+      return ListView(
+        children: const [
+          SizedBox(
+            height: 360,
+            child: Center(
+              child: Text(
+                '暂无 @ 我消息',
+                style: TextStyle(color: AppColors.textSecondary),
+              ),
+            ),
+          ),
+        ],
+      );
+    }
+    return ListView.separated(
+      padding: const EdgeInsets.all(12),
+      itemCount: _mentionHits.length,
+      separatorBuilder: (_, __) => const SizedBox(height: 6),
+      itemBuilder: (context, index) {
+        final hit = _mentionHits[index];
+        return PMListRow(
+          leading: _buildChatAvatar(hit.chat),
+          title: Text(hit.chat.name),
+          subtitle: Text(
+            hit.message.content,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+          ),
+          badge: '@我',
+          badgeColor: AppColors.primary,
+          trailing: Text(
+            timeago.format(hit.message.timestamp, locale: 'zh'),
+            style: const TextStyle(
+              color: AppColors.textSecondary,
+              fontSize: 12,
+            ),
+          ),
+          onTap: () async {
+            await Navigator.pushNamed(
+              context,
+              '/chat/${hit.chat.id}',
+              arguments: hit.chat,
+            );
+            if (mounted) {
+              _loadChats();
+            }
+          },
+        );
+      },
+    );
+  }
+
   Widget _buildChatItem(Chat chat) {
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 5),
@@ -755,7 +882,7 @@ class _ChatListPageState extends State<ChatListPage> {
         onTap: () async {
           await Navigator.pushNamed(
             context,
-            '/chat',
+            '/chat/${chat.id}',
             arguments: chat,
           );
           if (mounted) {
@@ -844,6 +971,28 @@ class _ChatListPageState extends State<ChatListPage> {
             ),
             if (chat.unreadCount > 0) ...[
               const SizedBox(width: 8),
+              if (_hasUnreadMention(chat)) ...[
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: AppColors.primary.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color: AppColors.primary.withValues(alpha: 0.35),
+                    ),
+                  ),
+                  child: const Text(
+                    '@',
+                    style: TextStyle(
+                      color: AppColors.primary,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 6),
+              ],
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                 decoration: BoxDecoration(
@@ -909,6 +1058,13 @@ class _ChatListPageState extends State<ChatListPage> {
     );
   }
 
+  bool _hasUnreadMention(Chat chat) {
+    final currentUserId = _currentUserId;
+    return chat.unreadCount > 0 &&
+        currentUserId != null &&
+        chat.lastMessage?.mentionsUser(currentUserId) == true;
+  }
+
   @override
   void dispose() {
     _messageSubscription?.cancel();
@@ -917,4 +1073,14 @@ class _ChatListPageState extends State<ChatListPage> {
     _searchFocusNode.dispose();
     super.dispose();
   }
+}
+
+class _MentionHit {
+  const _MentionHit({
+    required this.chat,
+    required this.message,
+  });
+
+  final Chat chat;
+  final Message message;
 }

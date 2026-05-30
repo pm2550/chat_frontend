@@ -18,9 +18,13 @@ class UpdateDialog extends StatefulWidget {
 
   const UpdateDialog({super.key, required this.versionCheck});
 
-  static Future<void> show(BuildContext context, AppVersionCheck check) {
+  static Future<void> show(
+    BuildContext context,
+    AppVersionCheck check, {
+    bool reloadWeb = true,
+  }) {
     // Web: skip dialog, just reload
-    if (kIsWeb) {
+    if (kIsWeb && reloadWeb) {
       _reloadWebPage();
       return Future.value();
     }
@@ -122,6 +126,15 @@ class _UpdateDialogState extends State<UpdateDialog> {
   Future<void> _startAutoUpdate() async {
     final url = widget.versionCheck.downloadUrl;
     if (url == null || url.isEmpty) return;
+
+    if (kIsWeb) {
+      final fullUrl = UpdateService.resolveUrl(url);
+      final uri = Uri.parse(fullUrl);
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      }
+      return;
+    }
 
     setState(() {
       _downloading = true;

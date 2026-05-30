@@ -155,6 +155,112 @@ void main() {
       expect(status, OnlineStatus.away);
       expect(authService.currentUser?.onlineStatus, OnlineStatus.away);
     });
+
+    test('getSettings parses chat customization fields', () async {
+      final service = UserProfileService(
+        authService: authService,
+        authenticatedRequest: (
+          method,
+          url, {
+          headers,
+          body,
+        }) async {
+          expect(method, 'GET');
+          expect(url, ApiConstants.profileSettings);
+          return jsonResponse({
+            'success': true,
+            'data': {
+              'messageNotificationsEnabled': true,
+              'showOnlineStatus': false,
+              'allowFriendRequests': true,
+              'allowDirectMessages': true,
+              'readReceiptsEnabled': true,
+              'chatBackgroundPreset': 'aurora',
+              'chatBackgroundCustomUrl': '/api/files/background/bg.png',
+              'avatarFramePreset': 'cyber_glow',
+              'bubbleStylePreset': 'retro_block',
+            },
+          });
+        },
+      );
+
+      final settings = await service.getSettings();
+
+      expect(settings.showOnlineStatus, isFalse);
+      expect(settings.chatBackgroundPreset, 'aurora');
+      expect(settings.chatBackgroundCustomUrl, '/api/files/background/bg.png');
+      expect(settings.avatarFramePreset, 'cyber_glow');
+      expect(settings.bubbleStylePreset, 'retro_block');
+    });
+
+    test('updateSettings sends customization fields and updates cached frame',
+        () async {
+      Object? sentBody;
+      final service = UserProfileService(
+        authService: authService,
+        authenticatedRequest: (
+          method,
+          url, {
+          headers,
+          body,
+        }) async {
+          expect(method, 'PUT');
+          expect(url, ApiConstants.profileSettings);
+          sentBody = body;
+          return jsonResponse({
+            'success': true,
+            'data': {
+              'chatBackgroundPreset': 'pixel_mint',
+              'avatarFramePreset': 'golden_ring',
+              'bubbleStylePreset': 'minimal_flat',
+            },
+          });
+        },
+      );
+
+      final saved = await service.updateSettings(const UserAppSettings(
+        chatBackgroundPreset: 'pixel_mint',
+        chatBackgroundCustomUrl: '',
+        avatarFramePreset: 'golden_ring',
+        bubbleStylePreset: 'minimal_flat',
+      ));
+
+      expect((sentBody as Map<String, dynamic>)['chatBackgroundPreset'],
+          'pixel_mint');
+      expect((sentBody as Map<String, dynamic>)['chatBackgroundCustomUrl'], '');
+      expect(saved.avatarFramePreset, 'golden_ring');
+      expect(authService.currentUser?.avatarFramePreset, 'golden_ring');
+    });
+
+    test('uploadChatBackground uses background multipart field', () async {
+      PickedChatBackground? uploaded;
+      final service = UserProfileService(
+        authService: authService,
+        backgroundMultipartRequest: (url, {required background}) async {
+          expect(url, ApiConstants.profileChatBackground);
+          uploaded = background;
+          return jsonResponse({
+            'success': true,
+            'data': {
+              'chatBackgroundPreset': 'cloud_gradient',
+              'chatBackgroundCustomUrl': '/api/files/background/custom.webp',
+            },
+          });
+        },
+      );
+
+      final settings = await service.uploadChatBackground(
+        const PickedChatBackground(
+          name: 'custom.webp',
+          size: 4,
+          bytes: [1, 2, 3, 4],
+        ),
+      );
+
+      expect(uploaded?.name, 'custom.webp');
+      expect(settings.chatBackgroundCustomUrl,
+          '/api/files/background/custom.webp');
+    });
   });
 }
 

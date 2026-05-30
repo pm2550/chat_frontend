@@ -1,3 +1,5 @@
+const int kCallMeshParticipantLimit = 6;
+
 enum CallMediaKind {
   audio('语音'),
   video('视频');
@@ -25,31 +27,85 @@ enum CallPhase {
   failed,
 }
 
+enum PeerConnectionState {
+  connecting,
+  connected,
+  disconnected,
+  failed,
+}
+
+class CallParticipant {
+  const CallParticipant({
+    required this.userId,
+    required this.displayName,
+    this.anonymous = false,
+    this.anonymousTheme,
+    this.localViewId,
+    this.remoteViewId,
+    this.micMuted = false,
+    this.cameraOff = false,
+    this.state = PeerConnectionState.connecting,
+  });
+
+  final int userId;
+  final String displayName;
+  final bool anonymous;
+  final String? anonymousTheme;
+  final String? localViewId;
+  final String? remoteViewId;
+  final bool micMuted;
+  final bool cameraOff;
+  final PeerConnectionState state;
+
+  bool get isConnected => state == PeerConnectionState.connected;
+  bool get hasVideo => (localViewId ?? remoteViewId)?.isNotEmpty == true;
+
+  CallParticipant copyWith({
+    int? userId,
+    String? displayName,
+    bool? anonymous,
+    String? anonymousTheme,
+    String? localViewId,
+    String? remoteViewId,
+    bool? micMuted,
+    bool? cameraOff,
+    PeerConnectionState? state,
+    bool clearAnonymousTheme = false,
+    bool clearLocalView = false,
+    bool clearRemoteView = false,
+  }) {
+    return CallParticipant(
+      userId: userId ?? this.userId,
+      displayName: displayName ?? this.displayName,
+      anonymous: anonymous ?? this.anonymous,
+      anonymousTheme:
+          clearAnonymousTheme ? null : anonymousTheme ?? this.anonymousTheme,
+      localViewId: clearLocalView ? null : localViewId ?? this.localViewId,
+      remoteViewId: clearRemoteView ? null : remoteViewId ?? this.remoteViewId,
+      micMuted: micMuted ?? this.micMuted,
+      cameraOff: cameraOff ?? this.cameraOff,
+      state: state ?? this.state,
+    );
+  }
+}
+
 class ChatCallState {
   const ChatCallState({
     this.phase = CallPhase.idle,
     this.callId,
     this.chatRoomId,
-    this.peerUserId,
-    this.peerName,
     this.mediaKind = CallMediaKind.audio,
-    this.localViewId,
-    this.remoteViewId,
-    this.microphoneMuted = false,
-    this.cameraOff = false,
+    this.participants = const [],
+    this.selfUserId,
     this.errorMessage,
   });
 
   final CallPhase phase;
   final String? callId;
   final int? chatRoomId;
-  final int? peerUserId;
-  final String? peerName;
   final CallMediaKind mediaKind;
-  final String? localViewId;
-  final String? remoteViewId;
-  final bool microphoneMuted;
-  final bool cameraOff;
+  final List<CallParticipant> participants;
+  final int? selfUserId;
   final String? errorMessage;
 
   bool get isIdle => phase == CallPhase.idle;
@@ -58,8 +114,29 @@ class ChatCallState {
       phase == CallPhase.outgoing ||
       phase == CallPhase.connecting ||
       phase == CallPhase.connected;
-  bool get hasRemoteMedia => remoteViewId != null && remoteViewId!.isNotEmpty;
   bool get isVideo => mediaKind == CallMediaKind.video;
+  bool get isFull => participants.length >= kCallMeshParticipantLimit;
+  bool get hasRemoteMedia => others.any((participant) =>
+      participant.remoteViewId != null && participant.remoteViewId!.isNotEmpty);
+
+  CallParticipant? get self {
+    final id = selfUserId;
+    if (id == null) return null;
+    for (final participant in participants) {
+      if (participant.userId == id) {
+        return participant;
+      }
+    }
+    return null;
+  }
+
+  List<CallParticipant> get others {
+    final id = selfUserId;
+    if (id == null) return participants;
+    return participants
+        .where((participant) => participant.userId != id)
+        .toList(growable: false);
+  }
 
   String get statusLabel {
     if (errorMessage != null && errorMessage!.isNotEmpty) {
@@ -76,17 +153,53 @@ class ChatCallState {
     };
   }
 
+  String get primaryPeerName {
+    final peer = others.isNotEmpty ? others.first : null;
+    return peer?.displayName ?? '联系人';
+  }
+
+  ChatCallState addParticipant(CallParticipant participant) {
+    final next = [
+      for (final existing in participants)
+        if (existing.userId != participant.userId) existing,
+      participant,
+    ]..sort((a, b) => a.userId.compareTo(b.userId));
+    return copyWith(participants: next);
+  }
+
+  ChatCallState removeParticipant(int userId) {
+    return copyWith(
+      participants: participants
+          .where((participant) => participant.userId != userId)
+          .toList(growable: false),
+    );
+  }
+
+  ChatCallState updateParticipant(
+    int userId,
+    CallParticipant Function(CallParticipant participant) transform,
+  ) {
+    var changed = false;
+    final next = [
+      for (final participant in participants)
+        if (participant.userId == userId)
+          () {
+            changed = true;
+            return transform(participant);
+          }()
+        else
+          participant,
+    ];
+    return changed ? copyWith(participants: next) : this;
+  }
+
   ChatCallState copyWith({
     CallPhase? phase,
     String? callId,
     int? chatRoomId,
-    int? peerUserId,
-    String? peerName,
     CallMediaKind? mediaKind,
-    String? localViewId,
-    String? remoteViewId,
-    bool? microphoneMuted,
-    bool? cameraOff,
+    List<CallParticipant>? participants,
+    int? selfUserId,
     String? errorMessage,
     bool clearError = false,
   }) {
@@ -94,13 +207,10 @@ class ChatCallState {
       phase: phase ?? this.phase,
       callId: callId ?? this.callId,
       chatRoomId: chatRoomId ?? this.chatRoomId,
-      peerUserId: peerUserId ?? this.peerUserId,
-      peerName: peerName ?? this.peerName,
       mediaKind: mediaKind ?? this.mediaKind,
-      localViewId: localViewId ?? this.localViewId,
-      remoteViewId: remoteViewId ?? this.remoteViewId,
-      microphoneMuted: microphoneMuted ?? this.microphoneMuted,
-      cameraOff: cameraOff ?? this.cameraOff,
+      participants:
+          List<CallParticipant>.unmodifiable(participants ?? this.participants),
+      selfUserId: selfUserId ?? this.selfUserId,
       errorMessage: clearError ? null : errorMessage ?? this.errorMessage,
     );
   }

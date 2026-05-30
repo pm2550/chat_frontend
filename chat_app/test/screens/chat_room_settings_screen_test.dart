@@ -1,4 +1,5 @@
 import 'package:chat_app/models/chat_room_member.dart';
+import 'package:chat_app/models/chat.dart';
 import 'package:chat_app/models/user.dart';
 import 'package:chat_app/screens/chat/chat_room_settings_screen.dart';
 import 'package:chat_app/services/bot_service.dart';
@@ -20,9 +21,45 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('成员管理'), findsOneWidget);
-      expect(find.text('Alice'), findsOneWidget);
-      expect(find.text('Bob'), findsOneWidget);
+      expect(find.text('Alice'), findsWidgets);
+      expect(find.text('Bob'), findsWidgets);
       expect(find.text('邀请好友'), findsOneWidget);
+    });
+
+    testWidgets('renders member rows when avatar and member title are null',
+        (tester) async {
+      final chatService = FakeChatDataService()
+        ..members = [
+          member('1', 'alice', 'Alice', isAdmin: true),
+          member('2', 'bob', 'Bob'),
+        ];
+
+      await tester.pumpWidget(buildWidget(chatService: chatService));
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      expect(find.text('Bob'), findsWidgets);
+      expect(find.text('普通成员'), findsWidgets);
+    });
+
+    testWidgets('invite sheet renders friends without avatar URLs',
+        (tester) async {
+      final chatService = FakeChatDataService();
+      final contactService = FakeContactDataService();
+
+      await tester.pumpWidget(buildWidget(
+        chatService: chatService,
+        contactService: contactService,
+      ));
+      await tester.pumpAndSettle();
+
+      await tester.ensureVisible(find.text('邀请成员'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('邀请成员'));
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      expect(find.text('Carol'), findsOneWidget);
     });
 
     testWidgets('invites a friend from the invite sheet', (tester) async {
@@ -35,13 +72,37 @@ void main() {
       ));
       await tester.pumpAndSettle();
 
-      await tester.tap(find.text('邀请好友'));
+      await tester.ensureVisible(find.text('邀请成员'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('邀请成员'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Carol'));
       await tester.pumpAndSettle();
 
       expect(chatService.invitedUserIds, ['3']);
-      expect(find.text('Carol'), findsOneWidget);
+      expect(find.text('Carol'), findsWidgets);
+    });
+
+    testWidgets('admin edits group announcement from profile card',
+        (tester) async {
+      final chatService = FakeChatDataService();
+
+      await tester.pumpWidget(buildWidget(chatService: chatService));
+      await tester.pumpAndSettle();
+
+      await tester.ensureVisible(find.text('群公告'));
+      await tester.tap(find.text('群公告'));
+      await tester.pumpAndSettle();
+
+      await tester.enterText(
+        find.widgetWithText(TextField, '群公告'),
+        '明天上午十点发布版本',
+      );
+      await tester.tap(find.text('保存群资料'));
+      await tester.pumpAndSettle();
+
+      expect(chatService.updatedAnnouncements, ['明天上午十点发布版本']);
+      expect(find.text('明天上午十点发布版本'), findsWidgets);
     });
 
     testWidgets('admin can toggle and kick a member', (tester) async {
@@ -50,14 +111,12 @@ void main() {
       await tester.pumpWidget(buildWidget(chatService: chatService));
       await tester.pumpAndSettle();
 
-      await tester.tap(find.byType(PopupMenuButton<String>).first);
+      await tester.ensureVisible(find.byTooltip('设为管理员').first);
       await tester.pumpAndSettle();
-      await tester.tap(find.text('设为管理员'));
+      await tester.tap(find.byTooltip('设为管理员').first);
       await tester.pumpAndSettle();
 
-      await tester.tap(find.byType(PopupMenuButton<String>).first);
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('移出群聊'));
+      await tester.tap(find.byTooltip('移出群聊').first);
       await tester.pumpAndSettle();
 
       expect(chatService.adminToggles, ['2']);
@@ -71,11 +130,13 @@ void main() {
       await tester.pumpAndSettle();
 
       await tester.scrollUntilVisible(
-        find.text('退出群聊'),
+        find.byKey(const Key('leave-group-row')),
         300,
-        scrollable: find.byType(Scrollable).first,
+        scrollable: verticalScrollable(),
       );
-      await tester.tap(find.text('退出群聊'));
+      await tester.drag(verticalScrollable(), const Offset(0, -260));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('leave-group-row')));
       await tester.pumpAndSettle();
       await tester.tap(find.text('退出').last);
       await tester.pumpAndSettle();
@@ -95,14 +156,14 @@ void main() {
       await tester.scrollUntilVisible(
         find.text('RoomBot'),
         300,
-        scrollable: find.byType(Scrollable).first,
+        scrollable: verticalScrollable(),
       );
       expect(find.text('RoomBot'), findsOneWidget);
 
       await tester.scrollUntilVisible(
         find.text('添加机器人'),
         300,
-        scrollable: find.byType(Scrollable).first,
+        scrollable: verticalScrollable(),
       );
       await tester.tap(find.text('添加机器人'));
       await tester.pumpAndSettle();
@@ -118,6 +179,15 @@ void main() {
       expect(botService.removedBotIds, [1]);
     });
   });
+}
+
+Finder verticalScrollable() {
+  return find
+      .byWidgetPredicate(
+        (widget) =>
+            widget is Scrollable && widget.axisDirection == AxisDirection.down,
+      )
+      .first;
 }
 
 Widget buildWidget({
@@ -146,11 +216,49 @@ class FakeChatDataService extends ChatDataService {
   final adminToggles = <String>[];
   final mutedUserIds = <String>[];
   final leftRooms = <String>[];
+  final updatedAnnouncements = <String>[];
+  String roomName = 'Project Room';
+  String roomDescription = '项目群说明';
+  String roomAnnouncement = '旧公告';
 
   List<ChatRoomMember> members = [
     member('1', 'alice', 'Alice', isAdmin: true),
     member('2', 'bob', 'Bob'),
   ];
+
+  @override
+  Future<Chat> getChatRoom(
+    String chatRoomId, {
+    bool includeDetails = true,
+  }) async {
+    return Chat(
+      id: chatRoomId,
+      name: roomName,
+      description: roomDescription,
+      announcement: roomAnnouncement,
+      announcementUpdatedAt: DateTime.parse('2024-01-01T10:00:00'),
+      announcementUpdatedBy: '1',
+      type: ChatType.group,
+      createdAt: DateTime.parse('2024-01-01T09:00:00'),
+    );
+  }
+
+  @override
+  Future<Chat> updateChatRoom(
+    String chatRoomId, {
+    String? name,
+    String? description,
+    String? avatarUrl,
+    String? announcement,
+  }) async {
+    if (name != null) roomName = name;
+    if (description != null) roomDescription = description;
+    if (announcement != null) {
+      roomAnnouncement = announcement;
+      updatedAnnouncements.add(announcement);
+    }
+    return getChatRoom(chatRoomId);
+  }
 
   @override
   Future<List<ChatRoomMember>> getChatRoomMembers(String chatRoomId) async {
@@ -226,6 +334,9 @@ class FakeBotService extends BotService {
     int botId, {
     String? triggerMode,
     String? keywords,
+    String? roomNickname,
+    String? roomPromptSuffix,
+    bool? enabledInRoom,
   }) async {
     addedBotIds.add(botId);
     final bot = myBots.firstWhere((bot) => bot.id == botId);

@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:chat_app/services/auth_service.dart';
+import 'package:http/http.dart' as http;
 
 void main() {
   group('AuthService', () {
@@ -82,6 +83,22 @@ void main() {
       expect(service1.currentUser, equals(service2.currentUser));
       expect(service1.isAuthenticated, equals(service2.isAuthenticated));
       expect(service1.isLoading, equals(service2.isLoading));
+    });
+
+    test('plain forbidden is not treated as an authentication failure', () {
+      final service = AuthService();
+
+      expect(
+        service.debugIsAuthenticationFailure(http.Response('Forbidden', 403)),
+        isFalse,
+      );
+      expect(
+        service.debugIsAuthenticationFailure(http.Response(
+          '{"message":"JWT token expired"}',
+          403,
+        )),
+        isTrue,
+      );
     });
   });
 }

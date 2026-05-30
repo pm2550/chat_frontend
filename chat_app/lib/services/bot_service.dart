@@ -21,6 +21,11 @@ class BotConfig {
   final double temperature;
   final int maxTokens;
   final bool isActive;
+  final String? triggerMode;
+  final String? triggerKeywords;
+  final String? roomNickname;
+  final String? roomPromptSuffix;
+  final bool enabledInRoom;
 
   BotConfig({
     this.id,
@@ -32,6 +37,11 @@ class BotConfig {
     this.temperature = 0.7,
     this.maxTokens = 2048,
     this.isActive = true,
+    this.triggerMode,
+    this.triggerKeywords,
+    this.roomNickname,
+    this.roomPromptSuffix,
+    this.enabledInRoom = true,
   });
 
   factory BotConfig.fromJson(Map<String, dynamic> json) {
@@ -45,6 +55,11 @@ class BotConfig {
       temperature: (json['temperature'] ?? 0.7).toDouble(),
       maxTokens: json['maxTokens'] ?? 2048,
       isActive: json['isActive'] ?? true,
+      triggerMode: json['triggerMode']?.toString(),
+      triggerKeywords: json['triggerKeywords']?.toString(),
+      roomNickname: json['roomNickname']?.toString(),
+      roomPromptSuffix: json['roomPromptSuffix']?.toString(),
+      enabledInRoom: json['enabledInRoom'] ?? true,
     );
   }
 
@@ -56,6 +71,14 @@ class BotConfig {
         'systemPrompt': systemPrompt,
         'temperature': temperature,
         'maxTokens': maxTokens,
+      };
+
+  Map<String, dynamic> toRoomJson() => {
+        if (triggerMode != null) 'triggerMode': triggerMode,
+        if (triggerKeywords != null) 'triggerKeywords': triggerKeywords,
+        if (roomNickname != null) 'roomNickname': roomNickname,
+        if (roomPromptSuffix != null) 'roomPromptSuffix': roomPromptSuffix,
+        'enabledInRoom': enabledInRoom,
       };
 }
 
@@ -118,17 +141,51 @@ class BotService {
   }
 
   Future<bool> addBotToRoom(int roomId, int botId,
-      {String? triggerMode, String? keywords}) async {
+      {String? triggerMode,
+      String? keywords,
+      String? roomNickname,
+      String? roomPromptSuffix,
+      bool? enabledInRoom}) async {
     final response = await _request(
       'POST',
       ApiConstants.addBotToRoom(roomId, botId),
       body: {
         if (triggerMode != null) 'triggerMode': triggerMode,
         if (keywords != null) 'triggerKeywords': keywords,
+        if (roomNickname != null) 'roomNickname': roomNickname,
+        if (roomPromptSuffix != null) 'roomPromptSuffix': roomPromptSuffix,
+        if (enabledInRoom != null) 'enabledInRoom': enabledInRoom,
       },
     );
     _decodeResponse(response);
     return true;
+  }
+
+  Future<BotConfig> updateRoomBotConfig(
+    int roomId,
+    int botId, {
+    String? triggerMode,
+    String? keywords,
+    String? roomNickname,
+    String? roomPromptSuffix,
+    bool? enabledInRoom,
+  }) async {
+    final response = await _request(
+      'PUT',
+      ApiConstants.updateRoomBot(roomId, botId),
+      body: {
+        if (triggerMode != null) 'triggerMode': triggerMode,
+        if (keywords != null) 'triggerKeywords': keywords,
+        if (roomNickname != null) 'roomNickname': roomNickname,
+        if (roomPromptSuffix != null) 'roomPromptSuffix': roomPromptSuffix,
+        if (enabledInRoom != null) 'enabledInRoom': enabledInRoom,
+      },
+    );
+    final data = _decodeResponse(response);
+    if (data['data'] is Map<String, dynamic>) {
+      return BotConfig.fromJson(data['data'] as Map<String, dynamic>);
+    }
+    throw const BotServiceException('聊天室机器人配置已更新但响应中没有数据');
   }
 
   Future<bool> removeBotFromRoom(int roomId, int botId) async {

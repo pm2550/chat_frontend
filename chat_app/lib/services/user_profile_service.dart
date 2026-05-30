@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import '../constants/api_constants.dart';
+import '../models/chat_customization.dart';
 import '../models/user.dart';
 import 'auth_service.dart';
 
@@ -18,8 +19,29 @@ typedef ProfileMultipartRequest = Future<dynamic> Function(
   required PickedProfileAvatar avatar,
 });
 
+typedef ProfileBackgroundMultipartRequest = Future<dynamic> Function(
+  String url, {
+  required PickedChatBackground background,
+});
+
 class PickedProfileAvatar {
   const PickedProfileAvatar({
+    required this.name,
+    required this.size,
+    this.path,
+    this.mimeType,
+    this.bytes,
+  });
+
+  final String name;
+  final int size;
+  final String? path;
+  final String? mimeType;
+  final List<int>? bytes;
+}
+
+class PickedChatBackground {
+  const PickedChatBackground({
     required this.name,
     required this.size,
     this.path,
@@ -50,6 +72,10 @@ class UserAppSettings {
     this.allowFriendRequests = true,
     this.allowDirectMessages = true,
     this.readReceiptsEnabled = true,
+    this.chatBackgroundPreset = ChatCustomizationCatalog.defaultBackground,
+    this.chatBackgroundCustomUrl,
+    this.avatarFramePreset = ChatCustomizationCatalog.defaultAvatarFrame,
+    this.bubbleStylePreset = ChatCustomizationCatalog.defaultBubbleStyle,
   });
 
   final bool messageNotificationsEnabled;
@@ -57,6 +83,10 @@ class UserAppSettings {
   final bool allowFriendRequests;
   final bool allowDirectMessages;
   final bool readReceiptsEnabled;
+  final String chatBackgroundPreset;
+  final String? chatBackgroundCustomUrl;
+  final String avatarFramePreset;
+  final String bubbleStylePreset;
 
   factory UserAppSettings.fromJson(Map<String, dynamic> json) {
     return UserAppSettings(
@@ -72,6 +102,24 @@ class UserAppSettings {
           json['allowDirectMessages'] ?? json['allow_direct_messages'], true),
       readReceiptsEnabled: _parseBool(
           json['readReceiptsEnabled'] ?? json['read_receipts_enabled'], true),
+      chatBackgroundPreset: _parsePreset(
+        json['chatBackgroundPreset'] ?? json['chat_background_preset'],
+        ChatCustomizationCatalog.defaultBackground,
+        ChatCustomizationCatalog.isValidBackground,
+      ),
+      chatBackgroundCustomUrl: _parseNullableString(
+          json['chatBackgroundCustomUrl'] ??
+              json['chat_background_custom_url']),
+      avatarFramePreset: _parsePreset(
+        json['avatarFramePreset'] ?? json['avatar_frame_preset'],
+        ChatCustomizationCatalog.defaultAvatarFrame,
+        ChatCustomizationCatalog.isValidAvatarFrame,
+      ),
+      bubbleStylePreset: _parsePreset(
+        json['bubbleStylePreset'] ?? json['bubble_style_preset'],
+        ChatCustomizationCatalog.defaultBubbleStyle,
+        ChatCustomizationCatalog.isValidBubbleStyle,
+      ),
     );
   }
 
@@ -82,6 +130,10 @@ class UserAppSettings {
       'allowFriendRequests': allowFriendRequests,
       'allowDirectMessages': allowDirectMessages,
       'readReceiptsEnabled': readReceiptsEnabled,
+      'chatBackgroundPreset': chatBackgroundPreset,
+      'chatBackgroundCustomUrl': chatBackgroundCustomUrl,
+      'avatarFramePreset': avatarFramePreset,
+      'bubbleStylePreset': bubbleStylePreset,
     };
   }
 
@@ -91,6 +143,11 @@ class UserAppSettings {
     bool? allowFriendRequests,
     bool? allowDirectMessages,
     bool? readReceiptsEnabled,
+    String? chatBackgroundPreset,
+    String? chatBackgroundCustomUrl,
+    bool clearChatBackgroundCustomUrl = false,
+    String? avatarFramePreset,
+    String? bubbleStylePreset,
   }) {
     return UserAppSettings(
       messageNotificationsEnabled:
@@ -99,6 +156,12 @@ class UserAppSettings {
       allowFriendRequests: allowFriendRequests ?? this.allowFriendRequests,
       allowDirectMessages: allowDirectMessages ?? this.allowDirectMessages,
       readReceiptsEnabled: readReceiptsEnabled ?? this.readReceiptsEnabled,
+      chatBackgroundPreset: chatBackgroundPreset ?? this.chatBackgroundPreset,
+      chatBackgroundCustomUrl: clearChatBackgroundCustomUrl
+          ? null
+          : chatBackgroundCustomUrl ?? this.chatBackgroundCustomUrl,
+      avatarFramePreset: avatarFramePreset ?? this.avatarFramePreset,
+      bubbleStylePreset: bubbleStylePreset ?? this.bubbleStylePreset,
     );
   }
 
@@ -107,6 +170,20 @@ class UserAppSettings {
     if (value is bool) return value;
     return value.toString().toLowerCase() == 'true';
   }
+
+  static String _parsePreset(
+    dynamic value,
+    String fallback,
+    bool Function(String?) isValid,
+  ) {
+    final preset = value?.toString();
+    return isValid(preset) ? preset! : fallback;
+  }
+
+  static String? _parseNullableString(dynamic value) {
+    final string = value?.toString().trim();
+    return string == null || string.isEmpty ? null : string;
+  }
 }
 
 class UserProfileService {
@@ -114,13 +191,16 @@ class UserProfileService {
     AuthService? authService,
     ProfileAuthenticatedRequest? authenticatedRequest,
     ProfileMultipartRequest? multipartRequest,
+    ProfileBackgroundMultipartRequest? backgroundMultipartRequest,
   })  : _authService = authService ?? AuthService(),
         _authenticatedRequest = authenticatedRequest,
-        _multipartRequest = multipartRequest;
+        _multipartRequest = multipartRequest,
+        _backgroundMultipartRequest = backgroundMultipartRequest;
 
   final AuthService _authService;
   final ProfileAuthenticatedRequest? _authenticatedRequest;
   final ProfileMultipartRequest? _multipartRequest;
+  final ProfileBackgroundMultipartRequest? _backgroundMultipartRequest;
 
   Future<User> getProfile() async {
     final response = await _request('GET', ApiConstants.profile);
@@ -163,6 +243,16 @@ class UserProfileService {
     return avatarUrl;
   }
 
+  Future<UserAppSettings> uploadChatBackground(
+    PickedChatBackground background,
+  ) async {
+    final response = await _requestBackgroundMultipart(
+      ApiConstants.profileChatBackground,
+      background: background,
+    );
+    return _extractSettings(_decodeResponse(response));
+  }
+
   Future<void> deleteAvatar() async {
     await _request('DELETE', ApiConstants.profileAvatar);
     final currentUser = _authService.currentUser;
@@ -173,6 +263,7 @@ class UserProfileService {
         email: currentUser.email,
         phone: currentUser.phone,
         displayName: currentUser.displayName,
+        avatarFramePreset: currentUser.avatarFramePreset,
         bio: currentUser.bio,
         onlineStatus: currentUser.onlineStatus,
         lastSeen: currentUser.lastSeen,
@@ -237,7 +328,14 @@ class UserProfileService {
       ApiConstants.profileSettings,
       body: settings.toJson(),
     );
-    return _extractSettings(_decodeResponse(response));
+    final saved = _extractSettings(_decodeResponse(response));
+    final currentUser = _authService.currentUser;
+    if (currentUser != null) {
+      await _authService.replaceCurrentUser(currentUser.copyWith(
+        avatarFramePreset: saved.avatarFramePreset,
+      ));
+    }
+    return saved;
   }
 
   Future<dynamic> _request(
@@ -280,6 +378,50 @@ class UserProfileService {
         ));
       } else {
         throw const UserProfileException('请选择有效头像');
+      }
+
+      final streamedResponse =
+          await request.send().timeout(ApiConstants.uploadTimeout);
+      return http.Response.fromStream(streamedResponse);
+    }
+
+    var response = await send();
+    if (response.statusCode == 401 && await _authService.refreshAccessToken()) {
+      response = await send();
+    }
+    return response;
+  }
+
+  Future<dynamic> _requestBackgroundMultipart(
+    String url, {
+    required PickedChatBackground background,
+  }) async {
+    if (_backgroundMultipartRequest != null) {
+      return _backgroundMultipartRequest(url, background: background);
+    }
+
+    Future<http.Response> send() async {
+      final request = http.MultipartRequest('POST', Uri.parse(url));
+      final token = _authService.accessToken;
+      if (token != null) {
+        request.headers['Authorization'] = 'Bearer $token';
+      }
+
+      final bytes = background.bytes;
+      if (bytes != null) {
+        request.files.add(http.MultipartFile.fromBytes(
+          'background',
+          bytes,
+          filename: background.name,
+        ));
+      } else if (background.path != null && background.path!.isNotEmpty) {
+        request.files.add(await http.MultipartFile.fromPath(
+          'background',
+          background.path!,
+          filename: background.name,
+        ));
+      } else {
+        throw const UserProfileException('请选择有效聊天背景');
       }
 
       final streamedResponse =

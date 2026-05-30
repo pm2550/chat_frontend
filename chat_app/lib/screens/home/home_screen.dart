@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../../constants/app_brand.dart';
 import '../../constants/app_colors.dart';
+import '../../design/pm_symbol_icon.dart';
 import '../../widgets/pm_brand.dart';
 import '../../widgets/pm_responsive.dart';
 import 'chat_list_page.dart';
 import 'contacts_page.dart';
 import 'profile_page.dart';
+import '../ai/ai_hub_page.dart';
 import '../workspace/workspace_page.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -17,16 +20,70 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   int _currentIndex = 0;
+  String _aiSection = 'bots';
 
-  final List<Widget> _pages = const [
-    ChatListPage(),
-    WorkspacePage(),
-    ContactsPage(),
-    ProfilePage(),
+  static const List<_HomeTabSpec> _tabs = [
+    _HomeTabSpec(
+      route: '/home/chats',
+      label: '消息',
+      desktopLabel: '消息',
+      icon: PMSymbol.chat,
+      selectedIcon: PMSymbol.chat,
+    ),
+    _HomeTabSpec(
+      route: '/home/contacts',
+      label: '联系人',
+      desktopLabel: '联系人',
+      icon: PMSymbol.contacts,
+      selectedIcon: PMSymbol.contacts,
+    ),
+    _HomeTabSpec(
+      route: '/home/workspace',
+      label: '工作区',
+      desktopLabel: '工作区',
+      icon: PMSymbol.workspace,
+      selectedIcon: PMSymbol.workspace,
+    ),
+    _HomeTabSpec(
+      route: '/home/ai/bots',
+      label: 'AI',
+      desktopLabel: 'AI 助手',
+      icon: PMSymbol.ai,
+      selectedIcon: PMSymbol.ai,
+    ),
+    _HomeTabSpec(
+      route: '/home/me',
+      label: '我',
+      desktopLabel: '我',
+      icon: PMSymbol.profile,
+      selectedIcon: PMSymbol.profile,
+    ),
   ];
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final routeName =
+        ModalRoute.of(context)?.settings.name ?? Uri.base.fragment;
+    final parsed = _tabFromRoute(routeName);
+    if (parsed.index != _currentIndex || parsed.aiSection != _aiSection) {
+      setState(() {
+        _currentIndex = parsed.index;
+        _aiSection = parsed.aiSection;
+      });
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final pages = [
+      const ChatListPage(),
+      const ContactsPage(),
+      const WorkspacePage(),
+      AiHubPage(initialSection: _aiSection),
+      const ProfilePage(),
+    ];
+
     if (PMBreakpoints.isDesktop(context)) {
       return Scaffold(
         backgroundColor: AppColors.background,
@@ -36,7 +93,7 @@ class _HomeScreenState extends State<HomeScreen> {
             Expanded(
               child: IndexedStack(
                 index: _currentIndex,
-                children: _pages,
+                children: pages,
               ),
             ),
           ],
@@ -44,8 +101,56 @@ class _HomeScreenState extends State<HomeScreen> {
       );
     }
 
+    if (PMBreakpoints.isTablet(context)) {
+      return Scaffold(
+        body: Column(
+          children: [
+            SafeArea(
+              bottom: false,
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
+                decoration: const BoxDecoration(
+                  color: AppColors.surface,
+                  border: Border(
+                    bottom: BorderSide(color: AppColors.borderLight),
+                  ),
+                  boxShadow: [AppColors.appBarShadow],
+                ),
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: List.generate(_tabs.length, (index) {
+                      final tab = _tabs[index];
+                      final selected = _currentIndex == index;
+                      return Padding(
+                        padding: const EdgeInsets.only(right: 8),
+                        child: ChoiceChip(
+                          selected: selected,
+                          avatar: PMSymbolIcon(
+                            selected ? tab.selectedIcon : tab.icon,
+                            size: 18,
+                            color: selected
+                                ? AppColors.primary
+                                : AppColors.textSecondary,
+                          ),
+                          label: Text(tab.desktopLabel),
+                          onSelected: (_) => _selectTab(index),
+                        ),
+                      );
+                    }),
+                  ),
+                ),
+              ),
+            ),
+            Expanded(child: pages[_currentIndex]),
+          ],
+        ),
+      );
+    }
+
     return Scaffold(
-      body: _pages[_currentIndex],
+      body: pages[_currentIndex],
       bottomNavigationBar: DecoratedBox(
         decoration: const BoxDecoration(
           color: AppColors.surface,
@@ -53,35 +158,39 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
         child: NavigationBar(
           selectedIndex: _currentIndex,
-          onDestinationSelected: (index) {
-            setState(() {
-              _currentIndex = index;
-            });
-          },
-          destinations: const [
-            NavigationDestination(
-              icon: Icon(Icons.forum_outlined),
-              selectedIcon: Icon(Icons.forum),
-              label: '消息',
-            ),
-            NavigationDestination(
-              icon: Icon(Icons.snippet_folder_outlined),
-              selectedIcon: Icon(Icons.snippet_folder),
-              label: '资料库',
-            ),
-            NavigationDestination(
-              icon: Icon(Icons.groups_2_outlined),
-              selectedIcon: Icon(Icons.groups_2),
-              label: '通讯录',
-            ),
-            NavigationDestination(
-              icon: Icon(Icons.account_circle_outlined),
-              selectedIcon: Icon(Icons.account_circle),
-              label: '我的',
-            ),
-          ],
+          onDestinationSelected: _selectTab,
+          destinations: _tabs
+              .map(
+                (tab) => NavigationDestination(
+                  icon: PMSymbolIcon(tab.icon),
+                  selectedIcon: PMSymbolIcon(
+                    tab.selectedIcon,
+                    color: AppColors.primary,
+                  ),
+                  label: tab.label,
+                ),
+              )
+              .toList(),
         ),
       ),
+    );
+  }
+
+  void _selectTab(int index) {
+    if (index == _currentIndex) return;
+    setState(() {
+      _currentIndex = index;
+      if (index == 3 && _aiSection.isEmpty) {
+        _aiSection = 'bots';
+      }
+    });
+    _syncRoute(_tabs[index].route);
+  }
+
+  void _syncRoute(String route) {
+    SystemNavigator.routeInformationUpdated(
+      uri: Uri.parse(route),
+      replace: true,
     );
   }
 
@@ -101,30 +210,8 @@ class _HomeScreenState extends State<HomeScreen> {
             children: [
               const PMChatLogo(size: 44, showWordmark: true),
               const SizedBox(height: 28),
-              _buildDesktopNavItem(
-                index: 0,
-                icon: Icons.forum_outlined,
-                selectedIcon: Icons.forum,
-                label: '消息工作台',
-              ),
-              _buildDesktopNavItem(
-                index: 1,
-                icon: Icons.snippet_folder_outlined,
-                selectedIcon: Icons.snippet_folder,
-                label: '资料库',
-              ),
-              _buildDesktopNavItem(
-                index: 2,
-                icon: Icons.groups_2_outlined,
-                selectedIcon: Icons.groups_2,
-                label: '通讯录',
-              ),
-              _buildDesktopNavItem(
-                index: 3,
-                icon: Icons.account_circle_outlined,
-                selectedIcon: Icons.account_circle,
-                label: '个人中心',
-              ),
+              for (var index = 0; index < _tabs.length; index++)
+                _buildDesktopNavItem(index: index, tab: _tabs[index]),
               const SizedBox(height: 20),
               Container(
                 padding: const EdgeInsets.all(14),
@@ -171,15 +258,13 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _buildDesktopNavItem({
     required int index,
-    required IconData icon,
-    required IconData selectedIcon,
-    required String label,
+    required _HomeTabSpec tab,
   }) {
     final selected = _currentIndex == index;
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: InkWell(
-        onTap: () => setState(() => _currentIndex = index),
+        onTap: () => _selectTab(index),
         borderRadius: BorderRadius.circular(8),
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 180),
@@ -193,14 +278,26 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           child: Row(
             children: [
-              Icon(
-                selected ? selectedIcon : icon,
-                color: selected ? AppColors.primary : AppColors.textSecondary,
+              Container(
+                width: 34,
+                height: 34,
+                decoration: BoxDecoration(
+                  color: selected ? Colors.white : AppColors.cloud,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: selected ? AppColors.primaryLight : AppColors.border,
+                  ),
+                ),
+                child: PMSymbolIcon(
+                  selected ? tab.selectedIcon : tab.icon,
+                  size: 20,
+                  color: selected ? AppColors.primary : AppColors.textSecondary,
+                ),
               ),
               const SizedBox(width: 12),
               Expanded(
                 child: Text(
-                  label,
+                  tab.desktopLabel,
                   style: TextStyle(
                     color: selected
                         ? AppColors.textPrimary
@@ -215,4 +312,49 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     );
   }
+
+  _HomeRouteState _tabFromRoute(String routeName) {
+    final normalized = routeName.startsWith('/') ? routeName : '/$routeName';
+    final uri = Uri.tryParse(normalized);
+    final segments = uri?.pathSegments ?? const <String>[];
+    if (segments.isEmpty || segments.first != 'home') {
+      return const _HomeRouteState(0, 'bots');
+    }
+    if (segments.length == 1) {
+      return const _HomeRouteState(0, 'bots');
+    }
+    return switch (segments[1]) {
+      'contacts' => const _HomeRouteState(1, 'bots'),
+      'workspace' => const _HomeRouteState(2, 'bots'),
+      'ai' => _HomeRouteState(
+          3,
+          segments.length >= 3 ? segments[2] : 'bots',
+        ),
+      'me' => const _HomeRouteState(4, 'bots'),
+      _ => const _HomeRouteState(0, 'bots'),
+    };
+  }
+}
+
+class _HomeTabSpec {
+  const _HomeTabSpec({
+    required this.route,
+    required this.label,
+    required this.desktopLabel,
+    required this.icon,
+    required this.selectedIcon,
+  });
+
+  final String route;
+  final String label;
+  final String desktopLabel;
+  final PMSymbol icon;
+  final PMSymbol selectedIcon;
+}
+
+class _HomeRouteState {
+  const _HomeRouteState(this.index, this.aiSection);
+
+  final int index;
+  final String aiSection;
 }

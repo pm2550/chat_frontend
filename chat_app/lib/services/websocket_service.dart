@@ -19,6 +19,7 @@ abstract class ChatRealtimeService {
     int chatRoomId,
     String content, {
     bool isAnonymous = false,
+    String? replyToId,
   });
   void sendTyping(int chatRoomId, bool isTyping);
 }
@@ -48,6 +49,8 @@ class WebSocketService extends ChangeNotifier implements ChatRealtimeService {
       StreamController<Map<String, dynamic>>.broadcast();
   final StreamController<Map<String, dynamic>> _callController =
       StreamController<Map<String, dynamic>>.broadcast();
+  final StreamController<Map<String, dynamic>> _appUpdateController =
+      StreamController<Map<String, dynamic>>.broadcast();
 
   @override
   Stream<Message> get onMessage => _messageController.stream;
@@ -56,6 +59,8 @@ class WebSocketService extends ChangeNotifier implements ChatRealtimeService {
   @override
   Stream<Map<String, dynamic>> get onStatusChange => _statusController.stream;
   Stream<Map<String, dynamic>> get onCallSignal => _callController.stream;
+  Stream<Map<String, dynamic>> get onAppUpdateAvailable =>
+      _appUpdateController.stream;
 
   /// Connect to WebSocket server
   @override
@@ -111,6 +116,7 @@ class WebSocketService extends ChangeNotifier implements ChatRealtimeService {
     int chatRoomId,
     String content, {
     bool isAnonymous = false,
+    String? replyToId,
   }) {
     if (!_isConnected || _channel == null) {
       return false;
@@ -121,6 +127,7 @@ class WebSocketService extends ChangeNotifier implements ChatRealtimeService {
       'content': content,
       'messageType': 'TEXT',
       if (isAnonymous) 'isAnonymous': true,
+      if (replyToId != null) 'replyToId': int.tryParse(replyToId) ?? replyToId,
     });
     return true;
   }
@@ -178,6 +185,7 @@ class WebSocketService extends ChangeNotifier implements ChatRealtimeService {
           }
           break;
         case 'typing':
+        case 'typing_aggregated':
           _typingController.add(json);
           break;
         case 'status':
@@ -186,8 +194,15 @@ class WebSocketService extends ChangeNotifier implements ChatRealtimeService {
         case 'read_receipt':
           _statusController.add(json);
           break;
+        case 'reaction_changed':
+        case 'poll_voted':
+          _statusController.add(json);
+          break;
         case 'call':
           _callController.add(Map<String, dynamic>.from(json));
+          break;
+        case 'app_update_available':
+          _appUpdateController.add(Map<String, dynamic>.from(json));
           break;
         case 'pong':
           // Heartbeat response
@@ -199,6 +214,9 @@ class WebSocketService extends ChangeNotifier implements ChatRealtimeService {
       debugPrint('WebSocket message parse error: $e');
     }
   }
+
+  @visibleForTesting
+  void handleMessageForTest(dynamic data) => _handleMessage(data);
 
   void _handleDisconnect() {
     _isConnected = false;
@@ -243,6 +261,7 @@ class WebSocketService extends ChangeNotifier implements ChatRealtimeService {
     _typingController.close();
     _statusController.close();
     _callController.close();
+    _appUpdateController.close();
     super.dispose();
   }
 }

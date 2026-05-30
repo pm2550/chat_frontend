@@ -2,9 +2,15 @@ import 'package:flutter/material.dart';
 
 class TypingIndicator extends StatefulWidget {
   final String? userName;
+  final List<String> userNames;
   final bool isBot;
 
-  const TypingIndicator({super.key, this.userName, this.isBot = false});
+  const TypingIndicator({
+    super.key,
+    this.userName,
+    this.userNames = const [],
+    this.isBot = false,
+  });
 
   @override
   State<TypingIndicator> createState() => _TypingIndicatorState();
@@ -53,7 +59,7 @@ class _TypingIndicatorState extends State<TypingIndicator>
             const Icon(Icons.edit, size: 14, color: Colors.grey),
           const SizedBox(width: 4),
           Text(
-            widget.userName != null ? '${widget.userName} 正在输入' : '正在输入',
+            _typingLabel(),
             style: TextStyle(
               fontSize: 12,
               color: widget.isBot ? Colors.blue : Colors.grey,
@@ -84,5 +90,18 @@ class _TypingIndicatorState extends State<TypingIndicator>
         ],
       ),
     );
+  }
+
+  String _typingLabel() {
+    final names = widget.userNames.isNotEmpty
+        ? widget.userNames
+        : [
+            if (widget.userName != null && widget.userName!.isNotEmpty)
+              widget.userName!,
+          ];
+    if (names.isEmpty) return '正在输入';
+    if (names.length == 1) return '${names.first} 正在输入';
+    if (names.length <= 3) return '${names.join('、')} 正在输入';
+    return '${names.length} 人正在输入';
   }
 }

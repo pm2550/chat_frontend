@@ -3,8 +3,11 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../../constants/api_constants.dart';
+import '../../constants/app_colors.dart';
+import '../../design/design.dart';
 import '../../models/user.dart';
 import '../../services/user_profile_service.dart';
+import '../../widgets/pm_brand.dart';
 
 typedef ProfileAvatarPicker = Future<PickedProfileAvatar?> Function();
 
@@ -203,53 +206,110 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final width = MediaQuery.sizeOf(context).width;
+    final isWide = width >= 980;
+
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('编辑资料'),
-        actions: [
-          IconButton(
-            tooltip: '保存',
-            onPressed: _isLoading ? null : _updateProfile,
-            icon: _isLoading
-                ? const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Icon(Icons.check),
-          ),
-        ],
-      ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16.0),
-        child: Form(
-          key: _formKey,
-          child: Column(
-            children: [
-              _buildAvatarSection(),
-              const SizedBox(height: 24),
-              _buildBasicInfoSection(),
-              const SizedBox(height: 24),
-              _buildOnlineStatusSection(),
-              const SizedBox(height: 32),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  onPressed: _isLoading ? null : _updateProfile,
-                  icon: _isLoading
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.save),
-                  label: const Text('保存更改'),
-                  style: ElevatedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 16),
+      body: PMChatPattern(
+        dense: !isWide,
+        child: SafeArea(
+          child: Padding(
+            padding: EdgeInsets.all(isWide ? PMSpacing.xxl : PMSpacing.l),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                PMPageHeader(
+                  title: '编辑资料',
+                  subtitle: '更新头像、身份信息和在线状态',
+                  leading: Container(
+                    width: 56,
+                    height: 56,
+                    decoration: BoxDecoration(
+                      gradient: AppColors.primaryGradient,
+                      borderRadius: BorderRadius.circular(PMRadius.l),
+                    ),
+                    child: const Icon(
+                      Icons.manage_accounts_outlined,
+                      color: Colors.white,
+                      size: 30,
+                    ),
+                  ),
+                  actions: [
+                    PMButton(
+                      label: '返回',
+                      icon: Icons.arrow_back,
+                      compact: true,
+                      variant: PMButtonVariant.secondary,
+                      onPressed:
+                          _isLoading ? null : () => Navigator.pop(context),
+                    ),
+                    Tooltip(
+                      message: '保存',
+                      child: IconButton.filled(
+                        onPressed: _isLoading ? null : _updateProfile,
+                        icon: _isLoading
+                            ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
+                              )
+                            : const Icon(Icons.check),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: PMSpacing.xl),
+                Expanded(
+                  child: SingleChildScrollView(
+                    child: Form(
+                      key: _formKey,
+                      child: isWide
+                          ? Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                SizedBox(
+                                  width: 340,
+                                  child: Column(
+                                    children: [
+                                      _buildAvatarSection(),
+                                      const SizedBox(height: PMSpacing.l),
+                                      _buildStatusSummary(),
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(width: PMSpacing.xl),
+                                Expanded(
+                                  child: Column(
+                                    children: [
+                                      _buildBasicInfoSection(),
+                                      const SizedBox(height: PMSpacing.l),
+                                      _buildOnlineStatusSection(),
+                                      const SizedBox(height: PMSpacing.xl),
+                                      _buildSaveBar(),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            )
+                          : Column(
+                              children: [
+                                _buildAvatarSection(),
+                                const SizedBox(height: PMSpacing.l),
+                                _buildBasicInfoSection(),
+                                const SizedBox(height: PMSpacing.l),
+                                _buildOnlineStatusSection(),
+                                const SizedBox(height: PMSpacing.xl),
+                                _buildSaveBar(),
+                              ],
+                            ),
+                    ),
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
@@ -257,52 +317,148 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
   }
 
   Widget _buildAvatarSection() {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          children: [
-            CircleAvatar(
-              radius: 50,
-              backgroundImage: _avatarImageProvider(),
-              child: _avatarImageProvider() == null
-                  ? const Icon(Icons.person, size: 50)
-                  : null,
-            ),
-            const SizedBox(height: 16),
-            Wrap(
-              spacing: 12,
-              runSpacing: 8,
-              alignment: WrapAlignment.center,
-              children: [
-                ElevatedButton.icon(
-                  onPressed: _isUploadingAvatar ? null : _selectAvatar,
-                  icon: const Icon(Icons.photo_library),
-                  label: const Text('选择头像'),
+    return PMCard(
+      radius: PMRadius.l,
+      padding: const EdgeInsets.all(PMSpacing.xl),
+      child: Column(
+        children: [
+          Stack(
+            alignment: Alignment.bottomRight,
+            children: [
+              Container(
+                width: 112,
+                height: 112,
+                decoration: BoxDecoration(
+                  gradient: _avatarImageProvider() == null
+                      ? AppColors.primaryGradient
+                      : null,
+                  borderRadius: BorderRadius.circular(PMRadius.xl),
+                  boxShadow: const [PMElevation.card],
+                  image: _avatarImageProvider() == null
+                      ? null
+                      : DecorationImage(
+                          image: _avatarImageProvider()!,
+                          fit: BoxFit.cover,
+                        ),
                 ),
-                if (_selectedAvatar != null)
-                  ElevatedButton.icon(
-                    onPressed: _isUploadingAvatar ? null : _uploadAvatar,
-                    icon: _isUploadingAvatar
-                        ? const SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Icon(Icons.upload),
-                    label: const Text('上传'),
-                  ),
-                if (_avatarUrl != null)
-                  OutlinedButton.icon(
-                    onPressed: _isUploadingAvatar ? null : _deleteAvatar,
-                    icon: const Icon(Icons.delete),
-                    label: const Text('删除'),
-                  ),
-              ],
+                child: _avatarImageProvider() == null
+                    ? Text(
+                        _avatarFallback,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 42,
+                          fontWeight: FontWeight.w900,
+                          height: 2.55,
+                        ),
+                      )
+                    : null,
+              ),
+              Container(
+                width: 34,
+                height: 34,
+                decoration: BoxDecoration(
+                  color: _statusColor(_selectedStatus),
+                  borderRadius: BorderRadius.circular(PMRadius.pill),
+                  border: Border.all(color: Colors.white, width: 4),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: PMSpacing.l),
+          Text(
+            _displayNameController.text.trim().isEmpty
+                ? widget.user.displayName
+                : _displayNameController.text.trim(),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: AppColors.textPrimary,
+              fontSize: 22,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: PMSpacing.xs),
+          Text(
+            widget.user.email,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: AppColors.textSecondary,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: PMSpacing.l),
+          Wrap(
+            spacing: PMSpacing.s,
+            runSpacing: PMSpacing.s,
+            alignment: WrapAlignment.center,
+            children: [
+              PMButton(
+                label: '选择头像',
+                icon: Icons.photo_library_outlined,
+                compact: true,
+                variant: PMButtonVariant.secondary,
+                onPressed: _isUploadingAvatar ? null : _selectAvatar,
+              ),
+              if (_selectedAvatar != null)
+                PMButton(
+                  label: '上传',
+                  icon: Icons.upload_outlined,
+                  compact: true,
+                  loading: _isUploadingAvatar,
+                  onPressed: _isUploadingAvatar ? null : _uploadAvatar,
+                ),
+              if (_avatarUrl != null)
+                PMButton(
+                  label: '删除',
+                  icon: Icons.delete_outline,
+                  compact: true,
+                  variant: PMButtonVariant.danger,
+                  onPressed: _isUploadingAvatar ? null : _deleteAvatar,
+                ),
+            ],
+          ),
+          if (_selectedAvatar != null) ...[
+            const SizedBox(height: PMSpacing.m),
+            PMChip(
+              label: '待上传: ${_selectedAvatar!.name}',
+              icon: Icons.upload_file_outlined,
+              selected: true,
+              color: AppColors.warning,
             ),
           ],
-        ),
+          if (_isUploadingAvatar) ...[
+            const SizedBox(height: PMSpacing.m),
+            const PMProgressStrip(label: '正在处理头像...'),
+          ],
+        ],
       ),
+    );
+  }
+
+  Widget _buildStatusSummary() {
+    return PMSectionCard(
+      title: '资料状态',
+      subtitle: '保存后会同步到联系人、消息头像和成员列表',
+      children: [
+        PMListRow(
+          leading: const _IconTile(
+            icon: Icons.alternate_email_outlined,
+            color: AppColors.primary,
+          ),
+          title: const Text('用户名'),
+          subtitle: Text(widget.user.username),
+        ),
+        PMListRow(
+          leading: _IconTile(
+            icon: Icons.circle,
+            color: _statusColor(_selectedStatus),
+          ),
+          title: const Text('当前状态'),
+          subtitle: Text(_selectedStatus.description),
+        ),
+      ],
     );
   }
 
@@ -319,112 +475,199 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
   }
 
   Widget _buildBasicInfoSection() {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              '基本信息',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 16),
-            TextFormField(
-              controller: _displayNameController,
-              decoration: const InputDecoration(
-                labelText: '显示名称',
-                border: OutlineInputBorder(),
-                prefixIcon: Icon(Icons.person),
+    return PMSectionCard(
+      title: '基本信息',
+      subtitle: '显示名称和邮箱为必填，电话和简介可选',
+      padding: const EdgeInsets.all(PMSpacing.xl),
+      children: [
+        Padding(
+          padding: const EdgeInsets.all(PMSpacing.m),
+          child: Column(
+            children: [
+              TextFormField(
+                controller: _displayNameController,
+                decoration: _inputDecoration(
+                  label: '显示名称',
+                  icon: Icons.person_outline,
+                  required: true,
+                ),
+                onChanged: (_) => setState(() {}),
+                validator: (value) {
+                  if (value == null || value.trim().isEmpty) {
+                    return '请输入显示名称';
+                  }
+                  if (value.trim().length > 100) {
+                    return '显示名称不能超过100字符';
+                  }
+                  return null;
+                },
               ),
-              validator: (value) {
-                if (value == null || value.trim().isEmpty) {
-                  return '请输入显示名称';
-                }
-                if (value.trim().length > 100) {
-                  return '显示名称不能超过100字符';
-                }
-                return null;
-              },
-            ),
-            const SizedBox(height: 16),
-            TextFormField(
-              controller: _emailController,
-              decoration: const InputDecoration(
-                labelText: '邮箱',
-                border: OutlineInputBorder(),
-                prefixIcon: Icon(Icons.email),
+              const SizedBox(height: PMSpacing.l),
+              TextFormField(
+                controller: _emailController,
+                decoration: _inputDecoration(
+                  label: '邮箱',
+                  icon: Icons.email_outlined,
+                  required: true,
+                ),
+                keyboardType: TextInputType.emailAddress,
+                validator: (value) {
+                  if (value == null || value.trim().isEmpty) {
+                    return '请输入邮箱地址';
+                  }
+                  if (!RegExp(r'^[\w\-.]+@([\w-]+\.)+[\w-]{2,}$')
+                      .hasMatch(value.trim())) {
+                    return '请输入有效的邮箱地址';
+                  }
+                  return null;
+                },
               ),
-              keyboardType: TextInputType.emailAddress,
-              validator: (value) {
-                if (value == null || value.trim().isEmpty) {
-                  return '请输入邮箱地址';
-                }
-                if (!RegExp(r'^[\w\-.]+@([\w-]+\.)+[\w-]{2,}$')
-                    .hasMatch(value.trim())) {
-                  return '请输入有效的邮箱地址';
-                }
-                return null;
-              },
-            ),
-            const SizedBox(height: 16),
-            TextFormField(
-              controller: _phoneController,
-              decoration: const InputDecoration(
-                labelText: '手机号（可选）',
-                border: OutlineInputBorder(),
-                prefixIcon: Icon(Icons.phone),
+              const SizedBox(height: PMSpacing.l),
+              TextFormField(
+                controller: _phoneController,
+                decoration: _inputDecoration(
+                  label: '手机号',
+                  hint: '可选',
+                  icon: Icons.phone_outlined,
+                ),
+                keyboardType: TextInputType.phone,
               ),
-              keyboardType: TextInputType.phone,
-            ),
-            const SizedBox(height: 16),
-            TextFormField(
-              controller: _bioController,
-              decoration: const InputDecoration(
-                labelText: '个人简介（可选）',
-                border: OutlineInputBorder(),
-                prefixIcon: Icon(Icons.note),
+              const SizedBox(height: PMSpacing.l),
+              TextFormField(
+                controller: _bioController,
+                decoration: _inputDecoration(
+                  label: '个人简介',
+                  hint: '可选，最多 500 字',
+                  icon: Icons.notes_outlined,
+                ),
+                maxLines: 4,
+                maxLength: 500,
               ),
-              maxLines: 3,
-              maxLength: 500,
-            ),
-          ],
+            ],
+          ),
         ),
-      ),
+      ],
     );
   }
 
   Widget _buildOnlineStatusSection() {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              '在线状态',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 16),
-            ...OnlineStatus.values.map(
-              (status) => RadioListTile<OnlineStatus>(
-                title: Text(status.description),
-                value: status,
-                // ignore: deprecated_member_use
-                groupValue: _selectedStatus,
-                // ignore: deprecated_member_use
-                onChanged: (value) {
-                  if (value != null) {
-                    setState(() {
-                      _selectedStatus = value;
-                    });
-                  }
-                },
+    return PMSectionCard(
+      title: '在线状态',
+      subtitle: '影响联系人列表、群成员栏和消息发送侧的状态展示',
+      padding: const EdgeInsets.all(PMSpacing.xl),
+      children: [
+        Padding(
+          padding: const EdgeInsets.all(PMSpacing.m),
+          child: Wrap(
+            spacing: PMSpacing.s,
+            runSpacing: PMSpacing.s,
+            children: OnlineStatus.values
+                .map(
+                  (status) => PMChip(
+                    label: status.description,
+                    icon: Icons.circle,
+                    selected: _selectedStatus == status,
+                    color: _statusColor(status),
+                    onTap: () => setState(() => _selectedStatus = status),
+                  ),
+                )
+                .toList(),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSaveBar() {
+    return PMCard(
+      padding: const EdgeInsets.all(PMSpacing.l),
+      elevated: false,
+      child: Row(
+        children: [
+          const Expanded(
+            child: Text(
+              '保存后会返回上一页，并刷新个人资料缓存。',
+              style: TextStyle(
+                color: AppColors.textSecondary,
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
               ),
             ),
-          ],
-        ),
+          ),
+          const SizedBox(width: PMSpacing.l),
+          PMButton(
+            label: '保存更改',
+            icon: Icons.save_outlined,
+            loading: _isLoading,
+            onPressed: _isLoading ? null : _updateProfile,
+          ),
+        ],
       ),
+    );
+  }
+
+  InputDecoration _inputDecoration({
+    required String label,
+    required IconData icon,
+    String? hint,
+    bool required = false,
+  }) {
+    return InputDecoration(
+      labelText: label,
+      hintText: hint,
+      helperText: required ? '必填' : null,
+      prefixIcon: Icon(icon),
+      filled: true,
+      fillColor: AppColors.cloud.withValues(alpha: 0.55),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(PMRadius.s),
+        borderSide: const BorderSide(color: AppColors.border),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(PMRadius.s),
+        borderSide: const BorderSide(color: AppColors.border),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(PMRadius.s),
+        borderSide: const BorderSide(color: AppColors.primary, width: 1.4),
+      ),
+    );
+  }
+
+  String get _avatarFallback {
+    final text = _displayNameController.text.trim().isNotEmpty
+        ? _displayNameController.text.trim()
+        : widget.user.displayName;
+    if (text.isEmpty) return '?';
+    return String.fromCharCode(text.runes.first).toUpperCase();
+  }
+
+  static Color _statusColor(OnlineStatus status) {
+    return switch (status) {
+      OnlineStatus.online => AppColors.online,
+      OnlineStatus.away => AppColors.away,
+      OnlineStatus.busy => AppColors.busy,
+      OnlineStatus.offline => AppColors.offline,
+    };
+  }
+}
+
+class _IconTile extends StatelessWidget {
+  const _IconTile({required this.icon, required this.color});
+
+  final IconData icon;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 42,
+      height: 42,
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.11),
+        borderRadius: BorderRadius.circular(PMRadius.m),
+      ),
+      child: Icon(icon, color: color, size: 22),
     );
   }
 }

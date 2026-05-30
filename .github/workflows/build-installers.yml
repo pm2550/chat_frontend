@@ -9,11 +9,11 @@ on:
       version_name:
         description: Version name
         required: true
-        default: 1.0.0
+        default: 1.1.0
       version_code:
         description: Version code
         required: true
-        default: "10001"
+        default: "11000"
       tag:
         description: Release tag. Empty uses client-v<version_name>-<version_code>
         required: false
@@ -24,8 +24,8 @@ permissions:
 
 env:
   FLUTTER_VERSION: 3.41.6
-  VERSION_NAME: ${{ github.event.inputs.version_name || '1.0.0' }}
-  VERSION_CODE: ${{ github.event.inputs.version_code || '10001' }}
+  VERSION_NAME: ${{ github.event.inputs.version_name || '1.1.0' }}
+  VERSION_CODE: ${{ github.event.inputs.version_code || '11000' }}
   API_BASE_URL: https://gateway.chat.pm2550.com
   WS_BASE_URL: wss://gateway.chat.pm2550.com
   WEB_APP_URL: https://gateway.chat.pm2550.com
@@ -324,3 +324,33 @@ jobs:
               --title "PM chat ${VERSION_NAME}-${VERSION_CODE}" \
               --notes "PM chat installers. Windows/macOS are unsigned unless signing secrets are configured."
           fi
+
+      - name: Mirror Android APK to PM chat server
+        if: success() && hashFiles('dist/pm-chat-android-v*.apk') != ''
+        env:
+          PMCHAT_PUBLISH_TOKEN: ${{ secrets.PMCHAT_PUBLISH_TOKEN }}
+          COMMIT_SHA: ${{ github.sha }}
+        run: |
+          if [ -z "$PMCHAT_PUBLISH_TOKEN" ]; then
+            echo "::warning::PMCHAT_PUBLISH_TOKEN is not configured; skipping PM chat mirror."
+            exit 0
+          fi
+
+          apk=$(ls dist/pm-chat-android-v*.apk | head -1)
+          if [ -z "$apk" ]; then
+            echo "::warning::No APK found to mirror"
+            exit 0
+          fi
+
+          metadata=$(jq -nc \
+            --arg p "ANDROID" \
+            --arg n "$VERSION_NAME" \
+            --argjson c "$VERSION_CODE" \
+            --arg notes "Built from commit $COMMIT_SHA" \
+            '{platform: $p, versionName: $n, versionCode: $c, forceUpdate: false, releaseNotes: $notes}')
+
+          curl -fSL -X POST https://gateway.chat.pm2550.com/api/v1/app/version/publish-from-ci \
+            -H "Authorization: Bearer $PMCHAT_PUBLISH_TOKEN" \
+            -F "metadata=$metadata;type=application/json" \
+            -F "artifact=@$apk" \
+            || echo "::warning::Mirror to PM chat server failed (release is still on GitHub Releases)"

@@ -85,6 +85,69 @@ void main() {
       expect(message.anonymousName, '神秘海豚');
     });
 
+    test('fromJson maps sticker messages', () {
+      final message = Message.fromJson({
+        'id': 301,
+        'content': '[贴纸]',
+        'senderId': 5,
+        'senderName': 'Sender',
+        'chatRoomId': 20,
+        'messageType': 'STICKER',
+        'messageStatus': 'SENT',
+        'createdAt': '2024-06-15T08:30:00.000Z',
+        'stickerId': 12,
+        'fileUrl': '/api/files/chat/sticker.png',
+        'fileName': '😀',
+      });
+
+      expect(message.type, MessageType.sticker);
+      expect(message.stickerId, 12);
+      expect(message.isStickerMessage, isTrue);
+      expect(message.resolvedFileLabel, '[贴纸] 😀');
+    });
+
+    test('fromJson maps reactions', () {
+      final message = Message.fromJson({
+        'id': 302,
+        'content': 'react',
+        'senderId': 5,
+        'senderName': 'Sender',
+        'chatRoomId': 20,
+        'messageType': 'TEXT',
+        'messageStatus': 'SENT',
+        'createdAt': '2024-06-15T08:30:00.000Z',
+        'reactions': [
+          {
+            'emoji': '👍',
+            'count': 2,
+            'userIds': [1, 2],
+          }
+        ],
+      });
+
+      expect(message.reactions.single.emoji, '👍');
+      expect(message.reactions.single.count, 2);
+      expect(message.hasReactionFrom('👍', '1'), isTrue);
+    });
+
+    test('fromJson maps poll messages', () {
+      final message = Message.fromJson({
+        'id': 303,
+        'content': '[投票] 午饭吃什么',
+        'senderId': 5,
+        'senderName': 'Sender',
+        'chatRoomId': 20,
+        'messageType': 'POLL',
+        'messageStatus': 'SENT',
+        'createdAt': '2024-06-15T08:30:00.000Z',
+        'pollId': 3,
+      });
+
+      expect(message.type, MessageType.poll);
+      expect(message.pollId, 3);
+      expect(message.isPollMessage, isTrue);
+    });
+
     test('fromJson handles missing fields gracefully', () {
       final json = {
         'id': null,
@@ -124,6 +187,34 @@ void main() {
       expect(message.hasReply, true);
       expect(message.replyToMessage!.id, '299');
       expect(message.replyToMessage!.content, 'Original message');
+    });
+
+    test('fromJson parses link preview metadata', () {
+      final message = Message.fromJson({
+        'id': 301,
+        'content': '看看 https://example.com/post',
+        'senderId': 1,
+        'senderName': 'User1',
+        'chatRoomId': 10,
+        'timestamp': '2024-01-01T12:01:00.000Z',
+        'linkPreview': {
+          'url': 'https://example.com/post',
+          'title': 'Example title',
+          'description': 'Example description',
+          'imageUrl': 'https://example.com/cover.png',
+          'siteName': 'example.com',
+          'faviconUrl': 'https://example.com/favicon.ico',
+        },
+      });
+
+      expect(message.linkPreview, isNotNull);
+      expect(message.linkPreview!.url, 'https://example.com/post');
+      expect(message.linkPreview!.title, 'Example title');
+      expect(message.linkPreview!.description, 'Example description');
+      expect(message.linkPreview!.imageUrl, 'https://example.com/cover.png');
+      expect(message.linkPreview!.siteName, 'example.com');
+      expect(
+          message.linkPreview!.faviconUrl, 'https://example.com/favicon.ico');
     });
 
     test('toJson produces correct output', () {

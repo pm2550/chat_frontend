@@ -44,6 +44,18 @@ void main() {
         expect(identity.customNameUsed, isTrue);
       });
 
+      test('parses reroll quota metadata', () {
+        final identity = AnonymousIdentity.fromJson({
+          'id': 10,
+          'anonymousName': 'Phantom',
+          'dailyRemaining': 2,
+          'quotaResetsAt': '2026-05-28T00:05:00+08:00',
+        });
+
+        expect(identity.dailyRemaining, equals(2));
+        expect(identity.quotaResetsAt, isNotNull);
+      });
+
       test('uses default anonymous name when missing', () {
         final json = <String, dynamic>{};
 
@@ -98,6 +110,20 @@ void main() {
       final service1 = AnonymousService();
       final service2 = AnonymousService();
       expect(identical(service1, service2), isFalse);
+    });
+  });
+
+  group('AnonymousQuota', () {
+    test('parses quota response', () {
+      final quota = AnonymousQuota.fromJson({
+        'used': 1,
+        'remaining': 2,
+        'resetsAt': '2026-05-28T00:05:00+08:00',
+      });
+
+      expect(quota.used, equals(1));
+      expect(quota.remaining, equals(2));
+      expect(quota.resetsAt, isNotNull);
     });
   });
 }
