@@ -124,6 +124,7 @@ class Message {
   final DateTime? editedAt;
   final String? replyToId;
   final Message? replyToMessage;
+  final String? forwardedFromMessageId;
   final List<String> mentionedUserIds;
   final Map<String, dynamic>? metadata;
   final String? replyToMessageId;
@@ -169,6 +170,7 @@ class Message {
     this.editedAt,
     this.replyToId,
     this.replyToMessage,
+    this.forwardedFromMessageId,
     this.mentionedUserIds = const [],
     this.metadata,
     this.replyToMessageId,
@@ -293,6 +295,9 @@ class Message {
               fallbackChatRoomId: fallbackChatRoomId,
             )
           : null,
+      forwardedFromMessageId:
+          (json['forwardedFromMessageId'] ?? json['forwarded_from_message_id'])
+              ?.toString(),
       mentionedUserIds: _parseStringList(
         json['mentionedUserIds'] ??
             json['mentioned_user_ids'] ??
@@ -356,6 +361,7 @@ class Message {
       'editedAt': editedAt?.toIso8601String(),
       'replyToId': replyToId,
       'replyToMessage': replyToMessage?.toJson(),
+      'forwardedFromMessageId': forwardedFromMessageId,
       'mentionedUserIds': mentionedUserIds,
       'metadata': metadata,
       'replyToMessageId': replyToMessageId,
@@ -403,6 +409,7 @@ class Message {
     DateTime? editedAt,
     String? replyToId,
     Message? replyToMessage,
+    String? forwardedFromMessageId,
     List<String>? mentionedUserIds,
     Map<String, dynamic>? metadata,
     String? replyToMessageId,
@@ -448,6 +455,8 @@ class Message {
       editedAt: editedAt ?? this.editedAt,
       replyToId: replyToId ?? this.replyToId,
       replyToMessage: replyToMessage ?? this.replyToMessage,
+      forwardedFromMessageId:
+          forwardedFromMessageId ?? this.forwardedFromMessageId,
       mentionedUserIds: mentionedUserIds ?? this.mentionedUserIds,
       metadata: metadata ?? this.metadata,
       replyToMessageId: replyToMessageId ?? this.replyToMessageId,

@@ -130,6 +130,15 @@ class ApiConstants {
       '$apiBaseUrl/messages/$messageId/recall';
   static String deleteMessage(int messageId) =>
       '$apiBaseUrl/messages/$messageId';
+  static String editMessage(int messageId) => '$apiBaseUrl/messages/$messageId';
+  static String forwardMessage(int messageId) =>
+      '$apiBaseUrl/messages/$messageId/forward';
+  static String pinMessage(int roomId, int messageId) =>
+      '$apiBaseUrl/rooms/$roomId/pin/$messageId';
+  static String roomPins(int roomId) => '$apiBaseUrl/rooms/$roomId/pins';
+  static String starMessage(int messageId) =>
+      '$apiBaseUrl/messages/$messageId/star';
+  static const String myStarredMessages = '$apiBaseUrl/users/me/starred';
   static String messageReactions(int messageId) =>
       '$apiBaseUrl/messages/$messageId/reactions';
   static String messageReaction(int messageId, String emoji) =>

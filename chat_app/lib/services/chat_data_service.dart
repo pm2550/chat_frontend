@@ -788,6 +788,102 @@ class ChatDataService {
     return Message.fromJson(messageJson);
   }
 
+  Future<Message> editMessage(String messageId, String content) async {
+    final id = _parseRoomId(messageId);
+    final response = await _request(
+      'PUT',
+      ApiConstants.editMessage(id),
+      body: {'content': content},
+    );
+    final data = _decodeResponse(response);
+    final messageJson = data['data'];
+    if (messageJson is! Map<String, dynamic>) {
+      throw const ChatDataException('消息已编辑但响应中没有消息数据');
+    }
+    return Message.fromJson(messageJson);
+  }
+
+  Future<Message> forwardMessage(
+    String messageId,
+    String targetChatRoomId,
+  ) async {
+    final id = _parseRoomId(messageId);
+    final targetId = _parseRoomId(targetChatRoomId);
+    final response = await _request(
+      'POST',
+      ApiConstants.forwardMessage(id),
+      body: {'targetChatRoomId': targetId},
+    );
+    final data = _decodeResponse(response);
+    final messageJson = data['data'];
+    if (messageJson is! Map<String, dynamic>) {
+      throw const ChatDataException('消息已转发但响应中没有消息数据');
+    }
+    return Message.fromJson(
+      messageJson,
+      fallbackChatRoomId: targetChatRoomId,
+    );
+  }
+
+  Future<List<Message>> pinMessage(String chatRoomId, String messageId) async {
+    final roomId = _parseRoomId(chatRoomId);
+    final id = _parseRoomId(messageId);
+    final response = await _request('POST', ApiConstants.pinMessage(roomId, id));
+    return _extractMessages(_decodeResponse(response), chatRoomId);
+  }
+
+  Future<List<Message>> unpinMessage(String chatRoomId, String messageId) async {
+    final roomId = _parseRoomId(chatRoomId);
+    final id = _parseRoomId(messageId);
+    final response =
+        await _request('DELETE', ApiConstants.pinMessage(roomId, id));
+    return _extractMessages(_decodeResponse(response), chatRoomId);
+  }
+
+  Future<List<Message>> getPinnedMessages(String chatRoomId) async {
+    final roomId = _parseRoomId(chatRoomId);
+    final response = await _request('GET', ApiConstants.roomPins(roomId));
+    return _extractMessages(_decodeResponse(response), chatRoomId);
+  }
+
+  Future<Message> starMessage(String messageId) async {
+    final id = _parseRoomId(messageId);
+    final response = await _request('POST', ApiConstants.starMessage(id));
+    final data = _decodeResponse(response);
+    final messageJson = data['data'];
+    if (messageJson is! Map<String, dynamic>) {
+      throw const ChatDataException('消息已收藏但响应中没有消息数据');
+    }
+    return Message.fromJson(messageJson);
+  }
+
+  Future<Message> unstarMessage(String messageId) async {
+    final id = _parseRoomId(messageId);
+    final response = await _request('DELETE', ApiConstants.starMessage(id));
+    final data = _decodeResponse(response);
+    final messageJson = data['data'];
+    if (messageJson is! Map<String, dynamic>) {
+      throw const ChatDataException('消息已取消收藏但响应中没有消息数据');
+    }
+    return Message.fromJson(messageJson);
+  }
+
+  Future<MessagePage> getStarredMessages({
+    int page = 0,
+    int size = 20,
+  }) async {
+    final uri = Uri.parse(ApiConstants.myStarredMessages).replace(
+      queryParameters: {
+        'page': page.toString(),
+        'size': size.toString(),
+      },
+    );
+    final response = await _request('GET', uri.toString());
+    final data = _decodeResponse(response);
+    final messages = _extractMessages(data, '');
+    return _messagePageFromData(data, messages);
+  }
+
   Future<DownloadedChatFile> downloadFile(Message message) async {
     final fileUrl = message.fileUrl;
     if (fileUrl == null || fileUrl.isEmpty) {
