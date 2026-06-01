@@ -7,6 +7,7 @@ enum MessageType {
   location('位置'),
   sticker('贴纸'),
   poll('投票'),
+  imageGeneration('AI图片生成'),
   system('系统消息');
 
   const MessageType(this.description);
@@ -129,6 +130,10 @@ class Message {
   final String? fileType;
   final int? stickerId;
   final int? pollId;
+  final String? imageGenPrompt;
+  final String? imageGenStatus;
+  final String? imageGenUrl;
+  final String? imageGenProviderTaskId;
   final bool isDeleted;
   final bool isRecalled;
   final String? encryptedContent;
@@ -167,6 +172,10 @@ class Message {
     this.fileType,
     this.stickerId,
     this.pollId,
+    this.imageGenPrompt,
+    this.imageGenStatus,
+    this.imageGenUrl,
+    this.imageGenProviderTaskId,
     this.isDeleted = false,
     this.isRecalled = false,
     this.encryptedContent,
@@ -236,10 +245,7 @@ class Message {
           chatRoomJson?['id']?.toString() ??
           fallbackChatRoomId ??
           '',
-      type: MessageType.values.firstWhere(
-        (e) => e.name.toUpperCase() == typeValue.toString().toUpperCase(),
-        orElse: () => MessageType.text,
-      ),
+      type: _parseMessageType(typeValue),
       status: MessageStatus.values.firstWhere(
         (e) => e.name.toUpperCase() == statusValue.toString().toUpperCase(),
         orElse: () => MessageStatus.sent,
@@ -272,6 +278,14 @@ class Message {
       fileType: json['fileType'] ?? json['file_type'],
       stickerId: _parseInt(json['stickerId'] ?? json['sticker_id']),
       pollId: _parseInt(json['pollId'] ?? json['poll_id']),
+      imageGenPrompt: json['imageGenPrompt']?.toString() ??
+          json['image_gen_prompt']?.toString(),
+      imageGenStatus: json['imageGenStatus']?.toString() ??
+          json['image_gen_status']?.toString(),
+      imageGenUrl:
+          json['imageGenUrl']?.toString() ?? json['image_gen_url']?.toString(),
+      imageGenProviderTaskId: json['imageGenProviderTaskId']?.toString() ??
+          json['image_gen_provider_task_id']?.toString(),
       isDeleted: _parseBool(json['isDeleted'] ?? json['is_deleted']),
       isRecalled: _parseBool(json['isRecalled'] ?? json['is_recalled']) ||
           (json['content']?.toString() == '[消息已撤回]'),
@@ -303,7 +317,7 @@ class Message {
       'botName': botName,
       'botAvatar': botAvatar,
       'chatRoomId': chatRoomId,
-      'type': type.name.toUpperCase(),
+      'type': _wireMessageType(type),
       'status': status.name.toUpperCase(),
       'timestamp': timestamp.toIso8601String(),
       'editedAt': editedAt?.toIso8601String(),
@@ -318,6 +332,10 @@ class Message {
       'fileType': fileType,
       'stickerId': stickerId,
       'pollId': pollId,
+      'imageGenPrompt': imageGenPrompt,
+      'imageGenStatus': imageGenStatus,
+      'imageGenUrl': imageGenUrl,
+      'imageGenProviderTaskId': imageGenProviderTaskId,
       'isDeleted': isDeleted,
       'isRecalled': isRecalled,
       'encryptedContent': encryptedContent,
@@ -358,6 +376,10 @@ class Message {
     String? fileType,
     int? stickerId,
     int? pollId,
+    String? imageGenPrompt,
+    String? imageGenStatus,
+    String? imageGenUrl,
+    String? imageGenProviderTaskId,
     bool? isDeleted,
     bool? isRecalled,
     String? encryptedContent,
@@ -396,6 +418,11 @@ class Message {
       fileType: fileType ?? this.fileType,
       stickerId: stickerId ?? this.stickerId,
       pollId: pollId ?? this.pollId,
+      imageGenPrompt: imageGenPrompt ?? this.imageGenPrompt,
+      imageGenStatus: imageGenStatus ?? this.imageGenStatus,
+      imageGenUrl: imageGenUrl ?? this.imageGenUrl,
+      imageGenProviderTaskId:
+          imageGenProviderTaskId ?? this.imageGenProviderTaskId,
       isDeleted: isDeleted ?? this.isDeleted,
       isRecalled: isRecalled ?? this.isRecalled,
       encryptedContent: encryptedContent ?? this.encryptedContent,
@@ -447,10 +474,16 @@ class Message {
   bool get isLocationMessage => type == MessageType.location;
   bool get isStickerMessage => type == MessageType.sticker;
   bool get isPollMessage => type == MessageType.poll;
+  bool get isImageGenerationMessage => type == MessageType.imageGeneration;
+  bool get isImageGenerationDone =>
+      isImageGenerationMessage && imageGenStatus?.toUpperCase() == 'DONE';
+  bool get isImageGenerationFailed =>
+      isImageGenerationMessage && imageGenStatus?.toUpperCase() == 'FAILED';
   bool get isFileMessage =>
       type == MessageType.file ||
       (fileUrl != null &&
           !isImageMessage &&
+          !isImageGenerationMessage &&
           !isStickerMessage &&
           !isPollMessage &&
           !isVoiceMessage &&
@@ -470,6 +503,9 @@ class Message {
     }
     if (isPollMessage) {
       return content.isNotEmpty ? content : '[投票]';
+    }
+    if (isImageGenerationMessage) {
+      return isImageGenerationDone ? '[AI图片]' : '[AI图片生成中]';
     }
     if (isFileMessage) {
       return fileName?.isNotEmpty == true ? '[文件] $fileName' : '[文件]';
@@ -502,6 +538,22 @@ class Message {
     if (value is int) return value;
     if (value is num) return value.toInt();
     return int.tryParse(value.toString());
+  }
+
+  static MessageType _parseMessageType(dynamic value) {
+    final normalized =
+        value.toString().replaceAll('_', '').replaceAll('-', '').toLowerCase();
+    return MessageType.values.firstWhere(
+      (type) => type.name.toLowerCase() == normalized,
+      orElse: () => MessageType.text,
+    );
+  }
+
+  static String _wireMessageType(MessageType type) {
+    if (type == MessageType.imageGeneration) {
+      return 'IMAGE_GENERATION';
+    }
+    return type.name.toUpperCase();
   }
 
   static String? _stringOrNull(dynamic value) {

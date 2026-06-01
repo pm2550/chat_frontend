@@ -816,6 +816,54 @@ void main() {
       expect(members.first.isAdmin, isTrue);
     });
 
+    test(
+        'generateImageMessage posts request and parses nested message response',
+        () async {
+      Object? sentBody;
+      final service = ChatDataService(
+        authenticatedRequest: (method, url, {headers, body}) async {
+          expect(method, 'POST');
+          expect(url, ApiConstants.generateImage);
+          sentBody = body;
+          return jsonResponse({
+            'code': 200,
+            'data': {
+              'messageId': 88,
+              'pointsCharged': 10,
+              'status': 'QUEUED',
+              'message': {
+                'id': 88,
+                'content': '画蓝色机器人',
+                'senderId': 7,
+                'senderName': 'Alice',
+                'chatRoomId': 42,
+                'messageType': 'IMAGE_GENERATION',
+                'messageStatus': 'SENDING',
+                'imageGenPrompt': '画蓝色机器人',
+                'imageGenStatus': 'QUEUED',
+                'createdAt': '2026-06-01T09:00:00',
+              },
+            },
+          });
+        },
+      );
+
+      final message = await service.generateImageMessage(
+        '42',
+        prompt: '画蓝色机器人',
+      );
+
+      expect(sentBody, {
+        'roomId': 42,
+        'prompt': '画蓝色机器人',
+        'n': 1,
+        'size': '1024*1024',
+      });
+      expect(message.id, '88');
+      expect(message.type, MessageType.imageGeneration);
+      expect(message.imageGenStatus, 'QUEUED');
+    });
+
     test('group member management calls backend endpoints', () async {
       final calls = <String>[];
       final service = ChatDataService(

@@ -362,6 +362,28 @@ void main() {
       expect(notEdited.isEdited, false);
       expect(edited.isEdited, true);
     });
+
+    test('parses IMAGE_GENERATION payload with status fields', () {
+      final message = Message.fromJson({
+        'id': 99,
+        'content': '画蓝色机器人',
+        'senderId': 7,
+        'senderName': 'Alice',
+        'chatRoomId': 42,
+        'messageType': 'IMAGE_GENERATION',
+        'messageStatus': 'SENDING',
+        'imageGenPrompt': '画蓝色机器人',
+        'imageGenStatus': 'PROCESSING',
+        'imageGenProviderTaskId': 'task-1',
+        'createdAt': '2026-06-01T09:00:00',
+      });
+
+      expect(message.type, MessageType.imageGeneration);
+      expect(message.isImageGenerationMessage, isTrue);
+      expect(message.imageGenStatus, 'PROCESSING');
+      expect(message.imageGenProviderTaskId, 'task-1');
+      expect(message.resolvedFileLabel, '[AI图片生成中]');
+    });
   });
 
   group('MessageType', () {
@@ -371,6 +393,7 @@ void main() {
       expect(MessageType.file.description, '文件');
       expect(MessageType.voice.description, '语音');
       expect(MessageType.video.description, '视频');
+      expect(MessageType.imageGeneration.description, 'AI图片生成');
       expect(MessageType.system.description, '系统消息');
     });
   });

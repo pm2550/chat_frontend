@@ -423,6 +423,9 @@ class MessageBubble extends StatelessWidget {
     if (message.isPollMessage) {
       return _buildPollMessage();
     }
+    if (message.isImageGenerationMessage) {
+      return _buildImageGenerationMessage();
+    }
     if (message.isImageMessage) {
       return _buildImageAttachment();
     }
@@ -519,6 +522,110 @@ class MessageBubble extends StatelessWidget {
     if (fileUrl == null || fileUrl.isEmpty) {
       return _buildFileAttachment();
     }
+    return _buildImagePreviewCard(fileUrl);
+  }
+
+  Widget _buildImageGenerationMessage() {
+    final fileUrl = message.imageGenUrl ?? message.fileUrl;
+    if (message.isImageGenerationDone &&
+        fileUrl != null &&
+        fileUrl.isNotEmpty) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _buildImagePreviewCard(fileUrl),
+          if ((message.imageGenPrompt ?? message.content)
+              .trim()
+              .isNotEmpty) ...[
+            const SizedBox(height: 7),
+            Text(
+              message.imageGenPrompt ?? message.content,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: _secondaryTextColor,
+                fontSize: 12,
+                height: 1.3,
+              ),
+            ),
+          ],
+        ],
+      );
+    }
+    final failed = message.isImageGenerationFailed ||
+        message.status == MessageStatus.failed;
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 260),
+      child: PMCard(
+        elevated: false,
+        radius: PMRadius.s,
+        padding: const EdgeInsets.all(12),
+        background:
+            isMe ? Colors.white.withValues(alpha: 0.12) : AppColors.cloud,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            failed
+                ? const Icon(
+                    Icons.error_outline,
+                    color: AppColors.error,
+                    size: 22,
+                  )
+                : SizedBox(
+                    width: 22,
+                    height: 22,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: isMe ? Colors.white : AppColors.primary,
+                    ),
+                  ),
+            const SizedBox(width: 10),
+            Flexible(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    failed ? 'AI 图片生成失败' : 'AI 图片生成中',
+                    style: TextStyle(
+                      color: _textColor,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    message.imageGenPrompt ?? message.content,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: _secondaryTextColor,
+                      fontSize: 12,
+                      height: 1.25,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (failed && onRetrySend != null) ...[
+              const SizedBox(width: 8),
+              TextButton(
+                onPressed: () => onRetrySend!(message),
+                style: TextButton.styleFrom(
+                  minimumSize: const Size(44, 32),
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                ),
+                child: const Text('重试'),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildImagePreviewCard(String fileUrl) {
     return _buildAttachmentCard(
       type: AttachmentType.image,
       forcePreview: true,

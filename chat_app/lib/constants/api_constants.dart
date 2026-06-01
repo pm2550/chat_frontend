@@ -109,6 +109,7 @@ class ApiConstants {
   // Message endpoints
   static const String sendMessage = '$apiBaseUrl/messages';
   static const String sendFileMessage = '$apiBaseUrl/messages/file';
+  static const String generateImage = '$apiBaseUrl/images/generate';
   static String chatRoomMessages(int roomId) =>
       '$apiBaseUrl/messages/chat-room/$roomId';
   static String recentMessages(int roomId) =>
@@ -197,8 +198,7 @@ class ApiConstants {
       '$apiBaseUrl/bots/chat-rooms/$roomId/bots/$botId';
   static String botsInRoom(int roomId) =>
       '$apiBaseUrl/bots/chat-rooms/$roomId/bots';
-  static const String providerCredentials =
-      '$apiBaseUrl/provider-credentials';
+  static const String providerCredentials = '$apiBaseUrl/provider-credentials';
   static String providerCredentialDetail(int credentialId) =>
       '$providerCredentials/$credentialId';
 

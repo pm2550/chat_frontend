@@ -149,6 +149,43 @@ extension _ChatScreenComposerParts on _ChatScreenState {
     }
   }
 
+  Future<void> _generateImageMessage(String prompt) async {
+    final normalized = prompt.trim();
+    if (normalized.isEmpty) return;
+    try {
+      final message = await _chatService.generateImageMessage(
+        _chat.id,
+        prompt: normalized,
+      );
+      _upsertMessage(message);
+      _scrollToBottom();
+    } catch (e) {
+      final currentUser = _authService.currentUser;
+      _upsertMessage(Message(
+        id: 'local-image-gen-${DateTime.now().microsecondsSinceEpoch}',
+        content: normalized,
+        senderId: currentUser?.id ?? '',
+        senderName: currentUser?.displayName ?? '我',
+        senderAvatar: currentUser?.avatarUrl,
+        chatRoomId: _chat.id,
+        type: MessageType.imageGeneration,
+        status: MessageStatus.failed,
+        timestamp: DateTime.now(),
+        imageGenPrompt: normalized,
+        imageGenStatus: 'FAILED',
+      ));
+      _scrollToBottom();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('图片生成提交失败: $e'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
+    }
+  }
+
   Future<PickedChatFile?> _pickImageFromGallery() async {
     final image = await ImagePicker().pickImage(source: ImageSource.gallery);
     if (image == null) return null;
@@ -793,6 +830,14 @@ extension _ChatScreenComposerParts on _ChatScreenState {
                         },
                       ),
                       _buildInputOption(
+                        symbol: PMSymbol.image,
+                        label: 'AI 图片',
+                        onTap: () {
+                          Navigator.pop(context);
+                          _showImageGenerationSheet();
+                        },
+                      ),
+                      _buildInputOption(
                         symbol: PMSymbol.camera,
                         label: '拍照',
                         onTap: () {
@@ -844,6 +889,98 @@ extension _ChatScreenComposerParts on _ChatScreenState {
         ),
       ),
     );
+  }
+
+  void _showImageGenerationSheet() {
+    final promptController =
+        TextEditingController(text: _messageController.text);
+    var submitting = false;
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (sheetContext) => Padding(
+        padding: EdgeInsets.only(
+          left: 16,
+          right: 16,
+          bottom: MediaQuery.viewInsetsOf(sheetContext).bottom + 16,
+          top: 16,
+        ),
+        child: StatefulBuilder(
+          builder: (context, setModalState) {
+            Future<void> submit() async {
+              final prompt = promptController.text.trim();
+              if (prompt.isEmpty || submitting) return;
+              setModalState(() => submitting = true);
+              Navigator.pop(sheetContext);
+              await _generateImageMessage(prompt);
+            }
+
+            return PMCard(
+              padding: const EdgeInsets.all(18),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'AI 图片生成',
+                    style: TextStyle(
+                      color: AppColors.textPrimary,
+                      fontSize: 18,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  const Text(
+                    '本次 10 积分。生成完成后会作为图片消息发到当前会话。',
+                    style: TextStyle(
+                      color: AppColors.textSecondary,
+                      fontSize: 13,
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  TextField(
+                    controller: promptController,
+                    minLines: 3,
+                    maxLines: 6,
+                    autofocus: true,
+                    decoration: InputDecoration(
+                      hintText: '描述你想生成的图片',
+                      filled: true,
+                      fillColor: AppColors.cloud,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                        borderSide: const BorderSide(color: AppColors.border),
+                      ),
+                    ),
+                    onSubmitted: (_) => submit(),
+                  ),
+                  const SizedBox(height: 14),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      PMButton(
+                        label: '取消',
+                        variant: PMButtonVariant.secondary,
+                        onPressed: submitting
+                            ? null
+                            : () => Navigator.pop(sheetContext),
+                      ),
+                      const SizedBox(width: 10),
+                      PMButton(
+                        label: '生成',
+                        loading: submitting,
+                        onPressed: submitting ? null : () => submit(),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            );
+          },
+        ),
+      ),
+    ).whenComplete(promptController.dispose);
   }
 
   void _showEmojiPanel() {

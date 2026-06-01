@@ -493,6 +493,49 @@ class ChatDataService {
     return Message.fromJson(messageJson, fallbackChatRoomId: chatRoomId);
   }
 
+  Future<Message> generateImageMessage(
+    String chatRoomId, {
+    required String prompt,
+    String size = '1024*1024',
+  }) async {
+    final roomId = _parseRoomId(chatRoomId);
+    final response = await _request(
+      'POST',
+      ApiConstants.generateImage,
+      body: {
+        'roomId': roomId,
+        'prompt': prompt,
+        'n': 1,
+        'size': size,
+      },
+    );
+    final data = _decodeResponse(response);
+    final responseData = data['data'];
+    final messageJson =
+        responseData is Map<String, dynamic> ? responseData['message'] : null;
+    if (messageJson is Map<String, dynamic>) {
+      return Message.fromJson(messageJson, fallbackChatRoomId: chatRoomId);
+    }
+    if (responseData is Map<String, dynamic> &&
+        responseData['messageId'] != null) {
+      return Message(
+        id: responseData['messageId'].toString(),
+        content: prompt,
+        senderId: _authService.currentUser?.id.toString() ?? '',
+        senderName: _authService.currentUser?.displayName ??
+            _authService.currentUser?.username ??
+            '',
+        chatRoomId: chatRoomId,
+        type: MessageType.imageGeneration,
+        status: MessageStatus.sending,
+        timestamp: DateTime.now(),
+        imageGenPrompt: prompt,
+        imageGenStatus: responseData['status']?.toString() ?? 'QUEUED',
+      );
+    }
+    throw const ChatDataException('图片生成任务已提交但响应中没有消息数据');
+  }
+
   Future<List<MessageReaction>> addReaction(
     String messageId,
     String emoji,

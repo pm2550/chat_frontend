@@ -265,6 +265,8 @@ extension _ChatScreenMessageListParts on _ChatScreenState {
     _saveMessageCache();
     if (message.type == MessageType.text) {
       await _sendMessage();
+    } else if (message.type == MessageType.imageGeneration) {
+      await _generateImageMessage(message.imageGenPrompt ?? message.content);
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('附件重发需要重新选择文件')),
