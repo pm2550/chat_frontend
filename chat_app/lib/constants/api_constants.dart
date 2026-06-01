@@ -190,6 +190,10 @@ class ApiConstants {
   static const String createBot = '$apiBaseUrl/bots';
   static const String myBots = '$apiBaseUrl/bots/my';
   static String botDetail(int botId) => '$apiBaseUrl/bots/$botId';
+  static String botCharacterCardImport(int botId) =>
+      '$apiBaseUrl/bots/$botId/character-card/import';
+  static String botCharacterCardExport(int botId) =>
+      '$apiBaseUrl/bots/$botId/character-card/export';
   static String addBotToRoom(int roomId, int botId) =>
       '$apiBaseUrl/bots/chat-rooms/$roomId/bots/$botId/add';
   static String removeBotFromRoom(int roomId, int botId) =>

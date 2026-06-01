@@ -30,6 +30,12 @@ class BotConfig {
   final String? providerCredentialLabel;
   final String? providerCredentialLast4;
   final bool hasCredential;
+  final bool hasCharacterCard;
+  final String? characterPersona;
+  final String? characterScenario;
+  final String? characterFirstMes;
+  final List<String> characterAlternateGreetings;
+  final int characterBookEntryCount;
 
   BotConfig({
     this.id,
@@ -50,6 +56,12 @@ class BotConfig {
     this.providerCredentialLabel,
     this.providerCredentialLast4,
     this.hasCredential = false,
+    this.hasCharacterCard = false,
+    this.characterPersona,
+    this.characterScenario,
+    this.characterFirstMes,
+    this.characterAlternateGreetings = const [],
+    this.characterBookEntryCount = 0,
   });
 
   factory BotConfig.fromJson(Map<String, dynamic> json) {
@@ -74,6 +86,17 @@ class BotConfig {
       providerCredentialLabel: json['providerCredentialLabel']?.toString(),
       providerCredentialLast4: json['providerCredentialLast4']?.toString(),
       hasCredential: json['hasCredential'] == true,
+      hasCharacterCard: json['hasCharacterCard'] == true,
+      characterPersona: json['characterPersona']?.toString(),
+      characterScenario: json['characterScenario']?.toString(),
+      characterFirstMes: json['characterFirstMes']?.toString(),
+      characterAlternateGreetings:
+          (json['characterAlternateGreetings'] as List<dynamic>?)
+                  ?.map((item) => item.toString())
+                  .toList(growable: false) ??
+              const [],
+      characterBookEntryCount:
+          int.tryParse(json['characterBookEntryCount']?.toString() ?? '') ?? 0,
     );
   }
 
@@ -252,6 +275,32 @@ class BotService {
     final response = await _request('DELETE', ApiConstants.botDetail(botId));
     _decodeResponse(response);
     return true;
+  }
+
+  Future<BotConfig> importCharacterCard(
+    int botId,
+    Map<String, dynamic> card,
+  ) async {
+    final response = await _request(
+      'POST',
+      ApiConstants.botCharacterCardImport(botId),
+      body: {'card': card},
+    );
+    final data = _decodeResponse(response);
+    if (data['data'] is Map<String, dynamic>) {
+      return BotConfig.fromJson(data['data'] as Map<String, dynamic>);
+    }
+    throw const BotServiceException('角色卡导入成功但响应中没有数据');
+  }
+
+  Future<Map<String, dynamic>> exportCharacterCard(int botId) async {
+    final response =
+        await _request('GET', ApiConstants.botCharacterCardExport(botId));
+    final data = _decodeResponse(response);
+    if (data['data'] is Map<String, dynamic>) {
+      return data['data'] as Map<String, dynamic>;
+    }
+    throw const BotServiceException('角色卡导出失败');
   }
 
   Future<List<ProviderCredential>> getProviderCredentials({

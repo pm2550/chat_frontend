@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 
 import '../../constants/app_colors.dart';
@@ -32,8 +34,15 @@ class _BotEditScreenState extends State<BotEditScreen> {
   int _maxTokens = 2048;
   bool _saving = false;
   bool _loadingCredentials = false;
+  bool _characterBusy = false;
   List<ProviderCredential> _credentials = const [];
   int? _selectedCredentialId;
+  bool _hasCharacterCard = false;
+  String? _characterPersona;
+  String? _characterScenario;
+  String? _characterFirstMes;
+  List<String> _alternateGreetings = const [];
+  int _bookEntryCount = 0;
 
   bool get _isEditing => widget.bot?.id != null;
 
@@ -52,6 +61,12 @@ class _BotEditScreenState extends State<BotEditScreen> {
     _temperature = bot?.temperature ?? 0.7;
     _maxTokens = bot?.maxTokens ?? 2048;
     _selectedCredentialId = bot?.providerCredentialId;
+    _hasCharacterCard = bot?.hasCharacterCard ?? false;
+    _characterPersona = bot?.characterPersona;
+    _characterScenario = bot?.characterScenario;
+    _characterFirstMes = bot?.characterFirstMes;
+    _alternateGreetings = bot?.characterAlternateGreetings ?? const [];
+    _bookEntryCount = bot?.characterBookEntryCount ?? 0;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _loadCredentialsForProvider();
     });
@@ -175,6 +190,8 @@ class _BotEditScreenState extends State<BotEditScreen> {
                             ),
                           ),
                           const SizedBox(height: PMSpacing.l),
+                          _buildCharacterCardSection(),
+                          const SizedBox(height: PMSpacing.l),
                           TextFormField(
                             controller: _apiKeyController,
                             obscureText: true,
@@ -227,6 +244,111 @@ class _BotEditScreenState extends State<BotEditScreen> {
             ),
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildCharacterCardSection() {
+    final disabled = !_isEditing || _characterBusy;
+    return PMCard(
+      elevated: false,
+      background: AppColors.cloud,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.auto_stories, color: AppColors.primary),
+              const SizedBox(width: PMSpacing.s),
+              const Expanded(
+                child: Text(
+                  'SillyTavern v2 角色卡',
+                  style: TextStyle(fontWeight: FontWeight.w900),
+                ),
+              ),
+              PMChip(
+                label: _hasCharacterCard ? '已导入' : '未导入',
+                icon: _hasCharacterCard ? Icons.check : Icons.info_outline,
+                selected: _hasCharacterCard,
+              ),
+            ],
+          ),
+          const SizedBox(height: PMSpacing.s),
+          const Text(
+            '导入角色 persona、场景、开场白、替代问候和角色书关键词，用于 Bot 回复前的 prompt 组装。',
+            style: TextStyle(color: AppColors.textSecondary),
+          ),
+          const SizedBox(height: PMSpacing.m),
+          Wrap(
+            spacing: PMSpacing.s,
+            runSpacing: PMSpacing.s,
+            children: [
+              PMButton(
+                label: '导入 JSON',
+                icon: Icons.upload_file,
+                compact: true,
+                variant: PMButtonVariant.secondary,
+                onPressed: disabled ? null : _showImportCharacterCardDialog,
+              ),
+              PMButton(
+                label: '导出 JSON',
+                icon: Icons.download,
+                compact: true,
+                variant: PMButtonVariant.secondary,
+                onPressed: disabled ? null : _showExportCharacterCardDialog,
+              ),
+              if (!_isEditing)
+                const Text(
+                  '先创建 Bot 后可导入角色卡。',
+                  style: TextStyle(color: AppColors.textSecondary),
+                ),
+            ],
+          ),
+          if (_characterPersona?.trim().isNotEmpty == true) ...[
+            const SizedBox(height: PMSpacing.m),
+            _buildCharacterPreviewRow('Persona', _characterPersona!),
+          ],
+          if (_characterScenario?.trim().isNotEmpty == true)
+            _buildCharacterPreviewRow('场景', _characterScenario!),
+          if (_characterFirstMes?.trim().isNotEmpty == true)
+            _buildCharacterPreviewRow('开场白', _characterFirstMes!),
+          if (_alternateGreetings.isNotEmpty)
+            _buildCharacterPreviewRow(
+              '替代问候',
+              _alternateGreetings.take(3).join(' / '),
+            ),
+          if (_bookEntryCount > 0)
+            _buildCharacterPreviewRow('角色书', '$_bookEntryCount 条关键词条目'),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCharacterPreviewRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.only(top: PMSpacing.s),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 76,
+            child: Text(
+              label,
+              style: const TextStyle(
+                color: AppColors.secondaryDark,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              value,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(color: AppColors.textPrimary),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -389,6 +511,148 @@ class _BotEditScreenState extends State<BotEditScreen> {
       );
     } finally {
       if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  Future<void> _showImportCharacterCardDialog() async {
+    final controller = TextEditingController();
+    final jsonText = await showDialog<String>(
+      context: context,
+      builder: (context) => Dialog(
+        backgroundColor: Colors.transparent,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 680),
+          child: PMCard(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const Text(
+                  '导入 SillyTavern v2 角色卡',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
+                ),
+                const SizedBox(height: PMSpacing.m),
+                TextField(
+                  controller: controller,
+                  minLines: 12,
+                  maxLines: 18,
+                  decoration: const InputDecoration(
+                    hintText: '{"spec":"chara_card_v2","data":{...}}',
+                    alignLabelWithHint: true,
+                  ),
+                ),
+                const SizedBox(height: PMSpacing.l),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    PMButton(
+                      label: '取消',
+                      compact: true,
+                      variant: PMButtonVariant.secondary,
+                      onPressed: () => Navigator.pop(context),
+                    ),
+                    const SizedBox(width: PMSpacing.s),
+                    PMButton(
+                      label: '导入',
+                      compact: true,
+                      icon: Icons.upload_file,
+                      onPressed: () => Navigator.pop(context, controller.text),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    controller.dispose();
+    if (jsonText == null || jsonText.trim().isEmpty || widget.bot?.id == null) {
+      return;
+    }
+    try {
+      final decoded = jsonDecode(jsonText);
+      if (decoded is! Map<String, dynamic>) {
+        throw const FormatException('角色卡必须是 JSON Object');
+      }
+      setState(() => _characterBusy = true);
+      final bot =
+          await _botService.importCharacterCard(widget.bot!.id!, decoded);
+      if (!mounted) return;
+      setState(() {
+        _hasCharacterCard = bot.hasCharacterCard;
+        _characterPersona = bot.characterPersona;
+        _characterScenario = bot.characterScenario;
+        _characterFirstMes = bot.characterFirstMes;
+        _alternateGreetings = bot.characterAlternateGreetings;
+        _bookEntryCount = bot.characterBookEntryCount;
+        _nameController.text = bot.botName;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('角色卡已导入')),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('导入失败: $error')),
+      );
+    } finally {
+      if (mounted) setState(() => _characterBusy = false);
+    }
+  }
+
+  Future<void> _showExportCharacterCardDialog() async {
+    if (widget.bot?.id == null) return;
+    setState(() => _characterBusy = true);
+    try {
+      final card = await _botService.exportCharacterCard(widget.bot!.id!);
+      if (!mounted) return;
+      final text = const JsonEncoder.withIndent('  ').convert(card);
+      await showDialog<void>(
+        context: context,
+        builder: (context) => Dialog(
+          backgroundColor: Colors.transparent,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 680),
+            child: PMCard(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const Text(
+                    '导出角色卡 JSON',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
+                  ),
+                  const SizedBox(height: PMSpacing.m),
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(maxHeight: 460),
+                    child: SingleChildScrollView(
+                      child: SelectableText(text),
+                    ),
+                  ),
+                  const SizedBox(height: PMSpacing.l),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: PMButton(
+                      label: '关闭',
+                      compact: true,
+                      variant: PMButtonVariant.secondary,
+                      onPressed: () => Navigator.pop(context),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('导出失败: $error')),
+      );
+    } finally {
+      if (mounted) setState(() => _characterBusy = false);
     }
   }
 
