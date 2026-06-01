@@ -304,6 +304,34 @@ void main() {
       expect(find.byType(PMUserAvatar), findsOneWidget);
     });
 
+    testWidgets('renders current-user Agent reply as left-side bot message',
+        (tester) async {
+      final message = createMessage(
+        content: '任务已接收: summarize this room',
+        senderId: 'current-user',
+        senderName: 'Me',
+        botConfigId: '99',
+        botName: 'Agent',
+        botAvatar: '/assets/agent-avatar.png',
+      );
+
+      await tester.pumpWidget(buildTestWidget(
+        MessageBubble(
+          message: message,
+          isMe: message.isFromCurrentUser('current-user'),
+          showAvatar: true,
+        ),
+      ));
+
+      final row = tester.widget<Row>(find.byType(Row).first);
+      expect(row.mainAxisAlignment, MainAxisAlignment.start);
+      expect(find.text('Agent'), findsOneWidget);
+      expect(find.text('BOT'), findsOneWidget);
+      expect(find.text('任务已接收: summarize this room'), findsOneWidget);
+      expect(find.textContaining('[Agent]'), findsNothing);
+      expect(find.byType(PMUserAvatar), findsOneWidget);
+    });
+
     testWidgets('does not show CircleAvatar when showAvatar is false',
         (tester) async {
       final message = createMessage(content: 'No avatar');
