@@ -19,6 +19,7 @@ import '../../models/message.dart';
 import '../../models/sticker.dart';
 import '../../models/user.dart';
 import '../../services/auth_service.dart';
+import '../../services/agent_client_tools.dart';
 import '../../services/anonymous_service.dart';
 import '../../services/bot_service.dart';
 import '../../services/chat_data_service.dart';
@@ -249,6 +250,7 @@ class _ChatScreenState extends State<ChatScreen> {
     _chat = chat;
     _pendingStartCall = startCall;
     _didInitialize = true;
+    _syncAgentClientToolState();
     _startChatSession();
   }
 
@@ -364,6 +366,9 @@ class _ChatScreenState extends State<ChatScreen> {
   void _setViewState(VoidCallback fn) {
     if (!mounted) return;
     setState(fn);
+    if (_didInitialize) {
+      _syncAgentClientToolState();
+    }
   }
 
   void _restoreCachedMessages() {
@@ -665,6 +670,28 @@ class _ChatScreenState extends State<ChatScreen> {
       messages: List<Message>.from(_messages),
       hasMoreMessages: _hasMoreMessages,
       nextMessagePage: _nextMessagePage,
+    );
+    _syncAgentClientToolState();
+  }
+
+  void _syncAgentClientToolState() {
+    if (!_didInitialize) return;
+    final tabName = switch (_desktopInfoPanelTab) {
+      0 => 'members',
+      1 => 'files',
+      _ => 'bots',
+    };
+    AgentClientToolState().updateRoom(
+      roomId: int.tryParse(_chat.id),
+      muted: _chat.isMuted,
+      pinnedToTop: _chat.isPinned,
+      notificationLevel: _chat.isMuted ? 'none' : 'all',
+      messages: _messages,
+      rightSidebarOpen: !_desktopInfoPanelCollapsed,
+      rightSidebarTab: tabName,
+      membersPanelOpen:
+          !_desktopInfoPanelCollapsed && _desktopInfoPanelTab == 0,
+      settingsOpen: false,
     );
   }
 
