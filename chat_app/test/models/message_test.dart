@@ -85,6 +85,32 @@ void main() {
       expect(message.anonymousName, '神秘海豚');
     });
 
+    test('fromJson maps bot identity and excludes bot messages from self side',
+        () {
+      final message = Message.fromJson({
+        'id': 202,
+        'content': '[HelperBot] bot answer',
+        'senderId': 5,
+        'senderName': 'RealUser',
+        'chatRoomId': 20,
+        'messageType': 'TEXT',
+        'messageStatus': 'SENT',
+        'createdAt': '2024-06-15T08:30:00.000Z',
+        'botConfigId': 9,
+        'botSenderId': 9,
+        'botName': 'HelperBot',
+        'botAvatar': '/api/files/avatar/helper.png',
+      });
+
+      expect(message.isBotMessage, isTrue);
+      expect(message.botConfigId, '9');
+      expect(message.botSenderId, '9');
+      expect(message.botName, 'HelperBot');
+      expect(message.botAvatar, '/api/files/avatar/helper.png');
+      expect(message.isFromCurrentUser('5'), isFalse);
+      expect(message.displayContent, 'bot answer');
+    });
+
     test('fromJson maps sticker messages', () {
       final message = Message.fromJson({
         'id': 301,

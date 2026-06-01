@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:chat_app/constants/api_constants.dart';
 import 'package:chat_app/constants/app_colors.dart';
 import 'package:chat_app/models/chat.dart';
 import 'package:chat_app/models/message.dart';
@@ -68,6 +69,31 @@ void main() {
       await tester.pump();
 
       expect(find.text('暂无聊天记录'), findsOneWidget);
+    });
+
+    testWidgets('renders group avatar image when room has avatarUrl',
+        (tester) async {
+      final service = FakeChatListService(chats: [
+        Chat(
+          id: '1',
+          name: '头像群聊',
+          type: ChatType.group,
+          avatarUrl: '/api/files/avatar/group.png',
+          createdAt: DateTime.parse('2024-01-01T10:00:00'),
+        ),
+      ]);
+
+      await tester.pumpWidget(buildTestWidget(service));
+      await tester.pump();
+
+      expect(find.byWidgetPredicate((widget) {
+        return widget is CircleAvatar &&
+            widget.backgroundImage is NetworkImage &&
+            (widget.backgroundImage as NetworkImage).url ==
+                ApiConstants.resolveFileUrl('/api/files/avatar/group.png');
+      }), findsOneWidget);
+      await tester.pump(const Duration(milliseconds: 100));
+      tester.takeException();
     });
 
     testWidgets('renders retry state when service fails', (tester) async {
@@ -277,6 +303,47 @@ void main() {
             (widget.decoration as BoxDecoration).shape == BoxShape.circle &&
             (widget.decoration as BoxDecoration).color == AppColors.online;
       }), findsOneWidget);
+    });
+
+    testWidgets('room_updated event refreshes group avatar in list',
+        (tester) async {
+      final realtime = FakeRealtimeService();
+      final service = FakeChatListService(chats: [
+        Chat(
+          id: '1',
+          name: '更新群聊',
+          type: ChatType.group,
+          createdAt: DateTime.parse('2024-01-01T10:00:00'),
+        ),
+      ]);
+
+      await tester.pumpWidget(buildTestWidget(
+        service,
+        realtimeService: realtime,
+      ));
+      await tester.pump();
+
+      realtime.emitStatus({
+        'type': 'room_updated',
+        'chatRoomId': 1,
+        'chatRoom': {
+          'id': 1,
+          'name': '更新群聊',
+          'roomType': 'GROUP',
+          'avatarUrl': '/api/files/avatar/new-group.png',
+          'createdAt': '2024-01-01T10:00:00',
+        },
+      });
+      await tester.pump();
+
+      expect(find.byWidgetPredicate((widget) {
+        return widget is CircleAvatar &&
+            widget.backgroundImage is NetworkImage &&
+            (widget.backgroundImage as NetworkImage).url ==
+                ApiConstants.resolveFileUrl('/api/files/avatar/new-group.png');
+      }), findsOneWidget);
+      await tester.pump(const Duration(milliseconds: 100));
+      tester.takeException();
     });
   });
 }

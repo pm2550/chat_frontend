@@ -115,6 +115,35 @@ void main() {
       expect(room.customBackgroundUrl, '/api/files/background/room.png');
     });
 
+    test('room avatar upload uses multipart file request', () async {
+      PickedChatFile? uploaded;
+      final service = ChatDataService(
+        multipartRequest: (url, {required fields, required file}) async {
+          expect(url, ApiConstants.chatRoomAvatar(42));
+          expect(fields, isEmpty);
+          uploaded = file;
+          return jsonResponse({
+            'chatRoom': {
+              'id': 42,
+              'name': 'Room',
+              'roomType': 'GROUP',
+              'isPrivate': false,
+              'avatarUrl': '/api/files/avatar/room.png',
+              'createdAt': '2024-01-01T10:00:00',
+            },
+          });
+        },
+      );
+
+      final room = await service.uploadRoomAvatar(
+        '42',
+        const PickedChatFile(name: 'room.png', size: 3, bytes: [1, 2, 3]),
+      );
+
+      expect(uploaded?.name, 'room.png');
+      expect(room.avatarUrl, '/api/files/avatar/room.png');
+    });
+
     test('clear room background calls delete endpoint', () async {
       final service = ChatDataService(
         authenticatedRequest: (method, url, {headers, body}) async {

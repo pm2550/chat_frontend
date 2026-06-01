@@ -1,6 +1,30 @@
 part of '../chat_screen.dart';
 
 extension _ChatScreenCommandParts on _ChatScreenState {
+  // Kept for explicit mention flows; the Agent command button opens the slash
+  // command panel instead of pretending to be an @ mention shortcut.
+  // ignore: unused_element
+  void _openAgentMentionPicker() {
+    final value = _messageController.value;
+    final text = value.text;
+    final selection = value.selection;
+    final start = selection.start < 0 ? text.length : selection.start;
+    final end = selection.end < start ? start : selection.end;
+    final needsLeadingSpace =
+        start > 0 && !RegExp(r'\s').hasMatch(text.substring(start - 1, start));
+    final mentionPrefix = '${needsLeadingSpace ? ' ' : ''}@';
+    final nextText = text.replaceRange(start, end, mentionPrefix);
+    final nextOffset = start + mentionPrefix.length;
+    _messageController.value = value.copyWith(
+      text: nextText,
+      selection: TextSelection.collapsed(offset: nextOffset),
+      composing: TextRange.empty,
+    );
+    _setViewState(() => _isTyping = nextText.trim().isNotEmpty);
+    _focusNode.requestFocus();
+    _updateMentionSuggestions(nextText, nextOffset);
+  }
+
   void _showSlashCommandPanel() {
     final text = _messageController.text.trim();
     showModalBottomSheet<void>(

@@ -1,6 +1,7 @@
 import 'package:chat_app/design/design.dart';
 import 'package:chat_app/models/chat_customization.dart';
 import 'package:chat_app/models/user.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -37,6 +38,22 @@ void main() {
     expect(find.text('Alex Chen'), findsOneWidget);
     expect(find.text('Workspace owner'), findsOneWidget);
     expect(find.text('3'), findsOneWidget);
+  });
+
+  testWidgets('PMListRow supports secondary click actions', (tester) async {
+    var secondaryClicks = 0;
+    await tester.pumpWidget(
+      harness(
+        PMListRow(
+          leading: PMUserAvatar(user: user(), showOnlineDot: true),
+          title: const Text('Alex Chen'),
+          onSecondaryTap: () => secondaryClicks++,
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('Alex Chen'), buttons: kSecondaryMouseButton);
+    expect(secondaryClicks, 1);
   });
 
   testWidgets('PMButton calls onPressed once', (tester) async {

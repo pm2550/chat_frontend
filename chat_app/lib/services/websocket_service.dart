@@ -196,6 +196,7 @@ class WebSocketService extends ChangeNotifier implements ChatRealtimeService {
           break;
         case 'reaction_changed':
         case 'poll_voted':
+        case 'room_updated':
           _statusController.add(json);
           break;
         case 'call':

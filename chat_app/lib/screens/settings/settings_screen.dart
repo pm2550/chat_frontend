@@ -9,6 +9,7 @@ import '../../widgets/pm_brand.dart';
 import '../../widgets/pm_responsive.dart';
 import '../profile/profile_edit_screen.dart';
 import 'chat_preferences_screen.dart';
+import 'points_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -414,6 +415,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
             } else {
               await _loadSettings();
             }
+          },
+        ),
+      if (_matchesSetting('我的积分', ['账号', '积分', '点数', '兑换码', 'AI']))
+        PMListRow(
+          leading: _settingsIcon(Icons.toll, AppColors.secondary),
+          title: const Text('我的积分'),
+          subtitle: const Text('查看免费额度、付费积分、兑换码和账本记录'),
+          trailing:
+              const Icon(Icons.chevron_right, color: AppColors.textTertiary),
+          onTap: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const PointsScreen()),
+            );
           },
         ),
       if (_matchesSetting('修改密码', ['账号', '安全', '登录']))

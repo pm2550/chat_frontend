@@ -76,6 +76,8 @@ class ApiConstants {
       '$apiBaseUrl/chat-rooms/private/$friendId';
   static const String createGroupChat = '$apiBaseUrl/chat-rooms/group';
   static String chatRoomDetail(int roomId) => '$apiBaseUrl/chat-rooms/$roomId';
+  static String chatRoomAvatar(int roomId) =>
+      '$apiBaseUrl/chat-rooms/$roomId/avatar';
   static String chatRoomMembers(int roomId) =>
       '$apiBaseUrl/chat-rooms/$roomId/members';
   static String addChatRoomMember(int roomId, int userId) =>
@@ -195,6 +197,10 @@ class ApiConstants {
       '$apiBaseUrl/bots/chat-rooms/$roomId/bots/$botId';
   static String botsInRoom(int roomId) =>
       '$apiBaseUrl/bots/chat-rooms/$roomId/bots';
+  static const String providerCredentials =
+      '$apiBaseUrl/provider-credentials';
+  static String providerCredentialDetail(int credentialId) =>
+      '$providerCredentials/$credentialId';
 
   // Agent workflow endpoints
   static const String agentTasks = '$apiBaseUrl/agent-tasks';
@@ -260,6 +266,13 @@ class ApiConstants {
 
   // Admin
   static const String auditLogs = '$apiBaseUrl/admin/audit-logs';
+
+  // Points / quota
+  static const String pointsMe = '$apiBaseUrl/points/me';
+  static const String pointsLedger = '$apiBaseUrl/points/ledger';
+  static const String pointsRedeem = '$apiBaseUrl/points/redeem';
+  static String pointsPreview(String featureKey) =>
+      '$apiBaseUrl/points/preview/$featureKey';
 
   // Device token (push notifications)
   static const String registerDevice = '$apiBaseUrl/device-tokens/register';

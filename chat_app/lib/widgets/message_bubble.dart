@@ -20,6 +20,7 @@ class MessageBubble extends StatelessWidget {
   final Future<void> Function(Message message)? onRetrySend;
   final VoidCallback? onOpenReply;
   final ValueChanged<String>? onMentionTap;
+  final VoidCallback? onAvatarMention;
   final String? currentUserId;
   final Future<void> Function(Message message, String emoji, bool selected)?
       onToggleReaction;
@@ -41,6 +42,7 @@ class MessageBubble extends StatelessWidget {
     this.onRetrySend,
     this.onOpenReply,
     this.onMentionTap,
+    this.onAvatarMention,
     this.currentUserId,
     this.onToggleReaction,
     this.pollLoader,
@@ -62,6 +64,8 @@ class MessageBubble extends StatelessWidget {
       isAnonymous: message.isAnonymous,
       anonymousColor: anonymousColor,
     );
+    final showSenderLabel =
+        message.isAnonymous || message.isBotMessage || (!isMe && showAvatar);
 
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
@@ -77,85 +81,103 @@ class MessageBubble extends StatelessWidget {
             const SizedBox(width: 40),
           ],
           Flexible(
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 9),
-              decoration: bubbleVisual.decoration,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // 发送者名称（群聊中显示）
-                  if (!isMe && showAvatar)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 6),
-                      child: _buildSenderLabel(anonymousColor),
-                    ),
-                  if (message.replyToMessage != null ||
-                      message.replyToId != null ||
-                      message.replyToMessageId != null)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 7),
-                      child: _buildQuoteBlock(),
-                    ),
-
-                  // 消息内容
-                  _buildMessageContent(),
-
-                  // 消息状态和时间
+            child: Column(
+              crossAxisAlignment:
+                  isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+              children: [
+                if (showSenderLabel)
                   Padding(
-                    padding: const EdgeInsets.only(top: 4),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          _formatTime(message.timestamp),
-                          style: TextStyle(
-                            color: bubbleVisual.secondaryTextColor,
-                            fontSize: 12,
-                          ),
+                    padding: EdgeInsets.only(
+                      left: isMe ? 0 : 2,
+                      right: isMe ? 2 : 0,
+                      bottom: 4,
+                    ),
+                    child: _buildSenderLabel(anonymousColor),
+                  ),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 13, vertical: 9),
+                  decoration: bubbleVisual.decoration,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (message.replyToMessage != null ||
+                          message.replyToId != null ||
+                          message.replyToMessageId != null)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 7),
+                          child: _buildQuoteBlock(),
                         ),
-                        if (isMe) ...[
-                          const SizedBox(width: 4),
-                          Icon(
-                            _getStatusIcon(message.status),
-                            size: 16,
-                            color: _statusIconColor(message.status),
-                          ),
-                        ],
-                        if (message.isAnonymous) ...[
-                          const SizedBox(width: 4),
-                          Icon(Icons.masks, color: anonymousColor, size: 14),
-                        ],
-                        if (message.status == MessageStatus.failed &&
-                            onRetrySend != null) ...[
-                          const SizedBox(width: 8),
-                          InkWell(
-                            onTap: () => onRetrySend!(message),
-                            borderRadius: BorderRadius.circular(999),
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 6,
-                                vertical: 2,
-                              ),
-                              child: Text(
-                                '重发',
-                                style: TextStyle(
-                                  color: isMe ? Colors.white : AppColors.error,
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w800,
-                                ),
+
+                      // 消息内容
+                      _buildMessageContent(),
+
+                      // 消息状态和时间
+                      Padding(
+                        padding: const EdgeInsets.only(top: 4),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              _formatTime(message.timestamp),
+                              style: TextStyle(
+                                color: bubbleVisual.secondaryTextColor,
+                                fontSize: 12,
                               ),
                             ),
-                          ),
-                        ],
+                            if (isMe) ...[
+                              const SizedBox(width: 4),
+                              Icon(
+                                _getStatusIcon(message.status),
+                                size: 16,
+                                color: _statusIconColor(message.status),
+                              ),
+                            ],
+                            if (message.isAnonymous) ...[
+                              const SizedBox(width: 4),
+                              Text(
+                                '🎭',
+                                style: TextStyle(
+                                  color: anonymousColor,
+                                  fontSize: 12,
+                                  height: 1,
+                                ),
+                              ),
+                            ],
+                            if (message.status == MessageStatus.failed &&
+                                onRetrySend != null) ...[
+                              const SizedBox(width: 8),
+                              InkWell(
+                                onTap: () => onRetrySend!(message),
+                                borderRadius: BorderRadius.circular(999),
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 6,
+                                    vertical: 2,
+                                  ),
+                                  child: Text(
+                                    '重发',
+                                    style: TextStyle(
+                                      color:
+                                          isMe ? Colors.white : AppColors.error,
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                      if (message.reactions.isNotEmpty) ...[
+                        const SizedBox(height: 6),
+                        _buildReactionChips(),
                       ],
-                    ),
+                    ],
                   ),
-                  if (message.reactions.isNotEmpty) ...[
-                    const SizedBox(height: 6),
-                    _buildReactionChips(),
-                  ],
-                ],
-              ),
+                ),
+              ],
             ),
           ),
           if (isMe && showAvatar) ...[
@@ -172,30 +194,21 @@ class MessageBubble extends StatelessWidget {
   Widget _buildAvatar(Color anonymousColor) {
     if (!message.isAnonymous) {
       return PMUserAvatar.raw(
-        imageUrl: message.senderAvatar == null
+        imageUrl: _senderAvatarUrl == null
             ? null
-            : ApiConstants.resolveFileUrl(message.senderAvatar!),
-        fallbackText: message.senderName,
+            : ApiConstants.resolveFileUrl(_senderAvatarUrl!),
+        fallbackText: _senderDisplayName,
         size: 24,
         framePreset: senderAvatarFramePreset,
+        onSecondaryTap: onAvatarMention,
+        onLongPress: onAvatarMention,
       );
     }
 
-    final avatar = CircleAvatar(
-      radius: 12,
-      backgroundColor: anonymousColor,
-      child: message.senderAvatar == null || message.isAnonymous
-          ? Text(
-              message.senderName.isNotEmpty
-                  ? message.senderName[0].toUpperCase()
-                  : '?',
-              style: TextStyle(
-                color: message.isAnonymous ? Colors.white : null,
-                fontSize: 10,
-                fontWeight: FontWeight.w800,
-              ),
-            )
-          : null,
+    final avatar = AnonymousAvatar(
+      name: _anonymousDisplayName,
+      color: anonymousColor,
+      size: 24,
     );
     return Stack(
       clipBehavior: Clip.none,
@@ -212,7 +225,16 @@ class MessageBubble extends StatelessWidget {
               shape: BoxShape.circle,
               border: Border.all(color: anonymousColor.withValues(alpha: 0.45)),
             ),
-            child: Icon(Icons.masks, color: anonymousColor, size: 10),
+            child: Center(
+              child: Text(
+                '🎭',
+                style: TextStyle(
+                  color: anonymousColor,
+                  fontSize: 8,
+                  height: 1,
+                ),
+              ),
+            ),
           ),
         ),
       ],
@@ -226,14 +248,33 @@ class MessageBubble extends StatelessWidget {
       crossAxisAlignment: WrapCrossAlignment.center,
       children: [
         Text(
-          message.senderName,
+          _senderDisplayName,
           style: TextStyle(
-            color:
-                message.isAnonymous ? anonymousColor : AppColors.secondaryDark,
+            color: message.isAnonymous
+                ? anonymousColor
+                : message.isBotMessage
+                    ? AppColors.secondaryDark
+                    : AppColors.textSecondary,
             fontSize: 12,
             fontWeight: FontWeight.w800,
           ),
         ),
+        if (message.isBotMessage)
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+            decoration: BoxDecoration(
+              color: AppColors.secondary.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(999),
+            ),
+            child: const Text(
+              'BOT',
+              style: TextStyle(
+                color: AppColors.secondaryDark,
+                fontSize: 11,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ),
         if (message.isAnonymous)
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
@@ -244,7 +285,14 @@ class MessageBubble extends StatelessWidget {
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(Icons.masks, size: 12, color: anonymousColor),
+                Text(
+                  '🎭',
+                  style: TextStyle(
+                    color: anonymousColor,
+                    fontSize: 11,
+                    height: 1,
+                  ),
+                ),
                 const SizedBox(width: 3),
                 Text(
                   '匿名',
@@ -259,6 +307,26 @@ class MessageBubble extends StatelessWidget {
           ),
       ],
     );
+  }
+
+  String get _anonymousDisplayName {
+    final explicit = message.anonymousName?.trim();
+    if (explicit != null && explicit.isNotEmpty) return explicit;
+    final sender = message.senderName.trim();
+    return sender.isEmpty ? '匿名用户' : sender;
+  }
+
+  String get _senderDisplayName {
+    if (message.isAnonymous) return _anonymousDisplayName;
+    if (message.isBotMessage) return message.effectiveBotName;
+    return message.senderName;
+  }
+
+  String? get _senderAvatarUrl {
+    if (message.isBotMessage && message.botAvatar?.trim().isNotEmpty == true) {
+      return message.botAvatar;
+    }
+    return message.senderAvatar;
   }
 
   Widget _buildQuoteBlock() {
@@ -377,9 +445,10 @@ class MessageBubble extends StatelessWidget {
       return _buildFileAttachment();
     }
     final text = _buildMentionAwareText();
+    final content = message.displayContent;
     final embeddedUrl = message.linkPreview?.url.isNotEmpty == true
         ? message.linkPreview!.url
-        : _firstUrl(message.content);
+        : _firstUrl(content);
     if (embeddedUrl == null && message.linkPreview == null) {
       return text;
     }
@@ -400,7 +469,7 @@ class MessageBubble extends StatelessWidget {
       fontSize: 16,
       height: 1.32,
     );
-    final content = message.content;
+    final content = message.displayContent;
     if (!content.contains('@')) {
       return Text(content, style: baseStyle);
     }
@@ -1462,7 +1531,7 @@ String _quoteExcerpt(Message message, {int maxLength = 80}) {
     return '原消息已删除';
   }
   final raw = message.type == MessageType.text
-      ? message.content
+      ? message.displayContent
       : message.resolvedFileLabel;
   final text = raw.trim().replaceAll(RegExp(r'\s+'), ' ');
   if (text.isEmpty) {

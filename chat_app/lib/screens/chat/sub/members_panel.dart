@@ -176,14 +176,19 @@ extension _ChatScreenMembersPanelParts on _ChatScreenState {
         for (final participant in _chat.participants)
           PMListRow(
             leading: PMUserAvatar(
+              key: ValueKey('member-avatar-${participant.id}'),
               user: participant,
               status: PMOnlineStatus.fromUserStatus(participant.onlineStatus),
               showOnlineDot: true,
+              onSecondaryTap: () => _insertMentionForUser(participant),
+              onLongPress: () => _insertMentionForUser(participant),
             ),
             title: Text(participant.displayName.isNotEmpty
                 ? participant.displayName
                 : participant.username),
             subtitle: Text(participant.onlineStatus.name),
+            onSecondaryTap: () => _insertMentionForUser(participant),
+            onLongPress: () => _insertMentionForUser(participant),
             trailing: Wrap(
               spacing: 4,
               children: [

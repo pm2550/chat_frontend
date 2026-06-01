@@ -8,6 +8,7 @@ import 'screens/downloads/downloads_screen.dart';
 import 'screens/home/home_screen.dart';
 import 'screens/chat/chat_screen.dart';
 import 'screens/settings/settings_screen.dart';
+import 'screens/settings/points_screen.dart';
 import 'constants/app_brand.dart';
 import 'constants/app_colors.dart';
 import 'widgets/app_update_listener.dart';
@@ -133,6 +134,7 @@ class ChatApp extends StatelessWidget {
         '/home': (context) => const AuthGuard(child: HomeScreen()),
         '/chat': (context) => const AuthGuard(child: ChatScreen()),
         '/settings': (context) => const AuthGuard(child: SettingsScreen()),
+        '/points': (context) => const AuthGuard(child: PointsScreen()),
       },
       onGenerateRoute: (settings) {
         final routeName = settings.name ?? '';

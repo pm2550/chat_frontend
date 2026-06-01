@@ -79,9 +79,12 @@ extension _ChatScreenMessageListParts on _ChatScreenState {
         final message = _messages[messageIndex];
         final previousMessage =
             messageIndex == 0 ? null : _messages[messageIndex - 1];
-        final isMe = currentUserId != null && message.senderId == currentUserId;
+        final isMe = message.isFromCurrentUser(currentUserId);
+        final authorKey = _messageAuthorKey(message);
+        final previousAuthorKey =
+            previousMessage == null ? null : _messageAuthorKey(previousMessage);
         final startsNewGroup = previousMessage == null ||
-            previousMessage.senderId != message.senderId ||
+            previousAuthorKey != authorKey ||
             message.timestamp
                     .difference(previousMessage.timestamp)
                     .inMinutes
@@ -116,11 +119,21 @@ extension _ChatScreenMessageListParts on _ChatScreenState {
                     message: message,
                     isMe: isMe,
                     showAvatar: message.isAnonymous ||
+                        message.isBotMessage ||
                         (_chat.type == ChatType.group && startsNewGroup),
                     onOpenAttachment: _openAttachment,
                     onRetrySend: _retryFailedMessage,
                     onOpenReply: () => _scrollToQuotedMessage(message),
                     onMentionTap: _showMentionProfile,
+                    onAvatarMention: message.isAnonymous
+                        ? null
+                        : () {
+                            final participant =
+                                _participantForMessageSender(message);
+                            if (participant != null) {
+                              _insertMentionForUser(participant);
+                            }
+                          },
                     currentUserId: currentUserId,
                     onToggleReaction: _toggleReaction,
                     pollLoader: _chatService.getPoll,
@@ -155,6 +168,16 @@ extension _ChatScreenMessageListParts on _ChatScreenState {
       }
     }
     return ChatCustomizationCatalog.defaultAvatarFrame;
+  }
+
+  String _messageAuthorKey(Message message) {
+    if (message.isBotMessage) {
+      return 'bot:${message.botConfigId ?? message.botSenderId ?? message.effectiveBotName}';
+    }
+    if (message.isAnonymous) {
+      return 'anonymous:${message.anonymousIdentityId ?? message.senderName}';
+    }
+    return 'user:${message.senderId}';
   }
 
   Widget _buildAgentTaskCard(AgentTask task) {
@@ -239,6 +262,7 @@ extension _ChatScreenMessageListParts on _ChatScreenState {
           ? message.content
           : _messageController.text;
     });
+    _saveMessageCache();
     if (message.type == MessageType.text) {
       await _sendMessage();
     } else {

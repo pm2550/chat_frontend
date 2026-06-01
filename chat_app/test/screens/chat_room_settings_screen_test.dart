@@ -1,3 +1,5 @@
+import 'package:chat_app/constants/api_constants.dart';
+import 'package:chat_app/design/design.dart';
 import 'package:chat_app/models/chat_room_member.dart';
 import 'package:chat_app/models/chat.dart';
 import 'package:chat_app/models/user.dart';
@@ -103,6 +105,24 @@ void main() {
 
       expect(chatService.updatedAnnouncements, ['明天上午十点发布版本']);
       expect(find.text('明天上午十点发布版本'), findsWidgets);
+    });
+
+    testWidgets('renders uploaded group avatar in settings hero',
+        (tester) async {
+      final chatService = FakeChatDataService()
+        ..roomAvatarUrl = '/api/files/avatar/group.png';
+
+      await tester.pumpWidget(buildWidget(chatService: chatService));
+      await tester.pumpAndSettle();
+
+      expect(
+          find.byKey(const Key('change-room-avatar-button')), findsOneWidget);
+      expect(find.byWidgetPredicate((widget) {
+        return widget is PMUserAvatar &&
+            widget.imageUrl ==
+                ApiConstants.resolveFileUrl('/api/files/avatar/group.png') &&
+            widget.isGroup;
+      }), findsOneWidget);
     });
 
     testWidgets('admin can toggle and kick a member', (tester) async {
@@ -220,6 +240,7 @@ class FakeChatDataService extends ChatDataService {
   String roomName = 'Project Room';
   String roomDescription = '项目群说明';
   String roomAnnouncement = '旧公告';
+  String? roomAvatarUrl;
 
   List<ChatRoomMember> members = [
     member('1', 'alice', 'Alice', isAdmin: true),
@@ -239,6 +260,7 @@ class FakeChatDataService extends ChatDataService {
       announcementUpdatedAt: DateTime.parse('2024-01-01T10:00:00'),
       announcementUpdatedBy: '1',
       type: ChatType.group,
+      avatarUrl: roomAvatarUrl,
       createdAt: DateTime.parse('2024-01-01T09:00:00'),
     );
   }
@@ -257,6 +279,15 @@ class FakeChatDataService extends ChatDataService {
       roomAnnouncement = announcement;
       updatedAnnouncements.add(announcement);
     }
+    return getChatRoom(chatRoomId);
+  }
+
+  @override
+  Future<Chat> uploadRoomAvatar(
+    String chatRoomId,
+    PickedChatFile file,
+  ) async {
+    roomAvatarUrl = '/api/files/avatar/${file.name}';
     return getChatRoom(chatRoomId);
   }
 

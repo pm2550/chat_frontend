@@ -166,6 +166,28 @@ class _ChatListPageState extends State<ChatListPage> {
 
   void _handleStatusChange(Map<String, dynamic> event) {
     if (!mounted) return;
+    if (event['type'] == 'room_updated') {
+      final roomId = event['chatRoomId']?.toString();
+      final chatRoomJson = event['chatRoom'];
+      if (roomId == null || chatRoomJson is! Map<String, dynamic>) return;
+      final updated = Chat.fromJson(chatRoomJson);
+      final index = _chats.indexWhere((chat) => chat.id == roomId);
+      if (index == -1) return;
+      setState(() {
+        _chats[index] = _chats[index].copyWith(
+          name: updated.name,
+          description: updated.description,
+          announcement: updated.announcement,
+          avatarUrl: updated.avatarUrl,
+          anonymousEnabled: updated.anonymousEnabled,
+          anonymousTheme: updated.anonymousTheme,
+          customBackgroundPreset: updated.customBackgroundPreset,
+          customBackgroundUrl: updated.customBackgroundUrl,
+        );
+      });
+      return;
+    }
+
     final userId = event['userId']?.toString();
     final statusValue = event['onlineStatus'] ?? event['online_status'];
     if (userId == null || statusValue == null) return;
@@ -859,7 +881,7 @@ class _ChatListPageState extends State<ChatListPage> {
               arguments: hit.chat,
             );
             if (mounted) {
-              _loadChats();
+              unawaited(_loadChats(showLoading: false));
             }
           },
         );
@@ -886,7 +908,7 @@ class _ChatListPageState extends State<ChatListPage> {
             arguments: chat,
           );
           if (mounted) {
-            _loadChats();
+            unawaited(_loadChats(showLoading: false));
           }
         },
         contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),

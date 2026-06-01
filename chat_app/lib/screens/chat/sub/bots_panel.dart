@@ -12,6 +12,12 @@ extension _ChatScreenBotsPanelParts on _ChatScreenState {
         _roomBots = bots;
         _isLoadingRoomBots = false;
       });
+      if (_mentionStartIndex != null) {
+        _updateMentionSuggestions(
+          _messageController.text,
+          _messageController.selection.baseOffset,
+        );
+      }
     } catch (_) {
       if (!mounted) return;
       _setViewState(() => _isLoadingRoomBots = false);
@@ -121,6 +127,15 @@ extension _ChatScreenBotsPanelParts on _ChatScreenState {
       );
       if (left == true && mounted) {
         Navigator.of(context).pop(true);
+        return;
+      }
+      if (!mounted) return;
+      try {
+        final updated = await _chatService.getChatRoom(_chat.id);
+        if (!mounted) return;
+        _setViewState(() => _chat = updated);
+      } catch (_) {
+        // Settings changes are still visible after the next room refresh.
       }
     }());
   }

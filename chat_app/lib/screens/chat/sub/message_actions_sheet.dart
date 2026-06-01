@@ -37,6 +37,7 @@ extension _ChatScreenActionSheetParts on _ChatScreenState {
       _setViewState(() {
         _messages = [];
       });
+      _saveMessageCache();
       Navigator.pop(context);
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('聊天记录已清空')),

@@ -10,6 +10,7 @@ class AnonymousToggleButton extends StatefulWidget {
     required this.chatRoomId,
     required this.anonymousEnabled,
     required this.onAnonymousChanged,
+    this.currentIdentity,
     this.perMessageMode = false,
     this.nextMessageAnonymous = false,
     this.onPerMessageModeChanged,
@@ -19,6 +20,7 @@ class AnonymousToggleButton extends StatefulWidget {
   final int chatRoomId;
   final bool anonymousEnabled;
   final ValueChanged<AnonymousIdentity?> onAnonymousChanged;
+  final AnonymousIdentity? currentIdentity;
   final bool perMessageMode;
   final bool nextMessageAnonymous;
   final ValueChanged<bool>? onPerMessageModeChanged;
@@ -36,6 +38,24 @@ class _AnonymousToggleButtonState extends State<AnonymousToggleButton> {
   bool _isLoading = false;
 
   bool get _isAnonymous => _currentIdentity != null;
+
+  @override
+  void initState() {
+    super.initState();
+    _currentIdentity = widget.currentIdentity;
+  }
+
+  @override
+  void didUpdateWidget(covariant AnonymousToggleButton oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.currentIdentity?.id != oldWidget.currentIdentity?.id ||
+        widget.currentIdentity?.anonymousName !=
+            oldWidget.currentIdentity?.anonymousName ||
+        widget.currentIdentity?.anonymousAvatar !=
+            oldWidget.currentIdentity?.anonymousAvatar) {
+      _currentIdentity = widget.currentIdentity;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -82,11 +102,8 @@ class _AnonymousToggleButtonState extends State<AnonymousToggleButton> {
                           color: color,
                         ),
                       )
-                    : Icon(
-                        _isAnonymous
-                            ? Icons.masks
-                            : Icons.account_circle_outlined,
-                        color: enabled ? color : AppColors.textTertiary,
+                    : _buildModeIcon(
+                        enabled ? color : AppColors.textTertiary,
                         size: 19,
                       ),
               ),
@@ -136,9 +153,8 @@ class _AnonymousToggleButtonState extends State<AnonymousToggleButton> {
                     ),
                   )
                 else
-                  Icon(
-                    _isAnonymous ? Icons.masks : Icons.account_circle_outlined,
-                    color: enabled ? color : AppColors.textTertiary,
+                  _buildModeIcon(
+                    enabled ? color : AppColors.textTertiary,
                     size: 17,
                   ),
                 const SizedBox(width: PMSpacing.xs),
@@ -156,10 +172,13 @@ class _AnonymousToggleButtonState extends State<AnonymousToggleButton> {
                 ),
                 if (enabled) ...[
                   const SizedBox(width: 2),
-                  Icon(
-                    Icons.swap_horiz,
-                    color: color.withValues(alpha: 0.78),
-                    size: 15,
+                  Text(
+                    '↔',
+                    style: TextStyle(
+                      color: color.withValues(alpha: 0.78),
+                      fontSize: 15,
+                      height: 1,
+                    ),
                   ),
                 ],
               ],
@@ -188,6 +207,20 @@ class _AnonymousToggleButtonState extends State<AnonymousToggleButton> {
         setState(() => _isLoading = false);
       }
     }
+  }
+
+  Widget _buildModeIcon(Color color, {required double size}) {
+    if (_isAnonymous) {
+      return Text(
+        '🎭',
+        style: TextStyle(
+          color: color,
+          fontSize: size,
+          height: 1,
+        ),
+      );
+    }
+    return PMSymbolIcon(PMSymbol.profile, color: color, size: size);
   }
 
   Future<void> _rerollPersona() async {
@@ -227,19 +260,13 @@ class _AnonymousToggleButtonState extends State<AnonymousToggleButton> {
                       : '主题：${identity.theme!.displayName}',
                 ),
                 const SizedBox(height: PMSpacing.l),
-                CircleAvatar(
-                  radius: 34,
-                  backgroundColor:
-                      _parseColor(identity.anonymousAvatar) ?? _anonymousColor,
-                  child: Text(
-                    identity.anonymousName.isEmpty
-                        ? '?'
-                        : identity.anonymousName.substring(0, 1),
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 24,
-                      fontWeight: FontWeight.w900,
-                    ),
+                Center(
+                  child: AnonymousAvatar(
+                    name: identity.anonymousName,
+                    color:
+                        AnonymousAvatar.parseColor(identity.anonymousAvatar) ??
+                            _anonymousColor,
+                    size: 68,
                   ),
                 ),
                 const SizedBox(height: PMSpacing.s),
@@ -387,12 +414,5 @@ class _AnonymousToggleButtonState extends State<AnonymousToggleButton> {
         ),
       ),
     );
-  }
-
-  Color? _parseColor(String? value) {
-    if (value == null || !value.startsWith('#')) return null;
-    final hex = value.substring(1);
-    final parsed = int.tryParse(hex.length == 6 ? 'FF$hex' : hex, radix: 16);
-    return parsed == null ? null : Color(parsed);
   }
 }

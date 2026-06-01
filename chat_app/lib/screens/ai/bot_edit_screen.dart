@@ -31,6 +31,9 @@ class _BotEditScreenState extends State<BotEditScreen> {
   double _temperature = 0.7;
   int _maxTokens = 2048;
   bool _saving = false;
+  bool _loadingCredentials = false;
+  List<ProviderCredential> _credentials = const [];
+  int? _selectedCredentialId;
 
   bool get _isEditing => widget.bot?.id != null;
 
@@ -45,8 +48,13 @@ class _BotEditScreenState extends State<BotEditScreen> {
     _modelController = TextEditingController(text: bot?.modelName ?? '');
     _promptController = TextEditingController(text: bot?.systemPrompt ?? '');
     _apiKeyController = TextEditingController();
+    _providerController.addListener(_loadCredentialsForProvider);
     _temperature = bot?.temperature ?? 0.7;
     _maxTokens = bot?.maxTokens ?? 2048;
+    _selectedCredentialId = bot?.providerCredentialId;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _loadCredentialsForProvider();
+    });
   }
 
   @override
@@ -154,6 +162,8 @@ class _BotEditScreenState extends State<BotEditScreen> {
                             },
                           ),
                           const SizedBox(height: PMSpacing.l),
+                          _buildCredentialVaultSection(),
+                          const SizedBox(height: PMSpacing.l),
                           TextFormField(
                             controller: _promptController,
                             minLines: 5,
@@ -170,9 +180,10 @@ class _BotEditScreenState extends State<BotEditScreen> {
                             obscureText: true,
                             decoration: InputDecoration(
                               labelText: _isEditing
-                                  ? 'API Key（留空则不更新）'
-                                  : 'API Key（可选）',
+                                  ? '新 API Key（留空则保留当前凭据）'
+                                  : '新 API Key（可选，保存后进入凭据保险箱）',
                               prefixIcon: const Icon(Icons.key),
+                              helperText: '不会回显明文；填写后会加密保存到 Provider Vault。',
                             ),
                           ),
                           const SizedBox(height: PMSpacing.xl),
@@ -216,6 +227,69 @@ class _BotEditScreenState extends State<BotEditScreen> {
             ),
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildCredentialVaultSection() {
+    return PMCard(
+      elevated: false,
+      background: AppColors.cloud,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(
+            children: [
+              Icon(Icons.lock_outline, color: AppColors.primary),
+              SizedBox(width: PMSpacing.s),
+              Text(
+                'Provider Vault',
+                style: TextStyle(fontWeight: FontWeight.w900),
+              ),
+            ],
+          ),
+          const SizedBox(height: PMSpacing.s),
+          Text(
+            _loadingCredentials
+                ? '正在加载凭据...'
+                : '选择已保存凭据，或在下方输入新 API Key 创建加密凭据。',
+            style: const TextStyle(color: AppColors.textSecondary),
+          ),
+          const SizedBox(height: PMSpacing.m),
+          Wrap(
+            spacing: PMSpacing.s,
+            runSpacing: PMSpacing.s,
+            children: [
+              PMChip(
+                label: '环境默认 / 新 Key',
+                icon: Icons.vpn_key_outlined,
+                selected: _selectedCredentialId == null,
+                onTap: () => setState(() => _selectedCredentialId = null),
+              ),
+              for (final credential in _credentials)
+                PMChip(
+                  label: '${credential.label}'
+                      '${credential.secretLast4 == null ? '' : ' · ****${credential.secretLast4}'}',
+                  icon: Icons.lock_outline,
+                  selected: _selectedCredentialId == credential.id,
+                  onTap: () => setState(
+                    () => _selectedCredentialId = credential.id,
+                  ),
+                ),
+            ],
+          ),
+          if (widget.bot?.providerCredentialLabel != null) ...[
+            const SizedBox(height: PMSpacing.s),
+            Text(
+              '当前 Bot 使用: ${widget.bot!.providerCredentialLabel}'
+              '${widget.bot!.providerCredentialLast4 == null ? '' : ' · ****${widget.bot!.providerCredentialLast4}'}',
+              style: const TextStyle(
+                color: AppColors.secondaryDark,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ],
       ),
     );
   }
@@ -286,6 +360,7 @@ class _BotEditScreenState extends State<BotEditScreen> {
       temperature: _temperature,
       maxTokens: _maxTokens,
       isActive: widget.bot?.isActive ?? true,
+      providerCredentialId: _selectedCredentialId,
     );
 
     try {
@@ -314,6 +389,29 @@ class _BotEditScreenState extends State<BotEditScreen> {
       );
     } finally {
       if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  Future<void> _loadCredentialsForProvider() async {
+    final provider = _providerController.text.trim();
+    if (provider.isEmpty || !mounted) return;
+    setState(() => _loadingCredentials = true);
+    try {
+      final credentials =
+          await _botService.getProviderCredentials(provider: provider);
+      if (!mounted) return;
+      setState(() {
+        _credentials = credentials;
+        if (_selectedCredentialId != null &&
+            !credentials.any((item) => item.id == _selectedCredentialId)) {
+          _selectedCredentialId = null;
+        }
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _credentials = const []);
+    } finally {
+      if (mounted) setState(() => _loadingCredentials = false);
     }
   }
 }

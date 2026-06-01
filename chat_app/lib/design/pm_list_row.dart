@@ -28,6 +28,7 @@ class PMListRow extends StatefulWidget {
     this.badgeColor,
     this.dense = false,
     this.onTap,
+    this.onSecondaryTap,
     this.onLongPress,
     this.swipeActions,
   });
@@ -40,6 +41,7 @@ class PMListRow extends StatefulWidget {
   final Color? badgeColor;
   final bool dense;
   final VoidCallback? onTap;
+  final VoidCallback? onSecondaryTap;
   final VoidCallback? onLongPress;
   final List<PMRowAction>? swipeActions;
 
@@ -50,7 +52,10 @@ class PMListRow extends StatefulWidget {
 class _PMListRowState extends State<PMListRow> {
   bool _hovered = false;
 
-  bool get _interactive => widget.onTap != null || widget.onLongPress != null;
+  bool get _interactive =>
+      widget.onTap != null ||
+      widget.onSecondaryTap != null ||
+      widget.onLongPress != null;
 
   @override
   Widget build(BuildContext context) {
@@ -142,6 +147,7 @@ class _PMListRowState extends State<PMListRow> {
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTap: widget.onTap,
+        onSecondaryTap: widget.onSecondaryTap,
         onLongPress: widget.onLongPress,
         child: content,
       ),

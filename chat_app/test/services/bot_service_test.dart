@@ -239,6 +239,10 @@ void main() {
                 'botName': 'Helper',
                 'llmProvider': 'OPENAI',
                 'modelName': 'gpt-4o',
+                'providerCredentialId': 8,
+                'providerCredentialLabel': 'prod openai',
+                'providerCredentialLast4': '1234',
+                'hasCredential': true,
               },
             ],
           });
@@ -250,6 +254,10 @@ void main() {
       expect(bots, hasLength(1));
       expect(bots.first.botName, 'Helper');
       expect(bots.first.modelName, 'gpt-4o');
+      expect(bots.first.providerCredentialId, 8);
+      expect(bots.first.providerCredentialLabel, 'prod openai');
+      expect(bots.first.providerCredentialLast4, '1234');
+      expect(bots.first.hasCredential, isTrue);
     });
 
     test('createBot posts config and api key', () async {
@@ -277,6 +285,68 @@ void main() {
       expect((capturedBody as Map<String, dynamic>)['apiKey'], 'secret');
       expect(bot?.id, 2);
       expect(bot?.botName, 'NewBot');
+    });
+
+    test('BotConfig toJson includes provider credential id without secret', () {
+      final config = BotConfig(
+        botName: 'VaultBot',
+        llmProvider: 'OPENAI',
+        providerCredentialId: 7,
+        hasCredential: true,
+      );
+
+      final json = config.toJson();
+
+      expect(json['providerCredentialId'], 7);
+      expect(json.containsKey('apiKey'), isFalse);
+    });
+
+    test('provider credentials can be listed and created', () async {
+      final calls = <String>[];
+      Object? capturedBody;
+      final service = BotService(
+        authenticatedRequest: (method, url, {headers, body}) async {
+          calls.add('$method $url');
+          if (method == 'POST') capturedBody = body;
+          if (method == 'GET') {
+            return jsonResponse({
+              'code': 200,
+              'data': [
+                {
+                  'id': 3,
+                  'llmProvider': 'OPENAI',
+                  'label': 'prod',
+                  'secretLast4': 'abcd',
+                  'isActive': true,
+                }
+              ],
+            });
+          }
+          return jsonResponse({
+            'code': 200,
+            'data': {
+              'id': 4,
+              'llmProvider': 'OPENAI',
+              'label': 'new',
+              'secretLast4': '1234',
+              'isActive': true,
+            },
+          });
+        },
+      );
+
+      final listed = await service.getProviderCredentials(provider: 'OPENAI');
+      final created = await service.createProviderCredential(
+        provider: 'OPENAI',
+        label: 'new',
+        secret: 'sk-1234',
+      );
+
+      expect(
+          calls[0], contains('/api/v1/provider-credentials?provider=OPENAI'));
+      expect(listed.single.label, 'prod');
+      expect(created.id, 4);
+      expect((capturedBody as Map<String, dynamic>)['secret'], 'sk-1234');
     });
 
     test('room bot management calls backend endpoints', () async {

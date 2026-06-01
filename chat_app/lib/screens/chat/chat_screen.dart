@@ -32,6 +32,7 @@ import '../../services/platform_chat_file_picker.dart'
 import '../../services/user_profile_service.dart';
 import '../../services/websocket_service.dart';
 import '../../widgets/anonymous_toggle_button.dart';
+import '../../widgets/anonymous_identity_hint.dart';
 import '../../widgets/call_grid_view.dart';
 import '../../widgets/message_bubble.dart';
 import '../../widgets/pm_brand.dart';
@@ -69,6 +70,18 @@ class ChatScreenArguments {
   final CallMediaKind? startCall;
 }
 
+class _CachedChatMessages {
+  const _CachedChatMessages({
+    required this.messages,
+    required this.hasMoreMessages,
+    required this.nextMessagePage,
+  });
+
+  final List<Message> messages;
+  final bool hasMoreMessages;
+  final int nextMessagePage;
+}
+
 class ChatScreen extends StatefulWidget {
   const ChatScreen({
     super.key,
@@ -78,6 +91,7 @@ class ChatScreen extends StatefulWidget {
     this.profileService,
     this.callService,
     this.contactService,
+    this.botService,
     this.imagePicker,
     this.filePicker,
   });
@@ -88,8 +102,16 @@ class ChatScreen extends StatefulWidget {
   final UserProfileService? profileService;
   final ChatCallService? callService;
   final ContactDataService? contactService;
+  final BotService? botService;
   final ChatAttachmentPicker? imagePicker;
   final ChatAttachmentPicker? filePicker;
+
+  @visibleForTesting
+  static void clearMessageCacheForTesting() {
+    _messageCache.clear();
+  }
+
+  static final Map<String, _CachedChatMessages> _messageCache = {};
 
   @override
   State<ChatScreen> createState() => _ChatScreenState();
@@ -137,13 +159,16 @@ class _ChatScreenState extends State<ChatScreen> {
   int _desktopInfoPanelTab = 0;
   int _newMessagesBelow = 0;
   bool _showNewMessagesButton = false;
+  List<User> _mentionMembers = const [];
   List<User> _mentionSuggestions = const [];
   int _mentionSelectedIndex = 0;
   int? _mentionStartIndex;
+  bool _isLoadingMentionMembers = false;
   AnonymousIdentity? _anonymousIdentity;
   AnonymousQuota? _anonymousQuota;
   bool _anonymousPerMessageMode = false;
   bool _anonymousNextMessage = false;
+  bool _isRerollingAnonymous = false;
   List<String> _typingUserNames = const [];
   Message? _replyingToMessage;
   String? _highlightedMessageId;
@@ -162,6 +187,7 @@ class _ChatScreenState extends State<ChatScreen> {
   bool _isDragUploadActive = false;
   int _dragUploadFileCount = 0;
   UserAppSettings _appSettings = const UserAppSettings();
+  bool _restoredMessagesFromCache = false;
 
   @override
   void initState() {
@@ -170,7 +196,7 @@ class _ChatScreenState extends State<ChatScreen> {
     _webSocketService = widget.webSocketService ?? WebSocketService();
     _authService = widget.authService ?? AuthService();
     _anonymousService = AnonymousService();
-    _botService = BotService();
+    _botService = widget.botService ?? BotService();
     _profileService =
         widget.profileService ?? UserProfileService(authService: _authService);
     _contactService = widget.contactService ?? ContactDataService();
@@ -237,11 +263,13 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   void _startChatSession() {
+    _restoreCachedMessages();
     unawaited(_loadCustomizationSettings());
     unawaited(_loadAnonymousModePreference());
     unawaited(_prepareAnnouncementBanner());
     _attachDropPasteHandlers();
-    _loadInitialMessages();
+    _loadInitialMessages(showBlockingLoader: !_restoredMessagesFromCache);
+    unawaited(_loadMentionMembers());
     _loadRoomBots();
     _loadFriendshipState();
     _connectRealtime();
@@ -338,28 +366,54 @@ class _ChatScreenState extends State<ChatScreen> {
     setState(fn);
   }
 
-  Future<void> _loadInitialMessages() async {
+  void _restoreCachedMessages() {
+    final cached = ChatScreen._messageCache[_chat.id];
+    if (cached == null) return;
+    _messages = List<Message>.from(cached.messages);
+    _hasMoreMessages = cached.hasMoreMessages;
+    _nextMessagePage = cached.nextMessagePage;
+    _isLoadingMessages = false;
+    _errorMessage = null;
+    _restoredMessagesFromCache = true;
+    _jumpToBottom();
+  }
+
+  Future<void> _loadInitialMessages({bool showBlockingLoader = true}) async {
     setState(() {
-      _isLoadingMessages = true;
+      if (showBlockingLoader) {
+        _isLoadingMessages = true;
+      }
       _errorMessage = null;
     });
 
     try {
       final page = await _chatService.getMessagePage(_chat.id);
       if (!mounted) return;
+      final wasNearBottom = _isNearBottom();
       setState(() {
         _messages = List<Message>.from(page.messages);
         _hasMoreMessages = page.hasNext;
         _nextMessagePage = page.currentPage + 1;
         _isLoadingMessages = false;
+        _errorMessage = null;
       });
-      _scrollToBottom();
+      _saveMessageCache();
+      if (showBlockingLoader || wasNearBottom) {
+        _jumpToBottom();
+      }
       unawaited(_markAllRead());
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) _markViewportMessagesRead();
       });
     } catch (e) {
       if (!mounted) return;
+      if (_messages.isNotEmpty) {
+        setState(() {
+          _isLoadingMessages = false;
+          _errorMessage = null;
+        });
+        return;
+      }
       setState(() {
         _errorMessage = e.toString();
         _isLoadingMessages = false;
@@ -455,6 +509,7 @@ class _ChatScreenState extends State<ChatScreen> {
         _nextMessagePage = page.currentPage + 1;
         _isLoadingOlderMessages = false;
       });
+      _saveMessageCache();
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -491,6 +546,25 @@ class _ChatScreenState extends State<ChatScreen> {
   void _handleRealtimeStatus(Map<String, dynamic> event) {
     final roomId = event['chatRoomId']?.toString();
     if (roomId != _chat.id || !mounted) return;
+    if (event['type'] == 'room_updated') {
+      final chatRoomJson = event['chatRoom'];
+      if (chatRoomJson is Map<String, dynamic>) {
+        final updated = Chat.fromJson(chatRoomJson);
+        setState(() {
+          _chat = _chat.copyWith(
+            name: updated.name,
+            description: updated.description,
+            announcement: updated.announcement,
+            avatarUrl: updated.avatarUrl,
+            anonymousEnabled: updated.anonymousEnabled,
+            anonymousTheme: updated.anonymousTheme,
+            customBackgroundPreset: updated.customBackgroundPreset,
+            customBackgroundUrl: updated.customBackgroundUrl,
+          );
+        });
+      }
+      return;
+    }
     if (event['type'] == 'poll_voted') {
       setState(() => _pollRefreshEpoch += 1);
       return;
@@ -557,6 +631,7 @@ class _ChatScreenState extends State<ChatScreen> {
       }
       _messages.sort((a, b) => a.timestamp.compareTo(b.timestamp));
     });
+    _saveMessageCache();
   }
 
   void _scrollToBottom() {
@@ -572,6 +647,25 @@ class _ChatScreenState extends State<ChatScreen> {
         curve: Curves.easeOut,
       );
     });
+  }
+
+  void _jumpToBottom() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!_scrollController.hasClients) return;
+      final position = _scrollController.position;
+      if (!position.hasContentDimensions) return;
+      final maxScrollExtent = position.maxScrollExtent;
+      if (!maxScrollExtent.isFinite) return;
+      _scrollController.jumpTo(maxScrollExtent);
+    });
+  }
+
+  void _saveMessageCache() {
+    ChatScreen._messageCache[_chat.id] = _CachedChatMessages(
+      messages: List<Message>.from(_messages),
+      hasMoreMessages: _hasMoreMessages,
+      nextMessagePage: _nextMessagePage,
+    );
   }
 
   Color? _parseAnonymousColor(String? value) {
@@ -732,6 +826,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 children: [
                   _buildReplyPreviewStrip(),
                   _buildMentionPickerPanel(),
+                  _buildAnonymousIdentityHint(),
                   LayoutBuilder(
                     builder: (context, constraints) {
                       if (constraints.maxWidth < 400) {
@@ -803,6 +898,7 @@ class _ChatScreenState extends State<ChatScreen> {
       perMessageMode: _anonymousPerMessageMode,
       nextMessageAnonymous: _anonymousNextMessage,
       onPerMessageModeChanged: _setAnonymousMode,
+      currentIdentity: _anonymousIdentity,
       compact: compact,
       onAnonymousChanged: (identity) {
         _applyAnonymousIdentity(identity);

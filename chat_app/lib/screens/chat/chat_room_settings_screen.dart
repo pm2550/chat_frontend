@@ -65,6 +65,7 @@ class _ChatRoomSettingsScreenState extends State<ChatRoomSettingsScreen> {
   late String _roomName;
   String? _roomDescription;
   String? _roomAnnouncement;
+  String? _roomAvatarUrl;
   String? _roomBackgroundPreset;
   String? _roomBackgroundUrl;
   DateTime? _announcementUpdatedAt;
@@ -112,6 +113,7 @@ class _ChatRoomSettingsScreenState extends State<ChatRoomSettingsScreen> {
         _roomName = room.name;
         _roomDescription = room.description;
         _roomAnnouncement = room.announcement;
+        _roomAvatarUrl = room.avatarUrl;
         _roomBackgroundPreset = room.customBackgroundPreset;
         _roomBackgroundUrl = room.customBackgroundUrl;
         _announcementUpdatedAt = room.announcementUpdatedAt;
@@ -202,6 +204,7 @@ class _ChatRoomSettingsScreenState extends State<ChatRoomSettingsScreen> {
         _roomName = room.name;
         _roomDescription = room.description;
         _roomAnnouncement = room.announcement;
+        _roomAvatarUrl = room.avatarUrl;
         _announcementUpdatedAt = room.announcementUpdatedAt;
         _announcementUpdatedBy = room.announcementUpdatedBy;
         _isSavingRoom = false;
@@ -272,6 +275,41 @@ class _ChatRoomSettingsScreenState extends State<ChatRoomSettingsScreen> {
       if (!mounted) return;
       setState(() => _isSavingRoom = false);
       _showSnackBar('房间背景上传失败: $error', isError: true);
+    }
+  }
+
+  Future<void> _pickAndUploadRoomAvatar() async {
+    if (!_currentUserIsAdmin || !widget.isGroup) return;
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.image,
+      allowMultiple: false,
+      withData: kIsWeb,
+    );
+    if (result == null || result.files.isEmpty) return;
+    final file = result.files.single;
+
+    setState(() => _isSavingRoom = true);
+    try {
+      final room = await _chatService.uploadRoomAvatar(
+        widget.chatRoomId.toString(),
+        PickedChatFile(
+          name: file.name,
+          path: file.path,
+          size: file.size,
+          bytes: file.bytes,
+        ),
+      );
+      if (!mounted) return;
+      setState(() {
+        _roomAvatarUrl = room.avatarUrl;
+        _roomName = room.name;
+        _isSavingRoom = false;
+      });
+      _showSnackBar('群头像已更新');
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _isSavingRoom = false);
+      _showSnackBar('群头像上传失败: $error', isError: true);
     }
   }
 
@@ -722,10 +760,44 @@ class _ChatRoomSettingsScreenState extends State<ChatRoomSettingsScreen> {
       background: AppColors.pixelBlue,
       child: Row(
         children: [
-          PMUserAvatar.raw(
-            fallbackText: widget.isGroup ? '群' : _roomName,
-            isGroup: true,
-            size: 68,
+          Stack(
+            clipBehavior: Clip.none,
+            children: [
+              PMUserAvatar.raw(
+                imageUrl: _resolveAvatarUrl(_roomAvatarUrl),
+                fallbackText: widget.isGroup ? '群' : _roomName,
+                isGroup: widget.isGroup,
+                size: 68,
+              ),
+              if (widget.isGroup && _currentUserIsAdmin)
+                Positioned(
+                  right: -4,
+                  bottom: -4,
+                  child: Tooltip(
+                    message: '更改群头像',
+                    child: InkWell(
+                      key: const Key('change-room-avatar-button'),
+                      onTap: _isSavingRoom ? null : _pickAndUploadRoomAvatar,
+                      borderRadius: BorderRadius.circular(PMRadius.pill),
+                      child: Container(
+                        width: 28,
+                        height: 28,
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          shape: BoxShape.circle,
+                          border: Border.all(color: AppColors.border),
+                          boxShadow: const [PMElevation.subtle],
+                        ),
+                        child: const Icon(
+                          Icons.add_a_photo,
+                          size: 15,
+                          color: AppColors.primary,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+            ],
           ),
           const SizedBox(width: PMSpacing.l),
           Expanded(

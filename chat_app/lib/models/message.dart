@@ -109,6 +109,10 @@ class Message {
   final String senderId;
   final String senderName;
   final String? senderAvatar;
+  final String? botConfigId;
+  final String? botSenderId;
+  final String? botName;
+  final String? botAvatar;
   final String chatRoomId;
   final MessageType type;
   final MessageStatus status;
@@ -143,6 +147,10 @@ class Message {
     required this.senderId,
     required this.senderName,
     this.senderAvatar,
+    this.botConfigId,
+    this.botSenderId,
+    this.botName,
+    this.botAvatar,
     required this.chatRoomId,
     this.type = MessageType.text,
     this.status = MessageStatus.sending,
@@ -192,6 +200,8 @@ class Message {
     final anonymousName = json['anonymousName'] ?? json['anonymous_name'];
     final anonymousAvatar = json['anonymousAvatar'] ?? json['anonymous_avatar'];
     final linkPreviewJson = json['linkPreview'] ?? json['link_preview'];
+    final botName = _stringOrNull(json['botName'] ?? json['bot_name']);
+    final botAvatar = _stringOrNull(json['botAvatar'] ?? json['bot_avatar']);
     final regularSenderName = json['senderName'] ??
         json['sender_name'] ??
         senderJson?['displayName'] ??
@@ -217,6 +227,10 @@ class Message {
               json['sender_avatar'] ??
               senderJson?['avatarUrl'] ??
               senderJson?['avatar_url'],
+      botConfigId: _stringOrNull(json['botConfigId'] ?? json['bot_config_id']),
+      botSenderId: _stringOrNull(json['botSenderId'] ?? json['bot_sender_id']),
+      botName: botName,
+      botAvatar: botAvatar,
       chatRoomId: json['chatRoomId']?.toString() ??
           json['chat_room_id']?.toString() ??
           chatRoomJson?['id']?.toString() ??
@@ -284,6 +298,10 @@ class Message {
       'senderId': senderId,
       'senderName': senderName,
       'senderAvatar': senderAvatar,
+      'botConfigId': botConfigId,
+      'botSenderId': botSenderId,
+      'botName': botName,
+      'botAvatar': botAvatar,
       'chatRoomId': chatRoomId,
       'type': type.name.toUpperCase(),
       'status': status.name.toUpperCase(),
@@ -320,6 +338,10 @@ class Message {
     String? senderId,
     String? senderName,
     String? senderAvatar,
+    String? botConfigId,
+    String? botSenderId,
+    String? botName,
+    String? botAvatar,
     String? chatRoomId,
     MessageType? type,
     MessageStatus? status,
@@ -354,6 +376,10 @@ class Message {
       senderId: senderId ?? this.senderId,
       senderName: senderName ?? this.senderName,
       senderAvatar: senderAvatar ?? this.senderAvatar,
+      botConfigId: botConfigId ?? this.botConfigId,
+      botSenderId: botSenderId ?? this.botSenderId,
+      botName: botName ?? this.botName,
+      botAvatar: botAvatar ?? this.botAvatar,
       chatRoomId: chatRoomId ?? this.chatRoomId,
       type: type ?? this.type,
       status: status ?? this.status,
@@ -387,6 +413,26 @@ class Message {
   bool get isEdited => editedAt != null;
   bool get hasReply => replyToMessage != null;
   bool get isRemoved => isDeleted || isRecalled;
+  bool get isBotMessage =>
+      (botConfigId?.isNotEmpty ?? false) ||
+      (botSenderId?.isNotEmpty ?? false) ||
+      (botName?.trim().isNotEmpty ?? false);
+  bool isFromCurrentUser(String? currentUserId) =>
+      currentUserId != null && senderId == currentUserId && !isBotMessage;
+  String get effectiveBotName {
+    final explicit = botName?.trim();
+    if (explicit != null && explicit.isNotEmpty) return explicit;
+    return 'AI 助手';
+  }
+
+  String get displayContent {
+    if (!isBotMessage) return content;
+    final name = RegExp.escape(effectiveBotName);
+    return content
+        .replaceFirst(RegExp('^\\[$name\\]\\s*'), '')
+        .replaceFirst(RegExp(r'^\[[^\]]+\]\s*'), '');
+  }
+
   bool mentionsUser(String? userId) =>
       userId != null && mentionedUserIds.contains(userId);
   bool get isEncrypted =>
@@ -456,6 +502,11 @@ class Message {
     if (value is int) return value;
     if (value is num) return value.toInt();
     return int.tryParse(value.toString());
+  }
+
+  static String? _stringOrNull(dynamic value) {
+    final string = value?.toString().trim();
+    return string == null || string.isEmpty ? null : string;
   }
 
   static bool _parseBool(dynamic value) {

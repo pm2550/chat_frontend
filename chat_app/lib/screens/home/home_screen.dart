@@ -12,7 +12,14 @@ import '../ai/ai_hub_page.dart';
 import '../workspace/workspace_page.dart';
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+  const HomeScreen({
+    super.key,
+    @visibleForTesting this.pageBuilder,
+  });
+
+  @visibleForTesting
+  final Widget Function(BuildContext context, int index, String aiSection)?
+      pageBuilder;
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -21,6 +28,10 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   int _currentIndex = 0;
   String _aiSection = 'bots';
+  String? _cachedAiSection;
+  final PageStorageBucket _pageStorageBucket = PageStorageBucket();
+  late final List<Widget?> _pageCache =
+      List<Widget?>.filled(_tabs.length, null);
 
   static const List<_HomeTabSpec> _tabs = [
     _HomeTabSpec(
@@ -76,26 +87,13 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final pages = [
-      const ChatListPage(),
-      const ContactsPage(),
-      const WorkspacePage(),
-      AiHubPage(initialSection: _aiSection),
-      const ProfilePage(),
-    ];
-
     if (PMBreakpoints.isDesktop(context)) {
       return Scaffold(
         backgroundColor: AppColors.background,
         body: Row(
           children: [
             _buildDesktopSidebar(context),
-            Expanded(
-              child: IndexedStack(
-                index: _currentIndex,
-                children: pages,
-              ),
-            ),
+            Expanded(child: _buildCachedTabStack()),
           ],
         ),
       );
@@ -143,14 +141,14 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
             ),
-            Expanded(child: pages[_currentIndex]),
+            Expanded(child: _buildCachedTabStack()),
           ],
         ),
       );
     }
 
     return Scaffold(
-      body: pages[_currentIndex],
+      body: _buildCachedTabStack(),
       bottomNavigationBar: DecoratedBox(
         decoration: const BoxDecoration(
           color: AppColors.surface,
@@ -174,6 +172,51 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       ),
     );
+  }
+
+  Widget _buildCachedTabStack() {
+    return PageStorage(
+      bucket: _pageStorageBucket,
+      child: IndexedStack(
+        index: _currentIndex,
+        children: List.generate(_tabs.length, (index) {
+          final shouldBuild =
+              index == _currentIndex || _pageCache[index] != null;
+          return TickerMode(
+            enabled: index == _currentIndex,
+            child: shouldBuild ? _pageAt(index) : const SizedBox.shrink(),
+          );
+        }),
+      ),
+    );
+  }
+
+  Widget _pageAt(int index) {
+    if (index == 3 &&
+        (_pageCache[index] == null || _cachedAiSection != _aiSection)) {
+      _cachedAiSection = _aiSection;
+      return _pageCache[index] = _createPage(index);
+    }
+    return _pageCache[index] ??= _createPage(index);
+  }
+
+  Widget _createPage(int index) {
+    final customPage = widget.pageBuilder?.call(context, index, _aiSection);
+    if (customPage != null) {
+      return customPage;
+    }
+
+    return switch (index) {
+      0 => const ChatListPage(key: PageStorageKey<String>('home-chats')),
+      1 => const ContactsPage(key: PageStorageKey<String>('home-contacts')),
+      2 => const WorkspacePage(key: PageStorageKey<String>('home-workspace')),
+      3 => AiHubPage(
+          key: const PageStorageKey<String>('home-ai'),
+          initialSection: _aiSection,
+        ),
+      4 => const ProfilePage(key: PageStorageKey<String>('home-me')),
+      _ => const SizedBox.shrink(),
+    };
   }
 
   void _selectTab(int index) {

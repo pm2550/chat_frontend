@@ -178,6 +178,24 @@ class ChatDataService {
     return Chat.fromJson(chatRoomJson);
   }
 
+  Future<Chat> uploadRoomAvatar(
+    String chatRoomId,
+    PickedChatFile file,
+  ) async {
+    final roomId = _parseRoomId(chatRoomId);
+    final response = await _requestMultipart(
+      ApiConstants.chatRoomAvatar(roomId),
+      fields: const {},
+      file: file,
+    );
+    final data = _decodeResponse(response);
+    final chatRoomJson = data['chatRoom'] ?? data['data'];
+    if (chatRoomJson is! Map<String, dynamic>) {
+      throw const ChatDataException('群头像上传成功但响应中没有聊天室数据');
+    }
+    return Chat.fromJson(chatRoomJson);
+  }
+
   Future<Chat> updateRoomBackgroundPreset(
     String chatRoomId,
     String preset,

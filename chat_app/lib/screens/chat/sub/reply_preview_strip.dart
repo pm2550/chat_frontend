@@ -171,8 +171,11 @@ extension _ChatScreenAnonymousParts on _ChatScreenState {
   Future<void> _rerollAnonymousIdentity() async {
     final roomId = int.tryParse(_chat.id);
     if (roomId == null) return;
+    if (_isRerollingAnonymous) return;
+    _setViewState(() => _isRerollingAnonymous = true);
     final result = await _anonymousService.rerollAnonymousWithResult(roomId);
     if (!mounted) return;
+    _setViewState(() => _isRerollingAnonymous = false);
     if (result.quotaExhausted) {
       final quota = await _anonymousService.getQuota();
       if (mounted) {
@@ -197,6 +200,9 @@ extension _ChatScreenAnonymousParts on _ChatScreenState {
         remaining: identity.dailyRemaining ?? 0,
         resetsAt: identity.quotaResetsAt,
       );
+      if (_anonymousPerMessageMode) {
+        _anonymousNextMessage = true;
+      }
     });
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text('已切换为 ${identity.anonymousName}')),

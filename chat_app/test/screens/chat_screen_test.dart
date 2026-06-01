@@ -3,6 +3,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:emoji_picker_flutter/emoji_picker_flutter.dart';
+import 'package:chat_app/design/design.dart';
 import 'package:chat_app/screens/chat/chat_screen.dart';
 import 'package:chat_app/models/call_state.dart';
 import 'package:chat_app/models/chat.dart';
@@ -13,12 +14,15 @@ import 'package:chat_app/services/chat_data_service.dart';
 import 'package:chat_app/services/chat_call_service.dart';
 import 'package:chat_app/services/contact_data_service.dart';
 import 'package:chat_app/services/auth_service.dart';
+import 'package:chat_app/services/bot_service.dart';
 import 'package:chat_app/services/websocket_service.dart';
 import 'package:chat_app/widgets/message_bubble.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
+  setUp(ChatScreen.clearMessageCacheForTesting);
+
   final testMessages = [
     Message(
       id: '1',
@@ -74,6 +78,7 @@ void main() {
     ChatCallService? callService,
     ContactDataService? contactService,
     AuthService? authService,
+    BotService? botService,
     ChatAttachmentPicker? imagePicker,
     ChatAttachmentPicker? filePicker,
   }) {
@@ -92,6 +97,7 @@ void main() {
                   callService: callService,
                   contactService: contactService,
                   authService: authService,
+                  botService: botService,
                   imagePicker: imagePicker,
                   filePicker: filePicker,
                 ),
@@ -140,7 +146,7 @@ void main() {
         tester.view.resetViewInsets();
       });
 
-      final chat = createTestChat();
+      final chat = createTestChat(id: '42');
 
       await tester.pumpWidget(buildTestWidget(
         chat,
@@ -167,7 +173,7 @@ void main() {
         tester.view.resetDevicePixelRatio();
       });
 
-      final chat = createTestChat();
+      final chat = createTestChat(id: '42');
 
       await tester.pumpWidget(buildTestWidget(
         chat,
@@ -193,7 +199,7 @@ void main() {
         tester.view.resetDevicePixelRatio();
       });
 
-      final chat = createTestChat();
+      final chat = createTestChat(id: '42');
 
       await tester.pumpWidget(buildTestWidget(
         chat,
@@ -236,7 +242,7 @@ void main() {
         tester.view.resetDevicePixelRatio();
       });
 
-      final chat = createTestChat();
+      final chat = createTestChat(id: '42');
 
       await tester.pumpWidget(buildTestWidget(
         chat,
@@ -260,7 +266,7 @@ void main() {
         tester.view.resetDevicePixelRatio();
       });
 
-      final chat = createTestChat();
+      final chat = createTestChat(id: '42');
 
       await tester.pumpWidget(buildTestWidget(
         chat,
@@ -276,7 +282,8 @@ void main() {
       expect(find.text('暂无贴纸包'), findsOneWidget);
     });
 
-    testWidgets('375px more menu launches Agent command panel', (tester) async {
+    testWidgets('375px more menu opens Agent command panel without sending',
+        (tester) async {
       tester.view.physicalSize = const Size(375, 667);
       tester.view.devicePixelRatio = 1;
       addTearDown(() {
@@ -284,12 +291,17 @@ void main() {
         tester.view.resetDevicePixelRatio();
       });
 
-      final chat = createTestChat();
+      final chat = createTestChat(id: '42');
+      final service = FakeChatDataService(messages: const []);
 
       await tester.pumpWidget(buildTestWidget(
         chat,
-        chatService: FakeChatDataService(messages: const []),
+        chatService: service,
+        botService: FakeBotService(roomBots: [
+          BotConfig(id: 3, botName: 'DeployBot', llmProvider: 'HERMES'),
+        ]),
       ));
+      await tester.pump();
       await tester.pump();
 
       await tester.tap(find.byTooltip('其它操作'));
@@ -297,7 +309,12 @@ void main() {
       await tester.tap(find.text('Agent 命令'));
       await tester.pumpAndSettle();
 
+      final editable = tester.widget<EditableText>(find.byType(EditableText));
+      expect(editable.controller.text, isEmpty);
       expect(find.text('/ask · 问 AI'), findsOneWidget);
+      expect(find.text('/draft · 生成草稿'), findsOneWidget);
+      expect(find.text('/summarize · 总结最近消息'), findsOneWidget);
+      expect(service.sentTexts, isEmpty);
     });
 
     testWidgets('375x812 composer more sheet exposes eight actions',
@@ -391,6 +408,39 @@ void main() {
       expect(shellWidth, greaterThanOrEqualTo(180));
     });
 
+    testWidgets('inline Agent button opens command panel and does not submit',
+        (tester) async {
+      tester.view.physicalSize = const Size(720, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(() {
+        tester.view.resetPhysicalSize();
+        tester.view.resetDevicePixelRatio();
+      });
+
+      final chat = createTestChat(id: '42');
+      final service = FakeChatDataService(messages: const []);
+
+      await tester.pumpWidget(buildTestWidget(
+        chat,
+        chatService: service,
+        botService: FakeBotService(roomBots: [
+          BotConfig(id: 4, botName: 'HelperBot', llmProvider: 'HERMES'),
+        ]),
+      ));
+      await tester.pump();
+      await tester.pump();
+
+      await tester.tap(find.byTooltip('Agent 命令'));
+      await tester.pumpAndSettle();
+
+      final editable = tester.widget<EditableText>(find.byType(EditableText));
+      expect(editable.controller.text, isEmpty);
+      expect(find.text('/ask · 问 AI'), findsOneWidget);
+      expect(find.text('/draft · 生成草稿'), findsOneWidget);
+      expect(find.text('/summarize · 总结最近消息'), findsOneWidget);
+      expect(service.sentTexts, isEmpty);
+    });
+
     testWidgets('loads chat by route id when arguments are missing',
         (tester) async {
       final routeChat = createTestChat(id: '42', name: '直链房间');
@@ -473,7 +523,7 @@ void main() {
         (tester) async {
       final now = DateTime.now();
       final groupChat = Chat(
-        id: 'chat1',
+        id: '42',
         name: 'Mention Room',
         type: ChatType.group,
         createdAt: now,
@@ -513,7 +563,266 @@ void main() {
       await tester.pump();
 
       final editable = tester.widget<EditableText>(find.byType(EditableText));
-      expect(editable.controller.text, '@Bob ');
+      expect(editable.controller.text, '@bob ');
+    });
+
+    testWidgets('typing @ filters mention picker by display name prefix',
+        (tester) async {
+      final now = DateTime.now();
+      final groupChat = Chat(
+        id: '42',
+        name: 'Mention Room',
+        type: ChatType.group,
+        createdAt: now,
+        participants: [
+          User(
+            id: '2',
+            username: 'zhangsan',
+            email: 'zhang@test.com',
+            displayName: '张三',
+            createdAt: now,
+          ),
+          User(
+            id: '3',
+            username: 'alice',
+            email: 'alice@test.com',
+            displayName: 'Alice',
+            createdAt: now,
+          ),
+        ],
+      );
+
+      await tester.pumpWidget(buildTestWidget(
+        groupChat,
+        chatService: FakeChatDataService(messages: const []),
+      ));
+      await tester.pump();
+
+      await tester.enterText(find.byType(TextField), '@张');
+      await tester.pump();
+
+      expect(find.text('张三'), findsWidgets);
+      expect(find.text('Alice'), findsNothing);
+    });
+
+    testWidgets('tapping mention picker member inserts username mention',
+        (tester) async {
+      final now = DateTime.now();
+      final groupChat = Chat(
+        id: '42',
+        name: 'Mention Room',
+        type: ChatType.group,
+        createdAt: now,
+        participants: [
+          User(
+            id: '2',
+            username: 'zhangsan',
+            email: 'zhang@test.com',
+            displayName: '张三',
+            createdAt: now,
+          ),
+          User(
+            id: '3',
+            username: 'alice',
+            email: 'alice@test.com',
+            displayName: 'Alice',
+            createdAt: now,
+          ),
+        ],
+      );
+
+      await tester.pumpWidget(buildTestWidget(
+        groupChat,
+        chatService: FakeChatDataService(messages: const []),
+      ));
+      await tester.pump();
+
+      await tester.enterText(find.byType(TextField), '@张');
+      await tester.pump();
+      await tester.tap(find.text('张三').first);
+      await tester.pump();
+
+      final editable = tester.widget<EditableText>(find.byType(EditableText));
+      expect(editable.controller.text, '@zhangsan ');
+      expect(find.text('张三'), findsNothing);
+    });
+
+    testWidgets('anonymous-like participants are excluded from mention picker',
+        (tester) async {
+      final now = DateTime.now();
+      final groupChat = Chat(
+        id: 'chat1',
+        name: 'Mention Room',
+        type: ChatType.group,
+        createdAt: now,
+        participants: [
+          User(
+            id: '2',
+            username: 'alice',
+            email: 'alice@test.com',
+            displayName: 'Alice',
+            createdAt: now,
+          ),
+          User(
+            id: 'anon',
+            username: '',
+            email: 'anon@test.com',
+            displayName: '神秘小象',
+            createdAt: now,
+          ),
+        ],
+      );
+
+      await tester.pumpWidget(buildTestWidget(
+        groupChat,
+        chatService: FakeChatDataService(messages: const []),
+      ));
+      await tester.pump();
+
+      await tester.enterText(find.byType(TextField), '@');
+      await tester.pump();
+
+      expect(find.text('Alice'), findsWidgets);
+      expect(find.text('神秘小象'), findsNothing);
+    });
+
+    testWidgets('typing @ includes active room bots in mention picker',
+        (tester) async {
+      final now = DateTime.now();
+      final groupChat = Chat(
+        id: '42',
+        name: 'Mention Bot Room',
+        type: ChatType.group,
+        createdAt: now,
+        participants: [
+          User(
+            id: '2',
+            username: 'alice',
+            email: 'alice@test.com',
+            displayName: 'Alice',
+            createdAt: now,
+          ),
+        ],
+      );
+
+      await tester.pumpWidget(buildTestWidget(
+        groupChat,
+        chatService: FakeChatDataService(messages: const []),
+        botService: FakeBotService(roomBots: [
+          BotConfig(
+            id: 9,
+            botName: 'HelperBot',
+            llmProvider: 'HERMES',
+            roomNickname: 'DeployBot',
+          ),
+        ]),
+      ));
+      await tester.pump();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+
+      await tester.tap(find.byType(TextField));
+      await tester.enterText(find.byType(TextField), '@');
+      await tester.pump();
+
+      expect(find.text('Alice'), findsOneWidget);
+      expect(find.text('DeployBot'), findsOneWidget);
+      expect(find.text('AI Bot · @DeployBot'), findsOneWidget);
+
+      await tester.enterText(find.byType(TextField), '@Dep');
+      await tester.pump();
+
+      expect(find.text('DeployBot'), findsOneWidget);
+      expect(find.text('Alice'), findsNothing);
+    });
+
+    testWidgets('right-click avatar in member panel inserts mention',
+        (tester) async {
+      tester.view.physicalSize = const Size(1400, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      final now = DateTime.now();
+      final groupChat = Chat(
+        id: 'group1',
+        name: 'Mention Room',
+        type: ChatType.group,
+        createdAt: now,
+        participants: [
+          User(
+            id: '2',
+            username: 'alice',
+            email: 'alice@test.com',
+            displayName: 'Alice',
+            createdAt: now,
+          ),
+        ],
+      );
+
+      await tester.pumpWidget(buildTestWidget(
+        groupChat,
+        chatService: FakeChatDataService(messages: const []),
+      ));
+      await tester.pump();
+      await tester.pump();
+
+      final avatarFinder = find.byKey(const ValueKey('member-avatar-2'));
+      expect(avatarFinder, findsOneWidget);
+      final center = tester.getCenter(avatarFinder);
+      final gesture = await tester.createGesture(
+        kind: PointerDeviceKind.mouse,
+        buttons: kSecondaryMouseButton,
+      );
+      await gesture.addPointer(location: center);
+      await tester.pump();
+      await gesture.down(center);
+      await gesture.up();
+      await gesture.removePointer();
+      await tester.pump();
+
+      final editable = tester.widget<EditableText>(find.byType(EditableText));
+      expect(editable.controller.text, '@alice ');
+    });
+
+    testWidgets('long-press message avatar inserts mention on mobile',
+        (tester) async {
+      final now = DateTime.now();
+      final groupChat = Chat(
+        id: 'group1',
+        name: 'Mention Room',
+        type: ChatType.group,
+        createdAt: now,
+        participants: [
+          User(
+            id: '2',
+            username: 'alice',
+            email: 'alice@test.com',
+            displayName: 'Alice',
+            createdAt: now,
+          ),
+        ],
+      );
+      final service = FakeChatDataService(messages: [
+        Message(
+          id: 'm1',
+          content: '大家看这里',
+          senderId: '2',
+          senderName: 'Alice',
+          chatRoomId: 'group1',
+          status: MessageStatus.sent,
+          timestamp: DateTime.parse('2024-01-01T10:00:00'),
+        ),
+      ]);
+
+      await tester.pumpWidget(buildTestWidget(groupChat, chatService: service));
+      await tester.pump();
+
+      await tester.longPress(find.byType(PMUserAvatar).first);
+      await tester.pump();
+
+      final editable = tester.widget<EditableText>(find.byType(EditableText));
+      expect(editable.controller.text, '@alice ');
     });
 
     testWidgets('pressing Enter sends message and clears input',
@@ -625,6 +934,41 @@ void main() {
 
       expect(find.text('后端消息一'), findsOneWidget);
       expect(find.text('后端消息二'), findsOneWidget);
+    });
+
+    testWidgets('reuses cached messages when re-enter refresh fails',
+        (tester) async {
+      final chat = createTestChat(id: 'cache-room');
+      final firstService = FakeChatDataService(messages: [
+        Message(
+          id: 'cached-1',
+          content: '缓存里的最后消息',
+          senderId: 'user2',
+          senderName: '好友',
+          chatRoomId: 'cache-room',
+          status: MessageStatus.sent,
+          timestamp: DateTime.parse('2024-01-01T10:00:00'),
+        ),
+      ]);
+
+      await tester.pumpWidget(buildTestWidget(chat, chatService: firstService));
+      await tester.pumpAndSettle();
+      expect(find.text('缓存里的最后消息'), findsOneWidget);
+
+      final failingService = FakeChatDataService(
+        messages: const [],
+        messagePageError: Exception('network flicker'),
+      );
+
+      await tester.pumpWidget(
+        buildTestWidget(chat, chatService: failingService),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+
+      expect(find.text('缓存里的最后消息'), findsOneWidget);
+      expect(find.text('消息加载失败'), findsNothing);
+      expect(find.text('重试'), findsNothing);
     });
 
     testWidgets('announcement banner dismiss persists seen state',
@@ -1028,6 +1372,7 @@ class FakeChatDataService extends ChatDataService {
     this.searchResults = const [],
     this.sendError,
     this.sendFileError,
+    this.messagePageError,
     this.routeChat,
   }) : super(authenticatedRequest: _unusedRequest);
 
@@ -1035,6 +1380,7 @@ class FakeChatDataService extends ChatDataService {
   final List<Message> searchResults;
   final Object? sendError;
   final Object? sendFileError;
+  final Object? messagePageError;
   final Chat? routeChat;
   final List<PickedChatFile> sentFiles = [];
   final List<String> sentTexts = [];
@@ -1075,6 +1421,9 @@ class FakeChatDataService extends ChatDataService {
     int page = 0,
     int size = 50,
   }) async {
+    if (messagePageError != null) {
+      throw messagePageError!;
+    }
     return MessagePage(
       messages: messages,
       currentPage: page,
@@ -1226,6 +1575,15 @@ class FakeChatDataService extends ChatDataService {
   Future<List<StickerItem>> getStickers(int packId) async {
     return const <StickerItem>[];
   }
+}
+
+class FakeBotService extends BotService {
+  FakeBotService({this.roomBots = const []});
+
+  final List<BotConfig> roomBots;
+
+  @override
+  Future<List<BotConfig>> getBotsInRoom(int roomId) async => roomBots;
 }
 
 class FakeContactDataService extends ContactDataService {

@@ -14,6 +14,9 @@ void main() {
     String senderId = 'user1',
     String senderName = 'Alice',
     String? senderAvatar,
+    String? botConfigId,
+    String? botName,
+    String? botAvatar,
     String chatRoomId = 'room1',
     MessageType type = MessageType.text,
     MessageStatus status = MessageStatus.sent,
@@ -35,6 +38,10 @@ void main() {
       senderId: senderId,
       senderName: senderName,
       senderAvatar: senderAvatar,
+      botConfigId: botConfigId,
+      botSenderId: botConfigId,
+      botName: botName,
+      botAvatar: botAvatar,
       chatRoomId: chatRoomId,
       type: type,
       status: status,
@@ -248,6 +255,30 @@ void main() {
       expect(find.text('Charlie'), findsOneWidget);
     });
 
+    testWidgets(
+        'renders bot identity on the received side without inline prefix',
+        (tester) async {
+      final message = createMessage(
+        content: '[HelperBot] bot answer',
+        senderId: 'current-user',
+        senderName: 'Me',
+        botConfigId: '9',
+        botName: 'HelperBot',
+      );
+
+      await tester.pumpWidget(buildTestWidget(
+        MessageBubble(message: message, isMe: false, showAvatar: true),
+      ));
+
+      final row = tester.widget<Row>(find.byType(Row).first);
+      expect(row.mainAxisAlignment, MainAxisAlignment.start);
+      expect(find.text('HelperBot'), findsOneWidget);
+      expect(find.text('BOT'), findsOneWidget);
+      expect(find.text('bot answer'), findsOneWidget);
+      expect(find.text('[HelperBot] bot answer'), findsNothing);
+      expect(find.byType(PMUserAvatar), findsOneWidget);
+    });
+
     testWidgets('does not show CircleAvatar when showAvatar is false',
         (tester) async {
       final message = createMessage(content: 'No avatar');
@@ -278,9 +309,9 @@ void main() {
         (tester) async {
       final message = createMessage(
         content: 'Anonymous message',
-        senderName: '匿名鹿',
+        senderName: '神秘小象',
         isAnonymous: true,
-        anonymousName: '匿名鹿',
+        anonymousName: '神秘小象',
         anonymousAvatar: '#7C3AED',
       );
 
@@ -288,9 +319,78 @@ void main() {
         MessageBubble(message: message, isMe: true, showAvatar: true),
       ));
 
-      expect(find.byType(CircleAvatar), findsOneWidget);
-      expect(find.text('匿'), findsOneWidget);
-      expect(find.byIcon(Icons.masks), findsWidgets);
+      expect(find.byType(AnonymousAvatar), findsOneWidget);
+      expect(find.text('🐘'), findsOneWidget);
+      expect(find.text('神秘小象'), findsOneWidget);
+    });
+
+    testWidgets('anonymous name shows in 2-person room without avatar flag',
+        (tester) async {
+      final message = createMessage(
+        content: '匿名内容',
+        senderName: '神秘小象',
+        isAnonymous: true,
+        anonymousName: '神秘小象',
+        anonymousAvatar: '#FF6B6B',
+      );
+
+      await tester.pumpWidget(buildTestWidget(
+        MessageBubble(message: message, isMe: false, showAvatar: false),
+      ));
+
+      expect(find.text('神秘小象'), findsOneWidget);
+      expect(find.text('匿名内容'), findsOneWidget);
+    });
+
+    testWidgets('anonymous name still shows in group room with avatar',
+        (tester) async {
+      final message = createMessage(
+        content: '群里匿名',
+        senderName: '勇敢狐狸',
+        isAnonymous: true,
+        anonymousName: '勇敢狐狸',
+        anonymousAvatar: '#45B7D1',
+      );
+
+      await tester.pumpWidget(buildTestWidget(
+        MessageBubble(message: message, isMe: false, showAvatar: true),
+      ));
+
+      expect(find.text('勇敢狐狸'), findsOneWidget);
+      expect(find.byType(AnonymousAvatar), findsOneWidget);
+    });
+
+    testWidgets('real-name message in 2-person room does not show sender label',
+        (tester) async {
+      final message = createMessage(
+        content: '实名内容',
+        senderName: '真实用户',
+      );
+
+      await tester.pumpWidget(buildTestWidget(
+        MessageBubble(message: message, isMe: false, showAvatar: false),
+      ));
+
+      expect(find.text('真实用户'), findsNothing);
+      expect(find.text('实名内容'), findsOneWidget);
+    });
+
+    testWidgets('sent anonymous message shows current user anonymous name',
+        (tester) async {
+      final message = createMessage(
+        content: '我发的匿名',
+        senderName: '快乐企鹅',
+        isAnonymous: true,
+        anonymousName: '快乐企鹅',
+        anonymousAvatar: '#4ECDC4',
+      );
+
+      await tester.pumpWidget(buildTestWidget(
+        MessageBubble(message: message, isMe: true, showAvatar: false),
+      ));
+
+      expect(find.text('快乐企鹅'), findsOneWidget);
+      expect(find.text('我发的匿名'), findsOneWidget);
     });
 
     testWidgets('displays formatted timestamp for today', (tester) async {

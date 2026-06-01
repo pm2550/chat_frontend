@@ -1,3 +1,4 @@
+export 'anonymous_avatar.dart';
 export 'pm_attachment_card.dart';
 export 'pm_button.dart';
 export 'pm_card.dart';

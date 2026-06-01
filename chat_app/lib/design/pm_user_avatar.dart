@@ -14,6 +14,8 @@ class PMUserAvatar extends StatelessWidget {
     this.status,
     this.showOnlineDot = false,
     this.onTap,
+    this.onSecondaryTap,
+    this.onLongPress,
     this.framePreset,
   })  : imageUrl = null,
         fallbackText = null,
@@ -27,6 +29,8 @@ class PMUserAvatar extends StatelessWidget {
     this.status,
     this.showOnlineDot = false,
     this.onTap,
+    this.onSecondaryTap,
+    this.onLongPress,
     this.isGroup = false,
     this.framePreset,
   }) : user = null;
@@ -38,6 +42,8 @@ class PMUserAvatar extends StatelessWidget {
   final PMOnlineStatus? status;
   final bool showOnlineDot;
   final VoidCallback? onTap;
+  final VoidCallback? onSecondaryTap;
+  final VoidCallback? onLongPress;
   final bool isGroup;
   final String? framePreset;
 
@@ -94,12 +100,17 @@ class PMUserAvatar extends StatelessWidget {
       ],
     );
 
-    if (onTap == null) {
+    if (onTap == null && onSecondaryTap == null && onLongPress == null) {
       return content;
     }
     return MouseRegion(
       cursor: SystemMouseCursors.click,
-      child: GestureDetector(onTap: onTap, child: content),
+      child: GestureDetector(
+        onTap: onTap,
+        onSecondaryTap: onSecondaryTap,
+        onLongPress: onLongPress,
+        child: content,
+      ),
     );
   }
 

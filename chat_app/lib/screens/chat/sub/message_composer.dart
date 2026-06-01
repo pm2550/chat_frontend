@@ -297,6 +297,7 @@ extension _ChatScreenComposerParts on _ChatScreenState {
         children: [
           _buildReplyPreviewStrip(),
           _buildMentionPickerPanel(),
+          _buildAnonymousIdentityHint(),
           Row(
             children: [
               _buildInputIconButton(
@@ -322,6 +323,7 @@ extension _ChatScreenComposerParts on _ChatScreenState {
               AnonymousToggleButton(
                 chatRoomId: int.tryParse(_chat.id) ?? 0,
                 anonymousEnabled: _chat.anonymousEnabled,
+                currentIdentity: _anonymousIdentity,
                 perMessageMode: _anonymousPerMessageMode,
                 nextMessageAnonymous: _anonymousNextMessage,
                 onPerMessageModeChanged: _setAnonymousMode,
@@ -358,6 +360,16 @@ extension _ChatScreenComposerParts on _ChatScreenState {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildAnonymousIdentityHint() {
+    return AnonymousIdentityHint(
+      identity: _anonymousIdentity,
+      quota: _anonymousQuota,
+      visible: _shouldSendAnonymous(),
+      rerolling: _isRerollingAnonymous,
+      onReroll: _rerollAnonymousIdentity,
     );
   }
 
@@ -430,7 +442,19 @@ extension _ChatScreenComposerParts on _ChatScreenState {
     }
 
     final normalized = query.toLowerCase();
-    final candidates = _chat.participants
+    final source = _mentionSourceUsers();
+    if (source.isEmpty && !_isLoadingMentionMembers) {
+      unawaited(_loadMentionMembers().then((_) {
+        if (!mounted) return;
+        _updateMentionSuggestions(
+          _messageController.text,
+          _messageController.selection.baseOffset,
+        );
+      }));
+    }
+
+    final candidates = source
+        .where(_isMentionableUser)
         .where((user) {
           final display = user.displayName.toLowerCase();
           final username = user.username.toLowerCase();
@@ -470,11 +494,72 @@ extension _ChatScreenComposerParts on _ChatScreenState {
       return;
     }
     final user = selected ?? _mentionSuggestions[_mentionSelectedIndex];
-    final label =
-        user.displayName.isNotEmpty ? user.displayName : user.username;
+    _insertMentionForUser(user, replaceStart: start, replaceEnd: selection);
+  }
+
+  List<User> _mentionSourceUsers() {
+    final source =
+        _mentionMembers.isNotEmpty ? _mentionMembers : _chat.participants;
+    final seen = <String>{};
+    final users = <User>[];
+
+    for (final user in source) {
+      if (_isMentionableUser(user) && seen.add(user.id)) {
+        users.add(user);
+      }
+    }
+
+    for (final bot in _roomBots) {
+      if (!bot.enabledInRoom) continue;
+      final mentionUser = _mentionUserForBot(bot);
+      if (seen.add(mentionUser.id)) {
+        users.add(mentionUser);
+      }
+    }
+
+    return users;
+  }
+
+  User _mentionUserForBot(BotConfig bot) {
+    final label = _botMentionLabel(bot);
+    return User(
+      id: 'bot-${bot.id ?? label}',
+      username: label.replaceAll(RegExp(r'\s+'), '_'),
+      email: '',
+      displayName: label,
+      avatarUrl: bot.botAvatar,
+      onlineStatus: OnlineStatus.online,
+      createdAt: DateTime.fromMillisecondsSinceEpoch(0),
+    );
+  }
+
+  String _botMentionLabel(BotConfig bot) {
+    final roomName = bot.roomNickname?.trim();
+    if (roomName != null && roomName.isNotEmpty) {
+      return roomName;
+    }
+    return bot.botName.trim();
+  }
+
+  void _insertMentionForUser(
+    User user, {
+    int? replaceStart,
+    int? replaceEnd,
+  }) {
+    if (!_isMentionableUser(user)) return;
+    final username = user.username.trim();
     final value = _messageController.value;
-    final nextText = value.text.replaceRange(start, selection, '@$label ');
-    final nextOffset = start + label.length + 2;
+    final text = value.text;
+    final selection = value.selection;
+    final start =
+        replaceStart ?? _clampTextOffset(selection.start, text.length);
+    final end =
+        replaceEnd ?? _clampTextOffset(selection.end, text.length, min: start);
+    final needsLeadingSpace =
+        start > 0 && !RegExp(r'\s').hasMatch(text.substring(start - 1, start));
+    final mentionText = '${needsLeadingSpace ? ' ' : ''}@$username ';
+    final nextText = text.replaceRange(start, end, mentionText);
+    final nextOffset = start + mentionText.length;
     _messageController.value = value.copyWith(
       text: nextText,
       selection: TextSelection.collapsed(offset: nextOffset),
@@ -482,6 +567,14 @@ extension _ChatScreenComposerParts on _ChatScreenState {
     );
     _clearMentionSuggestions();
     _setViewState(() => _isTyping = nextText.trim().isNotEmpty);
+    _focusNode.requestFocus();
+  }
+
+  int _clampTextOffset(int offset, int length, {int min = 0}) {
+    if (offset < 0) return length;
+    if (offset < min) return min;
+    if (offset > length) return length;
+    return offset;
   }
 
   void _clearMentionSuggestions() {
@@ -491,6 +584,52 @@ extension _ChatScreenComposerParts on _ChatScreenState {
       _mentionSuggestions = const [];
       _mentionSelectedIndex = 0;
     });
+  }
+
+  Future<void> _loadMentionMembers() async {
+    if (_isLoadingMentionMembers) return;
+    _isLoadingMentionMembers = true;
+    try {
+      final members = await _chatService.getChatRoomMembers(_chat.id);
+      if (!mounted) return;
+      _setViewState(() {
+        _mentionMembers = members
+            .map((member) => member.user)
+            .where(_isMentionableUser)
+            .toList(growable: false);
+      });
+    } catch (_) {
+      if (!mounted) return;
+      _setViewState(() {
+        _mentionMembers = _chat.participants
+            .where(_isMentionableUser)
+            .toList(growable: false);
+      });
+    } finally {
+      _isLoadingMentionMembers = false;
+    }
+  }
+
+  bool _isMentionableUser(User user) {
+    final username = user.username.trim();
+    if (username.isEmpty) return false;
+    final normalized = username.toLowerCase();
+    return !normalized.startsWith('anonymous_') &&
+        !normalized.startsWith('anon_') &&
+        !normalized.startsWith('anonymous-') &&
+        !normalized.startsWith('anon-');
+  }
+
+  User? _participantForMessageSender(Message message) {
+    final source =
+        _mentionMembers.isNotEmpty ? _mentionMembers : _chat.participants;
+    for (final participant in source) {
+      if (participant.id == message.senderId &&
+          _isMentionableUser(participant)) {
+        return participant;
+      }
+    }
+    return null;
   }
 
   Widget _buildMentionPickerPanel() {
@@ -524,16 +663,27 @@ extension _ChatScreenComposerParts on _ChatScreenState {
   }
 
   Widget _buildMentionSuggestionRow(User user, {required bool selected}) {
+    final isBot = user.id.startsWith('bot-');
     final label =
         user.displayName.isNotEmpty ? user.displayName : user.username;
     return PMListRow(
-      leading: PMUserAvatar(
-        user: user,
-        status: PMOnlineStatus.fromUserStatus(user.onlineStatus),
-        showOnlineDot: true,
-      ),
+      leading: isBot
+          ? CircleAvatar(
+              backgroundColor: AppColors.secondary.withValues(alpha: 0.12),
+              child: const PMSymbolIcon(
+                PMSymbol.ai,
+                color: AppColors.secondaryDark,
+                size: 18,
+              ),
+            )
+          : PMUserAvatar(
+              user: user,
+              status: PMOnlineStatus.fromUserStatus(user.onlineStatus),
+              showOnlineDot: true,
+            ),
       title: Text(label),
-      subtitle: Text('@${user.username}'),
+      subtitle:
+          Text(isBot ? 'AI Bot · @${user.username}' : '@${user.username}'),
       badge: selected ? 'Enter' : null,
       badgeColor: AppColors.primary,
       trailing: selected
@@ -635,7 +785,11 @@ extension _ChatScreenComposerParts on _ChatScreenState {
                         label: 'Agent 命令',
                         onTap: () {
                           Navigator.pop(context);
-                          _showSlashCommandPanel();
+                          WidgetsBinding.instance.addPostFrameCallback((_) {
+                            if (mounted) {
+                              _showSlashCommandPanel();
+                            }
+                          });
                         },
                       ),
                       _buildInputOption(

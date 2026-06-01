@@ -26,6 +26,10 @@ class BotConfig {
   final String? roomNickname;
   final String? roomPromptSuffix;
   final bool enabledInRoom;
+  final int? providerCredentialId;
+  final String? providerCredentialLabel;
+  final String? providerCredentialLast4;
+  final bool hasCredential;
 
   BotConfig({
     this.id,
@@ -42,6 +46,10 @@ class BotConfig {
     this.roomNickname,
     this.roomPromptSuffix,
     this.enabledInRoom = true,
+    this.providerCredentialId,
+    this.providerCredentialLabel,
+    this.providerCredentialLast4,
+    this.hasCredential = false,
   });
 
   factory BotConfig.fromJson(Map<String, dynamic> json) {
@@ -60,6 +68,12 @@ class BotConfig {
       roomNickname: json['roomNickname']?.toString(),
       roomPromptSuffix: json['roomPromptSuffix']?.toString(),
       enabledInRoom: json['enabledInRoom'] ?? true,
+      providerCredentialId: json['providerCredentialId'] is int
+          ? json['providerCredentialId'] as int
+          : int.tryParse(json['providerCredentialId']?.toString() ?? ''),
+      providerCredentialLabel: json['providerCredentialLabel']?.toString(),
+      providerCredentialLast4: json['providerCredentialLast4']?.toString(),
+      hasCredential: json['hasCredential'] == true,
     );
   }
 
@@ -71,6 +85,8 @@ class BotConfig {
         'systemPrompt': systemPrompt,
         'temperature': temperature,
         'maxTokens': maxTokens,
+        if (providerCredentialId != null)
+          'providerCredentialId': providerCredentialId,
       };
 
   Map<String, dynamic> toRoomJson() => {
@@ -80,6 +96,35 @@ class BotConfig {
         if (roomPromptSuffix != null) 'roomPromptSuffix': roomPromptSuffix,
         'enabledInRoom': enabledInRoom,
       };
+}
+
+class ProviderCredential {
+  const ProviderCredential({
+    required this.id,
+    required this.llmProvider,
+    required this.label,
+    this.secretLast4,
+    this.isActive = true,
+    this.memo,
+  });
+
+  final int id;
+  final String llmProvider;
+  final String label;
+  final String? secretLast4;
+  final bool isActive;
+  final String? memo;
+
+  factory ProviderCredential.fromJson(Map<String, dynamic> json) {
+    return ProviderCredential(
+      id: json['id'] as int,
+      llmProvider: json['llmProvider']?.toString() ?? 'OPENAI',
+      label: json['label']?.toString() ?? '',
+      secretLast4: json['secretLast4']?.toString(),
+      isActive: json['isActive'] != false,
+      memo: json['memo']?.toString(),
+    );
+  }
 }
 
 class BotServiceException implements Exception {
@@ -207,6 +252,47 @@ class BotService {
     final response = await _request('DELETE', ApiConstants.botDetail(botId));
     _decodeResponse(response);
     return true;
+  }
+
+  Future<List<ProviderCredential>> getProviderCredentials({
+    String? provider,
+  }) async {
+    final url = provider == null || provider.isEmpty
+        ? ApiConstants.providerCredentials
+        : '${ApiConstants.providerCredentials}?provider=${Uri.encodeQueryComponent(provider)}';
+    final response = await _request('GET', url);
+    final data = _decodeResponse(response);
+    final raw = data['data'];
+    if (raw is List) {
+      return raw
+          .whereType<Map<String, dynamic>>()
+          .map(ProviderCredential.fromJson)
+          .toList(growable: false);
+    }
+    return const [];
+  }
+
+  Future<ProviderCredential> createProviderCredential({
+    required String provider,
+    required String label,
+    required String secret,
+    String? memo,
+  }) async {
+    final response = await _request(
+      'POST',
+      ApiConstants.providerCredentials,
+      body: {
+        'llmProvider': provider,
+        'label': label,
+        'secret': secret,
+        if (memo != null && memo.isNotEmpty) 'memo': memo,
+      },
+    );
+    final data = _decodeResponse(response);
+    if (data['data'] is Map<String, dynamic>) {
+      return ProviderCredential.fromJson(data['data'] as Map<String, dynamic>);
+    }
+    throw const BotServiceException('凭据保存成功但响应中没有数据');
   }
 
   Future<dynamic> _request(
