@@ -73,10 +73,15 @@ void main() {
         find.widgetWithText(TextFormField, '显示名称'),
         'Alice New',
       );
+      await tester.enterText(
+        find.widgetWithText(TextFormField, '头衔'),
+        '值班',
+      );
       await tester.tap(find.byTooltip('保存'));
       await tester.pumpAndSettle();
 
       expect(service.updateRequests.single.displayName, 'Alice New');
+      expect(service.titleUpdates.single.title, '值班');
     });
 
     testWidgets('picks and uploads avatar with fake picker', (tester) async {
@@ -119,6 +124,7 @@ class FakeUserProfileService extends UserProfileService {
 
   User profile;
   final List<UserProfileUpdateRequest> updateRequests = [];
+  final List<TitleUpdate> titleUpdates = [];
   final List<PickedProfileAvatar> uploadedAvatars = [];
   final List<OnlineStatus> statusUpdates = [];
 
@@ -129,6 +135,21 @@ class FakeUserProfileService extends UserProfileService {
     Object? body,
   }) async {
     throw UnimplementedError();
+  }
+
+  @override
+  Future<User> updateTitle({
+    String? title,
+    String? titleColor,
+    String titleEffect = 'none',
+  }) async {
+    titleUpdates.add(TitleUpdate(title, titleColor, titleEffect));
+    profile = profile.copyWith(
+      title: title,
+      titleColor: titleColor,
+      titleEffect: titleEffect,
+    );
+    return profile;
   }
 
   @override
@@ -171,6 +192,14 @@ class FakeUserProfileService extends UserProfileService {
     profile = profile.copyWith(onlineStatus: status);
     return status;
   }
+}
+
+class TitleUpdate {
+  const TitleUpdate(this.title, this.titleColor, this.titleEffect);
+
+  final String? title;
+  final String? titleColor;
+  final String titleEffect;
 }
 
 User testUser(

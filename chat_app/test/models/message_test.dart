@@ -60,6 +60,67 @@ void main() {
       expect(message.fileType, 'image/jpeg');
     });
 
+    test('fromJson maps sender title from nested sender and top-level fields',
+        () {
+      final nested = Message.fromJson({
+        'id': 210,
+        'content': 'nested title',
+        'sender': {
+          'id': 5,
+          'displayName': 'Alice',
+          'title': '管理员',
+          'titleColor': '#2F6BFF',
+          'titleEffect': 'gradient',
+        },
+        'chatRoomId': 20,
+        'messageType': 'TEXT',
+        'messageStatus': 'SENT',
+        'createdAt': '2024-06-15T08:30:00.000Z',
+      });
+
+      final snake = Message.fromJson({
+        'id': 211,
+        'content': 'snake title',
+        'sender_id': 6,
+        'sender_name': 'Bob',
+        'sender_title': '值班',
+        'sender_title_color': '#18B98F',
+        'sender_title_effect': 'glow',
+        'chat_room_id': 20,
+        'message_type': 'TEXT',
+        'message_status': 'SENT',
+        'created_at': '2024-06-15T08:30:00.000Z',
+      });
+
+      expect(nested.senderTitle, '管理员');
+      expect(nested.senderTitleColor, '#2F6BFF');
+      expect(nested.senderTitleEffect, 'gradient');
+      expect(snake.senderTitle, '值班');
+      expect(snake.senderTitleColor, '#18B98F');
+      expect(snake.senderTitleEffect, 'glow');
+    });
+
+    test('fromJson does not leak real title on anonymous messages', () {
+      final message = Message.fromJson({
+        'id': 212,
+        'content': 'anonymous',
+        'senderId': 5,
+        'senderName': 'RealUser',
+        'senderTitle': '管理员',
+        'chatRoomId': 20,
+        'messageType': 'TEXT',
+        'messageStatus': 'SENT',
+        'createdAt': '2024-06-15T08:30:00.000Z',
+        'isAnonymous': true,
+        'anonymousName': '神秘小象',
+        'anonymousAvatar': '#7C3AED',
+      });
+
+      expect(message.isAnonymous, isTrue);
+      expect(message.senderTitle, isNull);
+      expect(message.senderTitleEffect, 'none');
+    });
+
     test('fromJson maps anonymous display metadata over real sender name', () {
       final json = {
         'id': 201,

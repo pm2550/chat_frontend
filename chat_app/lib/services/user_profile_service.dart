@@ -220,6 +220,26 @@ class UserProfileService {
     return user;
   }
 
+  Future<User> updateTitle({
+    String? title,
+    String? titleColor,
+    String titleEffect = 'none',
+  }) async {
+    final response = await _request(
+      'PUT',
+      ApiConstants.myTitle,
+      body: {
+        'title': title?.trim().isEmpty == true ? null : title?.trim(),
+        'titleColor':
+            titleColor?.trim().isEmpty == true ? null : titleColor?.trim(),
+        'titleEffect': titleEffect,
+      },
+    );
+    final user = _extractUser(_decodeResponse(response));
+    await _authService.replaceCurrentUser(user);
+    return user;
+  }
+
   Future<String> uploadAvatar(PickedProfileAvatar avatar) async {
     final response = await _requestMultipart(
       ApiConstants.profileAvatar,
@@ -264,6 +284,9 @@ class UserProfileService {
         phone: currentUser.phone,
         displayName: currentUser.displayName,
         avatarFramePreset: currentUser.avatarFramePreset,
+        title: currentUser.title,
+        titleColor: currentUser.titleColor,
+        titleEffect: currentUser.titleEffect,
         bio: currentUser.bio,
         onlineStatus: currentUser.onlineStatus,
         lastSeen: currentUser.lastSeen,

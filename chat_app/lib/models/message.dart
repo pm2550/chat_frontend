@@ -110,6 +110,9 @@ class Message {
   final String senderId;
   final String senderName;
   final String? senderAvatar;
+  final String? senderTitle;
+  final String? senderTitleColor;
+  final String senderTitleEffect;
   final String? botConfigId;
   final String? botSenderId;
   final String? botName;
@@ -152,6 +155,9 @@ class Message {
     required this.senderId,
     required this.senderName,
     this.senderAvatar,
+    this.senderTitle,
+    this.senderTitleColor,
+    this.senderTitleEffect = 'none',
     this.botConfigId,
     this.botSenderId,
     this.botName,
@@ -236,6 +242,30 @@ class Message {
               json['sender_avatar'] ??
               senderJson?['avatarUrl'] ??
               senderJson?['avatar_url'],
+      senderTitle: isAnonymous
+          ? null
+          : _stringOrNull(
+              json['senderTitle'] ??
+                  json['sender_title'] ??
+                  senderJson?['title'],
+            ),
+      senderTitleColor: isAnonymous
+          ? null
+          : _stringOrNull(
+              json['senderTitleColor'] ??
+                  json['sender_title_color'] ??
+                  senderJson?['titleColor'] ??
+                  senderJson?['title_color'],
+            ),
+      senderTitleEffect: isAnonymous
+          ? 'none'
+          : (_stringOrNull(
+                json['senderTitleEffect'] ??
+                    json['sender_title_effect'] ??
+                    senderJson?['titleEffect'] ??
+                    senderJson?['title_effect'],
+              ) ??
+              'none'),
       botConfigId: _stringOrNull(json['botConfigId'] ?? json['bot_config_id']),
       botSenderId: _stringOrNull(json['botSenderId'] ?? json['bot_sender_id']),
       botName: botName,
@@ -312,6 +342,9 @@ class Message {
       'senderId': senderId,
       'senderName': senderName,
       'senderAvatar': senderAvatar,
+      'senderTitle': senderTitle,
+      'senderTitleColor': senderTitleColor,
+      'senderTitleEffect': senderTitleEffect,
       'botConfigId': botConfigId,
       'botSenderId': botSenderId,
       'botName': botName,
@@ -356,6 +389,9 @@ class Message {
     String? senderId,
     String? senderName,
     String? senderAvatar,
+    String? senderTitle,
+    String? senderTitleColor,
+    String? senderTitleEffect,
     String? botConfigId,
     String? botSenderId,
     String? botName,
@@ -398,6 +434,9 @@ class Message {
       senderId: senderId ?? this.senderId,
       senderName: senderName ?? this.senderName,
       senderAvatar: senderAvatar ?? this.senderAvatar,
+      senderTitle: senderTitle ?? this.senderTitle,
+      senderTitleColor: senderTitleColor ?? this.senderTitleColor,
+      senderTitleEffect: senderTitleEffect ?? this.senderTitleEffect,
       botConfigId: botConfigId ?? this.botConfigId,
       botSenderId: botSenderId ?? this.botSenderId,
       botName: botName ?? this.botName,

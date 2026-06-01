@@ -80,6 +80,47 @@ void main() {
       expect(authService.currentUser?.displayName, 'Alice Updated');
     });
 
+    test('updateTitle sends title body and updates auth cache', () async {
+      Object? sentBody;
+      final service = UserProfileService(
+        authService: authService,
+        authenticatedRequest: (
+          method,
+          url, {
+          headers,
+          body,
+        }) async {
+          expect(method, 'PUT');
+          expect(url, ApiConstants.myTitle);
+          sentBody = body;
+          return jsonResponse({
+            'success': true,
+            'data': userJson(
+              '1',
+              'Alice',
+              title: '值班',
+              titleColor: '#18B98F',
+              titleEffect: 'glow',
+            ),
+          });
+        },
+      );
+
+      final user = await service.updateTitle(
+        title: ' 值班 ',
+        titleColor: '#18B98F',
+        titleEffect: 'glow',
+      );
+
+      expect(sentBody, {
+        'title': '值班',
+        'titleColor': '#18B98F',
+        'titleEffect': 'glow',
+      });
+      expect(user.title, '值班');
+      expect(authService.currentUser?.titleEffect, 'glow');
+    });
+
     test('uploadAvatar uses multipart avatar field and updates cached avatar',
         () async {
       PickedProfileAvatar? uploaded;
@@ -277,6 +318,9 @@ Map<String, dynamic> userJson(
   String displayName, {
   String email = 'alice@example.com',
   String? avatarUrl,
+  String? title,
+  String? titleColor,
+  String titleEffect = 'none',
 }) {
   return {
     'id': id,
@@ -284,6 +328,9 @@ Map<String, dynamic> userJson(
     'email': email,
     'displayName': displayName,
     'avatarUrl': avatarUrl,
+    'title': title,
+    'titleColor': titleColor,
+    'titleEffect': titleEffect,
     'onlineStatus': 'ONLINE',
     'createdAt': '2024-01-01T10:00:00',
   };

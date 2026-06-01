@@ -275,6 +275,14 @@ class MessageBubble extends StatelessWidget {
               ),
             ),
           ),
+        if (!message.isAnonymous &&
+            !message.isBotMessage &&
+            (message.senderTitle?.trim().isNotEmpty ?? false))
+          PMTitleBadge(
+            title: message.senderTitle,
+            color: message.senderTitleColor,
+            effect: message.senderTitleEffect,
+          ),
         if (message.isAnonymous)
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),

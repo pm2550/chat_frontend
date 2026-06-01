@@ -6,6 +6,9 @@ class User {
   final String displayName;
   final String? avatarUrl;
   final String avatarFramePreset;
+  final String? title;
+  final String? titleColor;
+  final String titleEffect;
   final String? bio;
   final OnlineStatus onlineStatus;
   final DateTime? lastSeen;
@@ -22,6 +25,9 @@ class User {
     required this.displayName,
     this.avatarUrl,
     this.avatarFramePreset = 'none',
+    this.title,
+    this.titleColor,
+    this.titleEffect = 'none',
     this.bio,
     this.onlineStatus = OnlineStatus.offline,
     this.lastSeen,
@@ -42,6 +48,11 @@ class User {
       avatarFramePreset:
           (json['avatarFramePreset'] ?? json['avatar_frame_preset'] ?? 'none')
               .toString(),
+      title: json['title']?.toString(),
+      titleColor:
+          json['titleColor']?.toString() ?? json['title_color']?.toString(),
+      titleEffect:
+          (json['titleEffect'] ?? json['title_effect'] ?? 'none').toString(),
       bio: json['bio'],
       onlineStatus: OnlineStatus.values.firstWhere(
         (e) =>
@@ -83,6 +94,9 @@ class User {
       'displayName': displayName,
       'avatarUrl': avatarUrl,
       'avatarFramePreset': avatarFramePreset,
+      'title': title,
+      'titleColor': titleColor,
+      'titleEffect': titleEffect,
       'bio': bio,
       'onlineStatus': onlineStatus.name.toUpperCase(),
       'lastSeen': lastSeen?.toIso8601String(),
@@ -101,6 +115,9 @@ class User {
     String? displayName,
     String? avatarUrl,
     String? avatarFramePreset,
+    String? title,
+    String? titleColor,
+    String? titleEffect,
     String? bio,
     OnlineStatus? onlineStatus,
     DateTime? lastSeen,
@@ -117,6 +134,9 @@ class User {
       displayName: displayName ?? this.displayName,
       avatarUrl: avatarUrl ?? this.avatarUrl,
       avatarFramePreset: avatarFramePreset ?? this.avatarFramePreset,
+      title: title ?? this.title,
+      titleColor: titleColor ?? this.titleColor,
+      titleEffect: titleEffect ?? this.titleEffect,
       bio: bio ?? this.bio,
       onlineStatus: onlineStatus ?? this.onlineStatus,
       lastSeen: lastSeen ?? this.lastSeen,

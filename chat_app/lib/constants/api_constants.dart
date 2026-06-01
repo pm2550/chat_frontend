@@ -69,6 +69,8 @@ class ApiConstants {
   static const String profileSearch = '$profileBaseUrl/search';
   static String getUserById(int id) => '$apiBaseUrl/users/$id';
   static String uploadAvatar(int id) => '$apiBaseUrl/users/$id/avatar';
+  static const String myTitle = '$apiBaseUrl/users/me/title';
+  static String userTitle(int id) => '$apiBaseUrl/users/$id/title';
 
   // Chat room endpoints
   static const String chatRooms = '$apiBaseUrl/chat-rooms';

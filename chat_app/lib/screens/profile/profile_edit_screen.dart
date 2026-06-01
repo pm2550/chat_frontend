@@ -35,8 +35,11 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
   late final TextEditingController _emailController;
   late final TextEditingController _phoneController;
   late final TextEditingController _bioController;
+  late final TextEditingController _titleController;
+  late final TextEditingController _titleColorController;
 
   OnlineStatus _selectedStatus = OnlineStatus.online;
+  String _selectedTitleEffect = 'none';
   PickedProfileAvatar? _selectedAvatar;
   List<int>? _avatarPreviewBytes;
   String? _avatarUrl;
@@ -52,6 +55,10 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
     _emailController = TextEditingController(text: widget.user.email);
     _phoneController = TextEditingController(text: widget.user.phone ?? '');
     _bioController = TextEditingController(text: widget.user.bio ?? '');
+    _titleController = TextEditingController(text: widget.user.title ?? '');
+    _titleColorController =
+        TextEditingController(text: widget.user.titleColor ?? '#2F6BFF');
+    _selectedTitleEffect = widget.user.titleEffect;
     _selectedStatus = widget.user.onlineStatus;
     _avatarUrl = widget.user.avatarUrl;
   }
@@ -62,6 +69,8 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
     _emailController.dispose();
     _phoneController.dispose();
     _bioController.dispose();
+    _titleController.dispose();
+    _titleColorController.dispose();
     super.dispose();
   }
 
@@ -172,6 +181,13 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
       );
 
       await _profileService.updateProfile(request);
+      await _profileService.updateTitle(
+        title: _titleController.text,
+        titleColor: _titleController.text.trim().isEmpty
+            ? null
+            : _titleColorController.text,
+        titleEffect: _selectedTitleEffect,
+      );
       if (!mounted) return;
       _showSuccessSnackBar('资料更新成功');
       Navigator.of(context).pop(true);
@@ -286,6 +302,8 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
                                     children: [
                                       _buildBasicInfoSection(),
                                       const SizedBox(height: PMSpacing.l),
+                                      _buildTitleSection(),
+                                      const SizedBox(height: PMSpacing.l),
                                       _buildOnlineStatusSection(),
                                       const SizedBox(height: PMSpacing.xl),
                                       _buildSaveBar(),
@@ -299,6 +317,8 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
                                 _buildAvatarSection(),
                                 const SizedBox(height: PMSpacing.l),
                                 _buildBasicInfoSection(),
+                                const SizedBox(height: PMSpacing.l),
+                                _buildTitleSection(),
                                 const SizedBox(height: PMSpacing.l),
                                 _buildOnlineStatusSection(),
                                 const SizedBox(height: PMSpacing.xl),
@@ -379,6 +399,14 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
             ),
           ),
           const SizedBox(height: PMSpacing.xs),
+          PMTitleBadge(
+            title: _titleController.text,
+            color: _titleColorController.text,
+            effect: _selectedTitleEffect,
+            compact: false,
+          ),
+          if (_titleController.text.trim().isNotEmpty)
+            const SizedBox(height: PMSpacing.xs),
           Text(
             widget.user.email,
             maxLines: 1,
@@ -572,6 +600,91 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
                   ),
                 )
                 .toList(),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildTitleSection() {
+    const effects = [
+      ('none', '普通'),
+      ('gradient', '渐变'),
+      ('glow', '发光'),
+      ('rainbow', '彩虹'),
+      ('animated_pulse', '脉冲'),
+    ];
+
+    return PMSectionCard(
+      title: '聊天头衔',
+      subtitle: '会显示在消息气泡、成员栏和个人资料里；留空则不展示',
+      padding: const EdgeInsets.all(PMSpacing.xl),
+      children: [
+        Padding(
+          padding: const EdgeInsets.all(PMSpacing.m),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Align(
+                alignment: Alignment.centerLeft,
+                child: PMTitleBadge(
+                  title: _titleController.text.trim().isEmpty
+                      ? '头衔预览'
+                      : _titleController.text,
+                  color: _titleColorController.text,
+                  effect: _selectedTitleEffect,
+                  compact: false,
+                ),
+              ),
+              const SizedBox(height: PMSpacing.l),
+              TextFormField(
+                controller: _titleController,
+                decoration: _inputDecoration(
+                  label: '头衔',
+                  hint: '例如 PM、架构师、值班',
+                  icon: Icons.workspace_premium_outlined,
+                ),
+                maxLength: 50,
+                onChanged: (_) => setState(() {}),
+              ),
+              const SizedBox(height: PMSpacing.l),
+              TextFormField(
+                controller: _titleColorController,
+                decoration: _inputDecoration(
+                  label: '头衔颜色',
+                  hint: '#2F6BFF',
+                  icon: Icons.palette_outlined,
+                ),
+                onChanged: (_) => setState(() {}),
+                validator: (value) {
+                  final text = value?.trim() ?? '';
+                  if (_titleController.text.trim().isEmpty && text.isEmpty) {
+                    return null;
+                  }
+                  if (!RegExp(r'^#[0-9a-fA-F]{6}$').hasMatch(text)) {
+                    return '请输入 #RRGGBB 颜色';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: PMSpacing.l),
+              Wrap(
+                spacing: PMSpacing.s,
+                runSpacing: PMSpacing.s,
+                children: effects
+                    .map(
+                      (effect) => PMChip(
+                        label: effect.$2,
+                        icon: Icons.auto_awesome_outlined,
+                        selected: _selectedTitleEffect == effect.$1,
+                        color: AppColors.primary,
+                        onTap: () =>
+                            setState(() => _selectedTitleEffect = effect.$1),
+                      ),
+                    )
+                    .toList(),
+              ),
+            ],
           ),
         ),
       ],

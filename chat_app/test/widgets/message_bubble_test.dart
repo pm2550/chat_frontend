@@ -14,6 +14,9 @@ void main() {
     String senderId = 'user1',
     String senderName = 'Alice',
     String? senderAvatar,
+    String? senderTitle,
+    String? senderTitleColor,
+    String senderTitleEffect = 'none',
     String? botConfigId,
     String? botName,
     String? botAvatar,
@@ -38,6 +41,9 @@ void main() {
       senderId: senderId,
       senderName: senderName,
       senderAvatar: senderAvatar,
+      senderTitle: senderTitle,
+      senderTitleColor: senderTitleColor,
+      senderTitleEffect: senderTitleEffect,
       botConfigId: botConfigId,
       botSenderId: botConfigId,
       botName: botName,
@@ -253,6 +259,25 @@ void main() {
       ));
 
       expect(find.text('Charlie'), findsOneWidget);
+    });
+
+    testWidgets('renders sender title badge for regular group messages',
+        (tester) async {
+      final message = createMessage(
+        content: 'Group message',
+        senderName: 'Charlie',
+        senderTitle: '值班',
+        senderTitleColor: '#18B98F',
+        senderTitleEffect: 'glow',
+      );
+
+      await tester.pumpWidget(buildTestWidget(
+        MessageBubble(message: message, isMe: false, showAvatar: true),
+      ));
+
+      expect(find.text('Charlie'), findsOneWidget);
+      expect(find.text('值班'), findsOneWidget);
+      expect(find.byType(PMTitleBadge), findsOneWidget);
     });
 
     testWidgets(
