@@ -36,6 +36,7 @@ class _ApiKeysScreenState extends State<ApiKeysScreen> {
   bool _showForm = false;
   bool _saving = false;
   String _provider = 'OPENAI';
+  int? _editingId; // non-null => the form is editing this credential, not creating
   final _labelController = TextEditingController();
   final _secretController = TextEditingController();
   final _baseUrlController = TextEditingController();
@@ -78,36 +79,43 @@ class _ApiKeysScreenState extends State<ApiKeysScreen> {
     }
   }
 
-  Future<void> _create() async {
-    if (_labelController.text.trim().isEmpty ||
-        _secretController.text.trim().isEmpty) {
+  Future<void> _save() async {
+    final label = _labelController.text.trim();
+    final secret = _secretController.text.trim();
+    final isEditing = _editingId != null;
+    // On create both name + secret are required; on edit a blank secret keeps the
+    // existing one (we never echo the stored secret back into the field).
+    if (label.isEmpty || (!isEditing && secret.isEmpty)) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('请填写名称和密钥')),
+        SnackBar(content: Text(isEditing ? '请填写名称' : '请填写名称和密钥')),
       );
       return;
     }
     setState(() => _saving = true);
     try {
-      await _botService.createProviderCredential(
-        provider: _provider,
-        label: _labelController.text.trim(),
-        secret: _secretController.text.trim(),
-        baseUrl: _baseUrlController.text.trim(),
-        modelOverride: _modelController.text.trim(),
-      );
+      if (isEditing) {
+        await _botService.updateProviderCredential(
+          credentialId: _editingId!,
+          label: label,
+          secret: secret.isEmpty ? null : secret,
+          baseUrl: _baseUrlController.text.trim(),
+          modelOverride: _modelController.text.trim(),
+        );
+      } else {
+        await _botService.createProviderCredential(
+          provider: _provider,
+          label: label,
+          secret: secret,
+          baseUrl: _baseUrlController.text.trim(),
+          modelOverride: _modelController.text.trim(),
+        );
+      }
       if (!mounted) return;
-      _labelController.clear();
-      _secretController.clear();
-      _baseUrlController.clear();
-      _modelController.clear();
-      setState(() {
-        _saving = false;
-        _showForm = false;
-      });
+      _resetForm();
       await _load();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('密钥已保存')),
+          SnackBar(content: Text(isEditing ? '密钥已更新' : '密钥已保存')),
         );
       }
     } catch (error) {
@@ -116,6 +124,56 @@ class _ApiKeysScreenState extends State<ApiKeysScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('保存失败: $error')),
       );
+    }
+  }
+
+  void _resetForm() {
+    _labelController.clear();
+    _secretController.clear();
+    _baseUrlController.clear();
+    _modelController.clear();
+    setState(() {
+      _saving = false;
+      _showForm = false;
+      _editingId = null;
+      _provider = 'OPENAI';
+    });
+  }
+
+  void _startEdit(ProviderCredential credential) {
+    _labelController.text = credential.label;
+    _secretController.clear(); // never pre-fill the secret; blank = keep existing
+    _baseUrlController.text = credential.baseUrl ?? '';
+    _modelController.text = credential.modelOverride ?? '';
+    setState(() {
+      _editingId = credential.id;
+      _provider = credential.llmProvider;
+      _showForm = true;
+    });
+  }
+
+  Future<void> _confirmDelete(ProviderCredential credential) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('删除密钥'),
+        content: Text('确定删除「${credential.label}」？引用它的机器人将无法继续使用该密钥，'
+            '此操作不可撤销。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: AppColors.error),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('删除'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) {
+      await _delete(credential);
     }
   }
 
@@ -168,9 +226,17 @@ class _ApiKeysScreenState extends State<ApiKeysScreen> {
                   ),
                   const SizedBox(height: PMSpacing.xl),
                   PMButton(
-                    label: _showForm ? '取消添加' : '添加密钥',
+                    label: _showForm
+                        ? '取消'
+                        : (_editingId != null ? '编辑密钥' : '添加密钥'),
                     icon: _showForm ? Icons.close : Icons.add,
-                    onPressed: () => setState(() => _showForm = !_showForm),
+                    onPressed: () {
+                      if (_showForm) {
+                        _resetForm();
+                      } else {
+                        setState(() => _showForm = true);
+                      }
+                    },
                   ),
                   if (_showForm) ...[
                     const SizedBox(height: PMSpacing.l),
@@ -230,19 +296,26 @@ class _ApiKeysScreenState extends State<ApiKeysScreen> {
             style: TextStyle(fontWeight: FontWeight.w600),
           ),
           const SizedBox(height: PMSpacing.s),
-          Wrap(
-            spacing: PMSpacing.s,
-            runSpacing: PMSpacing.s,
-            children: _providers
-                .map(
-                  (p) => PMChip(
-                    label: p,
-                    selected: _provider == p,
-                    onTap: () => setState(() => _provider = p),
-                  ),
-                )
-                .toList(),
-          ),
+          // Provider type is immutable on edit (it identifies the credential's API shape).
+          if (_editingId == null)
+            Wrap(
+              spacing: PMSpacing.s,
+              runSpacing: PMSpacing.s,
+              children: _providers
+                  .map(
+                    (p) => PMChip(
+                      label: p,
+                      selected: _provider == p,
+                      onTap: () => setState(() => _provider = p),
+                    ),
+                  )
+                  .toList(),
+            )
+          else
+            Align(
+              alignment: Alignment.centerLeft,
+              child: PMChip(label: _provider, selected: true),
+            ),
           const SizedBox(height: PMSpacing.m),
           TextField(
             controller: _labelController,
@@ -255,9 +328,9 @@ class _ApiKeysScreenState extends State<ApiKeysScreen> {
           TextField(
             controller: _secretController,
             obscureText: true,
-            decoration: const InputDecoration(
-              labelText: 'API Key',
-              prefixIcon: Icon(Icons.key),
+            decoration: InputDecoration(
+              labelText: _editingId == null ? 'API Key' : 'API Key（留空保持不变）',
+              prefixIcon: const Icon(Icons.key),
             ),
           ),
           const SizedBox(height: PMSpacing.s),
@@ -279,10 +352,10 @@ class _ApiKeysScreenState extends State<ApiKeysScreen> {
           ),
           const SizedBox(height: PMSpacing.l),
           PMButton(
-            label: '保存密钥',
+            label: _editingId == null ? '保存密钥' : '保存修改',
             icon: Icons.save,
             loading: _saving,
-            onPressed: _saving ? null : _create,
+            onPressed: _saving ? null : _save,
           ),
         ],
       ),
@@ -307,10 +380,20 @@ class _ApiKeysScreenState extends State<ApiKeysScreen> {
         leading: const Icon(Icons.vpn_key, color: AppColors.secondary),
         title: Text(credential.label),
         subtitle: Text(parts.join(' · ')),
-        trailing: IconButton(
-          icon: const Icon(Icons.delete_outline),
-          tooltip: '删除',
-          onPressed: () => _delete(credential),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            IconButton(
+              icon: const Icon(Icons.edit_outlined),
+              tooltip: '编辑',
+              onPressed: () => _startEdit(credential),
+            ),
+            IconButton(
+              icon: const Icon(Icons.delete_outline),
+              tooltip: '删除',
+              onPressed: () => _confirmDelete(credential),
+            ),
+          ],
         ),
       ),
     );
