@@ -8,6 +8,7 @@ import '../../services/bot_service.dart';
 import '../../services/chat_data_service.dart';
 import '../../widgets/pm_brand.dart';
 import '../../widgets/pm_responsive.dart';
+import 'api_keys_screen.dart';
 import 'bot_edit_screen.dart';
 
 class AiHubPage extends StatefulWidget {
@@ -140,6 +141,13 @@ class _AiHubPageState extends State<AiHubPage> {
                     icon: Icons.add,
                     compact: true,
                     onPressed: _openCreateBot,
+                  ),
+                  PMButton(
+                    label: 'API 密钥',
+                    icon: Icons.vpn_key,
+                    compact: true,
+                    variant: PMButtonVariant.secondary,
+                    onPressed: _openApiKeys,
                   ),
                   PMButton(
                     label: '刷新',
@@ -428,6 +436,14 @@ class _AiHubPageState extends State<AiHubPage> {
               ),
             ),
         ],
+      ),
+    );
+  }
+
+  Future<void> _openApiKeys() async {
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (_) => ApiKeysScreen(botService: _botService),
       ),
     );
   }
