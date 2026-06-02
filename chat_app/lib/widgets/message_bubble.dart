@@ -491,12 +491,33 @@ class MessageBubble extends StatelessWidget {
       data: message.displayContent,
       selectable: true,
       extensionSet: md.ExtensionSet.gitHubFlavored,
-      onTapLink: (text, href, title) {
-        if (href != null && href.isNotEmpty) {
-          launchUrl(Uri.parse(href), mode: LaunchMode.externalApplication);
-        }
-      },
+      onTapLink: (text, href, title) => handleMarkdownLinkTap(href),
     );
+  }
+
+  /// URI schemes a bot-authored markdown link is allowed to open. The server-side
+  /// RichContentSanitizer is HTML-only (jsoup Safelist.none()) and deliberately does
+  /// NOT filter markdown-link URIs, delegating scheme safety to the renderer — so this
+  /// is the enforcement point. Anything not on this list (javascript:, data:, file:,
+  /// vbscript:, blob:, relative/empty, …) is dropped, defeating XSS/phishing via links.
+  @visibleForTesting
+  static const Set<String> launchableLinkSchemes = {
+    'http',
+    'https',
+    'mailto',
+    'tel',
+  };
+
+  /// Opens a bot markdown link ONLY when its scheme is on [launchableLinkSchemes].
+  /// `href` is trimmed first so leading whitespace/tabs cannot smuggle a scheme past
+  /// the check. Returns without launching for null/unparseable/disallowed-scheme hrefs.
+  @visibleForTesting
+  static Future<void> handleMarkdownLinkTap(String? href) async {
+    if (href == null || href.trim().isEmpty) return;
+    final uri = Uri.tryParse(href.trim());
+    if (uri == null) return;
+    if (!launchableLinkSchemes.contains(uri.scheme.toLowerCase())) return;
+    await launchUrl(uri, mode: LaunchMode.externalApplication);
   }
 
   Widget _buildMentionAwareText() {
