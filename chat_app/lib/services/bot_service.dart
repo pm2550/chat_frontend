@@ -129,6 +129,8 @@ class ProviderCredential {
     this.secretLast4,
     this.isActive = true,
     this.memo,
+    this.baseUrl,
+    this.modelOverride,
   });
 
   final int id;
@@ -137,6 +139,8 @@ class ProviderCredential {
   final String? secretLast4;
   final bool isActive;
   final String? memo;
+  final String? baseUrl;
+  final String? modelOverride;
 
   factory ProviderCredential.fromJson(Map<String, dynamic> json) {
     return ProviderCredential(
@@ -146,6 +150,9 @@ class ProviderCredential {
       secretLast4: json['secretLast4']?.toString(),
       isActive: json['isActive'] != false,
       memo: json['memo']?.toString(),
+      // Fields added by Phase 1 backend; fall back to null for older servers.
+      baseUrl: json['baseUrl']?.toString(),
+      modelOverride: json['modelOverride']?.toString(),
     );
   }
 }
@@ -326,6 +333,8 @@ class BotService {
     required String label,
     required String secret,
     String? memo,
+    String? baseUrl,
+    String? modelOverride,
   }) async {
     final response = await _request(
       'POST',
@@ -335,6 +344,9 @@ class BotService {
         'label': label,
         'secret': secret,
         if (memo != null && memo.isNotEmpty) 'memo': memo,
+        if (baseUrl != null && baseUrl.isNotEmpty) 'baseUrl': baseUrl,
+        if (modelOverride != null && modelOverride.isNotEmpty)
+          'modelOverride': modelOverride,
       },
     );
     final data = _decodeResponse(response);
@@ -342,6 +354,44 @@ class BotService {
       return ProviderCredential.fromJson(data['data'] as Map<String, dynamic>);
     }
     throw const BotServiceException('凭据保存成功但响应中没有数据');
+  }
+
+  /// Update an existing credential. Only non-null fields are sent; a blank
+  /// [baseUrl]/[modelOverride] clears it server-side.
+  Future<ProviderCredential> updateProviderCredential({
+    required int credentialId,
+    String? label,
+    String? secret,
+    bool? isActive,
+    String? memo,
+    String? baseUrl,
+    String? modelOverride,
+  }) async {
+    final response = await _request(
+      'PUT',
+      ApiConstants.providerCredentialDetail(credentialId),
+      body: {
+        if (label != null) 'label': label,
+        if (secret != null && secret.isNotEmpty) 'secret': secret,
+        if (isActive != null) 'isActive': isActive,
+        if (memo != null) 'memo': memo,
+        if (baseUrl != null) 'baseUrl': baseUrl,
+        if (modelOverride != null) 'modelOverride': modelOverride,
+      },
+    );
+    final data = _decodeResponse(response);
+    if (data['data'] is Map<String, dynamic>) {
+      return ProviderCredential.fromJson(data['data'] as Map<String, dynamic>);
+    }
+    throw const BotServiceException('凭据更新成功但响应中没有数据');
+  }
+
+  Future<void> deleteProviderCredential(int credentialId) async {
+    final response = await _request(
+      'DELETE',
+      ApiConstants.providerCredentialDetail(credentialId),
+    );
+    _decodeResponse(response);
   }
 
   Future<dynamic> _request(
