@@ -104,6 +104,10 @@ class MessageReaction {
       };
 }
 
+/// Rendering format of a message body. Only bot/agent/system messages ever carry
+/// a non-plain value; defaults to plain for older servers/clients.
+enum MessageContentFormat { plain, markdown, card }
+
 class Message {
   final String id;
   final String content;
@@ -119,6 +123,7 @@ class Message {
   final String? botAvatar;
   final String chatRoomId;
   final MessageType type;
+  final MessageContentFormat contentFormat;
   final MessageStatus status;
   final DateTime timestamp;
   final DateTime? editedAt;
@@ -165,6 +170,7 @@ class Message {
     this.botAvatar,
     required this.chatRoomId,
     this.type = MessageType.text,
+    this.contentFormat = MessageContentFormat.plain,
     this.status = MessageStatus.sending,
     required this.timestamp,
     this.editedAt,
@@ -278,6 +284,8 @@ class Message {
           fallbackChatRoomId ??
           '',
       type: _parseMessageType(typeValue),
+      contentFormat: _parseContentFormat(
+          json['contentFormat'] ?? json['content_format']),
       status: MessageStatus.values.firstWhere(
         (e) => e.name.toUpperCase() == statusValue.toString().toUpperCase(),
         orElse: () => MessageStatus.sent,
@@ -404,6 +412,7 @@ class Message {
     String? botAvatar,
     String? chatRoomId,
     MessageType? type,
+    MessageContentFormat? contentFormat,
     MessageStatus? status,
     DateTime? timestamp,
     DateTime? editedAt,
@@ -450,6 +459,7 @@ class Message {
       botAvatar: botAvatar ?? this.botAvatar,
       chatRoomId: chatRoomId ?? this.chatRoomId,
       type: type ?? this.type,
+      contentFormat: contentFormat ?? this.contentFormat,
       status: status ?? this.status,
       timestamp: timestamp ?? this.timestamp,
       editedAt: editedAt ?? this.editedAt,
@@ -602,6 +612,15 @@ class Message {
       return 'IMAGE_GENERATION';
     }
     return type.name.toUpperCase();
+  }
+
+  static MessageContentFormat _parseContentFormat(dynamic value) {
+    if (value == null) return MessageContentFormat.plain;
+    final normalized = value.toString().toLowerCase();
+    return MessageContentFormat.values.firstWhere(
+      (format) => format.name == normalized,
+      orElse: () => MessageContentFormat.plain,
+    );
   }
 
   static String? _stringOrNull(dynamic value) {

@@ -1,7 +1,10 @@
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:http/http.dart' as http;
+import 'package:markdown/markdown.dart' as md;
+import 'package:url_launcher/url_launcher.dart';
 import '../constants/app_colors.dart';
 import '../constants/api_constants.dart';
 import '../design/design.dart';
@@ -455,6 +458,12 @@ class MessageBubble extends StatelessWidget {
     if (message.isFileMessage) {
       return _buildFileAttachment();
     }
+    // Bot/agent markdown (sanitized server-side): render GFM incl. tables. Gated to
+    // bot messages so user-typed text is never reinterpreted as markdown.
+    if (message.isBotMessage &&
+        message.contentFormat == MessageContentFormat.markdown) {
+      return _buildMarkdownBody();
+    }
     final text = _buildMentionAwareText();
     final content = message.displayContent;
     final embeddedUrl = message.linkPreview?.url.isNotEmpty == true
@@ -471,6 +480,22 @@ class MessageBubble extends StatelessWidget {
         const SizedBox(height: 8),
         _buildLinkPreview(embeddedUrl, message.linkPreview),
       ],
+    );
+  }
+
+  Widget _buildMarkdownBody() {
+    // No explicit styleSheet: MarkdownBody derives one from the ambient theme.
+    // Bot messages render on the light/left bubble, so default (dark) text is correct.
+    // Raw HTML was already stripped server-side (RichContentSanitizer); GFM tables on.
+    return MarkdownBody(
+      data: message.displayContent,
+      selectable: true,
+      extensionSet: md.ExtensionSet.gitHubFlavored,
+      onTapLink: (text, href, title) {
+        if (href != null && href.isNotEmpty) {
+          launchUrl(Uri.parse(href), mode: LaunchMode.externalApplication);
+        }
+      },
     );
   }
 
