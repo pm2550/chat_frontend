@@ -36,6 +36,7 @@ class BotConfig {
   final String? characterFirstMes;
   final List<String> characterAlternateGreetings;
   final int characterBookEntryCount;
+  final List<String> enabledTools;
 
   BotConfig({
     this.id,
@@ -62,6 +63,7 @@ class BotConfig {
     this.characterFirstMes,
     this.characterAlternateGreetings = const [],
     this.characterBookEntryCount = 0,
+    this.enabledTools = const [],
   });
 
   factory BotConfig.fromJson(Map<String, dynamic> json) {
@@ -97,6 +99,10 @@ class BotConfig {
               const [],
       characterBookEntryCount:
           int.tryParse(json['characterBookEntryCount']?.toString() ?? '') ?? 0,
+      enabledTools: (json['enabledTools'] as List<dynamic>?)
+              ?.map((item) => item.toString())
+              .toList(growable: false) ??
+          const [],
     );
   }
 
@@ -108,6 +114,7 @@ class BotConfig {
         'systemPrompt': systemPrompt,
         'temperature': temperature,
         'maxTokens': maxTokens,
+        'enabledTools': enabledTools,
         if (providerCredentialId != null)
           'providerCredentialId': providerCredentialId,
       };

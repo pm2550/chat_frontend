@@ -32,6 +32,7 @@ class _BotEditScreenState extends State<BotEditScreen> {
   final _formKey = GlobalKey<FormState>();
   double _temperature = 0.7;
   int _maxTokens = 2048;
+  bool _webSearchEnabled = false;
   bool _saving = false;
   bool _loadingCredentials = false;
   bool _characterBusy = false;
@@ -57,6 +58,7 @@ class _BotEditScreenState extends State<BotEditScreen> {
     _modelController = TextEditingController(text: bot?.modelName ?? '');
     _promptController = TextEditingController(text: bot?.systemPrompt ?? '');
     _apiKeyController = TextEditingController();
+    _webSearchEnabled = bot?.enabledTools.contains('web_search') ?? false;
     _providerController.addListener(_loadCredentialsForProvider);
     _temperature = bot?.temperature ?? 0.7;
     _maxTokens = bot?.maxTokens ?? 2048;
@@ -224,6 +226,25 @@ class _BotEditScreenState extends State<BotEditScreen> {
                             divisions: 31,
                             onChanged: (value) =>
                                 setState(() => _maxTokens = value.round()),
+                          ),
+                          const SizedBox(height: PMSpacing.l),
+                          Row(
+                            children: [
+                              const Icon(Icons.travel_explore,
+                                  size: 20, color: AppColors.secondary),
+                              const SizedBox(width: PMSpacing.s),
+                              const Expanded(
+                                child: Text(
+                                  '联网搜索（web_search）—— 开启后被 @ 时走多轮 Agent，'
+                                  '通过自建 SearXNG 检索',
+                                ),
+                              ),
+                              Switch(
+                                value: _webSearchEnabled,
+                                onChanged: (value) =>
+                                    setState(() => _webSearchEnabled = value),
+                              ),
+                            ],
                           ),
                           const SizedBox(height: PMSpacing.xl),
                           Align(
@@ -482,6 +503,7 @@ class _BotEditScreenState extends State<BotEditScreen> {
       temperature: _temperature,
       maxTokens: _maxTokens,
       isActive: widget.bot?.isActive ?? true,
+      enabledTools: _composeEnabledTools(),
       providerCredentialId: _selectedCredentialId,
     );
 
@@ -512,6 +534,17 @@ class _BotEditScreenState extends State<BotEditScreen> {
     } finally {
       if (mounted) setState(() => _saving = false);
     }
+  }
+
+  // Preserve any other tools the bot already has; only flip web_search.
+  List<String> _composeEnabledTools() {
+    final tools = <String>{...?widget.bot?.enabledTools};
+    if (_webSearchEnabled) {
+      tools.add('web_search');
+    } else {
+      tools.remove('web_search');
+    }
+    return tools.toList(growable: false);
   }
 
   Future<void> _showImportCharacterCardDialog() async {
