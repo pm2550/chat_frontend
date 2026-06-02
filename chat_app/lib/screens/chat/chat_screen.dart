@@ -11,7 +11,6 @@ import 'package:timeago/timeago.dart' as timeago;
 import '../../constants/api_constants.dart';
 import '../../constants/app_colors.dart';
 import '../../design/design.dart';
-import '../../models/agent_task.dart';
 import '../../models/call_state.dart';
 import '../../models/chat.dart';
 import '../../models/chat_customization.dart';
@@ -140,7 +139,6 @@ class _ChatScreenState extends State<ChatScreen> {
   Timer? _messageHighlightTimer;
 
   List<Message> _messages = [];
-  final List<AgentTask> _agentTasks = [];
   final Map<String, GlobalKey> _messageKeys = {};
   final Map<String, Future<LinkPreview?>> _linkPreviewFutures = {};
   final Set<String> _viewportReadMarkedMessageIds = {};
@@ -154,7 +152,6 @@ class _ChatScreenState extends State<ChatScreen> {
   bool _isLoadingOlderMessages = false;
   bool _hasMoreMessages = false;
   bool _isSendingAttachment = false;
-  bool _isRunningAgentTask = false;
   bool _isLoadingRoomBots = false;
   bool _desktopInfoPanelCollapsed = false;
   int _desktopInfoPanelTab = 0;
@@ -886,8 +883,8 @@ class _ChatScreenState extends State<ChatScreen> {
         ),
         _buildInputIconButton(
           symbol: PMSymbol.terminal,
-          onPressed: _showSlashCommandPanel,
-          tooltip: 'Agent 命令',
+          onPressed: _insertSystemAgentMention,
+          tooltip: '插入 AI 助手',
         ),
         _buildInputIconButton(
           symbol: PMSymbol.add,
@@ -972,22 +969,4 @@ class _ChatScreenState extends State<ChatScreen> {
     return AttachmentType.file;
   }
 
-  Widget _statusPill(String label, Color color) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.10),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: color.withValues(alpha: 0.24)),
-      ),
-      child: Text(
-        label,
-        style: TextStyle(
-          color: color,
-          fontSize: 12,
-          fontWeight: FontWeight.w800,
-        ),
-      ),
-    );
-  }
 }

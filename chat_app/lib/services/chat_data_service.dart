@@ -936,6 +936,7 @@ class ChatDataService {
     return count is int ? count : int.tryParse(count.toString()) ?? 0;
   }
 
+  @Deprecated('Use normal chat messages with @bot mentions; kept for legacy clients.')
   Future<AgentTask> createAgentTask(
     String chatRoomId,
     String prompt, {
@@ -969,6 +970,7 @@ class ChatDataService {
     return AgentTask.fromJson(taskJson);
   }
 
+  @Deprecated('Use normal chat messages with @bot mentions; kept for legacy clients.')
   Future<List<AgentTask>> getAgentTasks(
     String chatRoomId, {
     int page = 0,

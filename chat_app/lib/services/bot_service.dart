@@ -30,6 +30,7 @@ class BotConfig {
   final String? providerCredentialLabel;
   final String? providerCredentialLast4;
   final bool hasCredential;
+  final int? createdById;
   final bool hasCharacterCard;
   final String? characterPersona;
   final String? characterScenario;
@@ -57,6 +58,7 @@ class BotConfig {
     this.providerCredentialLabel,
     this.providerCredentialLast4,
     this.hasCredential = false,
+    this.createdById,
     this.hasCharacterCard = false,
     this.characterPersona,
     this.characterScenario,
@@ -88,6 +90,9 @@ class BotConfig {
       providerCredentialLabel: json['providerCredentialLabel']?.toString(),
       providerCredentialLast4: json['providerCredentialLast4']?.toString(),
       hasCredential: json['hasCredential'] == true,
+      createdById: json['createdById'] is int
+          ? json['createdById'] as int
+          : int.tryParse(json['createdById']?.toString() ?? ''),
       hasCharacterCard: json['hasCharacterCard'] == true,
       characterPersona: json['characterPersona']?.toString(),
       characterScenario: json['characterScenario']?.toString(),

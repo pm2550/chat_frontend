@@ -11,7 +11,7 @@ extension _ChatScreenMessageListParts on _ChatScreenState {
             const Center(child: CircularProgressIndicator())
           else if (_errorMessage != null)
             _buildMessageLoadError()
-          else if (_messages.isEmpty && _agentTasks.isEmpty)
+          else if (_messages.isEmpty)
             _buildEmptyMessages()
           else
             _buildMessageList(),
@@ -39,10 +39,8 @@ extension _ChatScreenMessageListParts on _ChatScreenState {
   Widget _buildMessageList() {
     final currentUserId = _authService.currentUser?.id;
     final messageOffset = _isLoadingOlderMessages ? 1 : 0;
-    final taskOffset = messageOffset + _messages.length;
-    final typingOffset = taskOffset + _agentTasks.length;
-    final remoteTypingOffset =
-        typingOffset + (_isSendingAttachment || _isRunningAgentTask ? 1 : 0);
+    final typingOffset = messageOffset + _messages.length;
+    final remoteTypingOffset = typingOffset + (_isSendingAttachment ? 1 : 0);
     final itemCount =
         remoteTypingOffset + (_typingUserNames.isNotEmpty ? 1 : 0);
     return ListView.builder(
@@ -56,17 +54,10 @@ extension _ChatScreenMessageListParts on _ChatScreenState {
             child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
           );
         }
-        if (index >= taskOffset && index < typingOffset) {
-          return _buildAgentTaskCard(_agentTasks[index - taskOffset]);
-        }
-        if (index == typingOffset &&
-            (_isSendingAttachment || _isRunningAgentTask)) {
-          return Align(
+        if (index == typingOffset && _isSendingAttachment) {
+          return const Align(
             alignment: Alignment.centerLeft,
-            child: TypingIndicator(
-              userName: _isRunningAgentTask ? 'Agent' : '文件',
-              isBot: _isRunningAgentTask,
-            ),
+            child: TypingIndicator(userName: '文件'),
           );
         }
         if (index == remoteTypingOffset && _typingUserNames.isNotEmpty) {
@@ -178,78 +169,6 @@ extension _ChatScreenMessageListParts on _ChatScreenState {
       return 'anonymous:${message.anonymousIdentityId ?? message.senderName}';
     }
     return 'user:${message.senderId}';
-  }
-
-  Widget _buildAgentTaskCard(AgentTask task) {
-    final statusColor = switch (task.status) {
-      AgentTaskStatus.pending => AppColors.warning,
-      AgentTaskStatus.running => AppColors.primary,
-      AgentTaskStatus.succeeded => AppColors.success,
-      AgentTaskStatus.failed => AppColors.error,
-    };
-    final statusText = switch (task.status) {
-      AgentTaskStatus.pending => '等待中',
-      AgentTaskStatus.running => '执行中',
-      AgentTaskStatus.succeeded => '已完成',
-      AgentTaskStatus.failed => '失败',
-    };
-    return Align(
-      alignment: Alignment.centerLeft,
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 520),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 6),
-          child: PMCard(
-            elevated: false,
-            background: Colors.white.withValues(alpha: 0.92),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    const Icon(Icons.smart_toy_rounded,
-                        color: AppColors.secondaryDark, size: 20),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        task.prompt,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: AppColors.textPrimary,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                    ),
-                    _statusPill(statusText, statusColor),
-                  ],
-                ),
-                if (task.status == AgentTaskStatus.running ||
-                    task.status == AgentTaskStatus.pending) ...[
-                  const SizedBox(height: 10),
-                  PMProgressStrip(label: statusText),
-                ],
-                if (task.errorMessage?.isNotEmpty == true) ...[
-                  const SizedBox(height: 8),
-                  Text(
-                    task.errorMessage!,
-                    style: const TextStyle(color: AppColors.error),
-                  ),
-                ],
-                if (task.artifactFileName?.isNotEmpty == true) ...[
-                  const SizedBox(height: 10),
-                  PMAttachmentCard(
-                    type: AttachmentType.file,
-                    name: task.artifactFileName!,
-                    sizeText: 'Agent 产物',
-                  ),
-                ],
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
   }
 
   Future<void> _retryFailedMessage(Message message) async {

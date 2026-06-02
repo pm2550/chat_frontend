@@ -218,6 +218,7 @@ class ApiConstants {
       '$providerCredentials/$credentialId';
 
   // Agent workflow endpoints
+  // Deprecated: legacy AgentTask API. New AI asks use normal @bot messages.
   static const String agentTasks = '$apiBaseUrl/agent-tasks';
 
   // Sticker endpoints

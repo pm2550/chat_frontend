@@ -349,8 +349,8 @@ extension _ChatScreenComposerParts on _ChatScreenState {
               ),
               _buildInputIconButton(
                 symbol: PMSymbol.terminal,
-                onPressed: _showSlashCommandPanel,
-                tooltip: 'Agent 命令',
+                onPressed: _insertSystemAgentMention,
+                tooltip: '插入 AI 助手',
               ),
               _buildInputIconButton(
                 symbol: PMSymbol.add,
@@ -561,7 +561,7 @@ extension _ChatScreenComposerParts on _ChatScreenState {
     final label = _botMentionLabel(bot);
     return User(
       id: 'bot-${bot.id ?? label}',
-      username: label.replaceAll(RegExp(r'\s+'), '_'),
+      username: label,
       email: '',
       displayName: label,
       avatarUrl: bot.botAvatar,
@@ -819,12 +819,12 @@ extension _ChatScreenComposerParts on _ChatScreenState {
                       ),
                       _buildInputOption(
                         symbol: PMSymbol.terminal,
-                        label: 'Agent 命令',
+                        label: '插入 AI 助手',
                         onTap: () {
                           Navigator.pop(context);
                           WidgetsBinding.instance.addPostFrameCallback((_) {
                             if (mounted) {
-                              _showSlashCommandPanel();
+                              _insertSystemAgentMention();
                             }
                           });
                         },

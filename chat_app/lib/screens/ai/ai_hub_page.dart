@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 
 import '../../constants/app_colors.dart';
 import '../../design/design.dart';
-import '../../models/agent_task.dart';
 import '../../models/chat.dart';
 import '../../services/bot_service.dart';
 import '../../services/chat_data_service.dart';
@@ -36,12 +35,9 @@ class _AiHubPageState extends State<AiHubPage> {
   String? _error;
   List<BotConfig> _bots = const [];
   List<Chat> _rooms = const [];
-  final Map<String, List<AgentTask>> _roomTasks = {};
 
   static const _sections = [
     _AiSection('bots', 'Bots', '创建、编辑和管理可加入群聊的助手', Icons.smart_toy),
-    _AiSection(
-        'tasks', 'Agent 任务', '查看 OpenClaw/Hermes 执行任务与产物', Icons.auto_awesome),
     _AiSection('rooms', '群配置', '把 Bot 接入群聊并设置触发方式', Icons.hub),
   ];
 
@@ -85,31 +81,12 @@ class _AiHubPageState extends State<AiHubPage> {
         _rooms = rooms;
         _loading = false;
       });
-      await _loadTaskPreview(rooms);
     } catch (error) {
       if (!mounted) return;
       setState(() {
         _error = error.toString();
         _loading = false;
       });
-    }
-  }
-
-  Future<void> _loadTaskPreview(List<Chat> rooms) async {
-    final previewRooms = rooms.take(4).toList(growable: false);
-    for (final room in previewRooms) {
-      try {
-        final tasks = await _chatDataService.getAgentTasks(room.id, size: 5);
-        if (!mounted) return;
-        setState(() {
-          _roomTasks[room.id] = tasks;
-        });
-      } catch (_) {
-        if (!mounted) return;
-        setState(() {
-          _roomTasks[room.id] = const [];
-        });
-      }
     }
   }
 
@@ -125,7 +102,7 @@ class _AiHubPageState extends State<AiHubPage> {
             children: [
               PMPageHeader(
                 title: 'AI 助手',
-                subtitle: '集中管理 Bot、Agent 任务和群聊内 AI 协作配置',
+                subtitle: '集中管理 Bot 和群聊内 AI 协作配置',
                 leading: Container(
                   width: 48,
                   height: 48,
@@ -174,7 +151,6 @@ class _AiHubPageState extends State<AiHubPage> {
                   index: _selectedIndex,
                   children: [
                     _buildBotsTab(),
-                    _buildTasksTab(),
                     _buildRoomsTab(),
                   ],
                 ),
@@ -350,53 +326,6 @@ class _AiHubPageState extends State<AiHubPage> {
     );
   }
 
-  Widget _buildTasksTab() {
-    final taskRows = <Widget>[];
-    for (final room in _rooms) {
-      final tasks = _roomTasks[room.id];
-      if (tasks == null) continue;
-      for (final task in tasks) {
-        taskRows.add(_buildTaskRow(room, task));
-      }
-    }
-
-    if (taskRows.isEmpty) {
-      return const PMEmptyState(
-        icon: Icons.auto_awesome_outlined,
-        title: '暂无 Agent 任务',
-        subtitle: '在聊天中发起 Agent 任务后，这里会集中显示状态、结果消息和写入资料库的产物。',
-        variant: EmptyStateVariant.illustration,
-      );
-    }
-
-    return PMCard(
-      padding: const EdgeInsets.all(PMSpacing.s),
-      child: Column(children: taskRows),
-    );
-  }
-
-  Widget _buildTaskRow(Chat room, AgentTask task) {
-    final status = _statusForTask(task.status);
-    return PMListRow(
-      leading: _AiAvatar(
-        icon: Icons.bolt,
-        label: room.name,
-        color: status.color,
-        active: task.status == AgentTaskStatus.running,
-      ),
-      title: Text(task.prompt),
-      subtitle: Text(
-        '${room.name} · ${task.artifactFileName ?? task.result ?? task.errorMessage ?? '等待结果'}',
-      ),
-      badge: status.label,
-      badgeColor: status.color,
-      trailing: task.artifactFileName == null
-          ? null
-          : const Icon(Icons.description_outlined,
-              color: AppColors.textSecondary),
-    );
-  }
-
   Widget _buildRoomsTab() {
     if (_rooms.isEmpty) {
       return const PMEmptyState(
@@ -548,14 +477,6 @@ class _AiHubPageState extends State<AiHubPage> {
     }
   }
 
-  _TaskVisual _statusForTask(AgentTaskStatus status) {
-    return switch (status) {
-      AgentTaskStatus.pending => const _TaskVisual('排队', AppColors.warning),
-      AgentTaskStatus.running => const _TaskVisual('运行中', AppColors.info),
-      AgentTaskStatus.succeeded => const _TaskVisual('完成', AppColors.success),
-      AgentTaskStatus.failed => const _TaskVisual('失败', AppColors.error),
-    };
-  }
 }
 
 class _AiLoadingGrid extends StatelessWidget {
@@ -715,11 +636,4 @@ class _AiSection {
   final String label;
   final String fullLabel;
   final IconData icon;
-}
-
-class _TaskVisual {
-  const _TaskVisual(this.label, this.color);
-
-  final String label;
-  final Color color;
 }
