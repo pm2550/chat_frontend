@@ -34,9 +34,14 @@ class DownloadedWorkspaceFile {
 }
 
 class WorkspaceException implements Exception {
-  const WorkspaceException(this.message);
+  const WorkspaceException(this.message, {this.statusCode});
 
   final String message;
+
+  /// HTTP status of the failed response, when known (e.g. 409/412 for a version conflict).
+  final int? statusCode;
+
+  bool get isConflict => statusCode == 409 || statusCode == 412;
 
   @override
   String toString() => message;
@@ -325,6 +330,62 @@ class WorkspaceService {
     return WorkspaceFileItem.fromJson(_extractData(_decode(response)));
   }
 
+  // F6: inline text editing ----------------------------------------------
+
+  Future<WorkspaceTextContent> readText({
+    required int workspaceId,
+    required int fileId,
+  }) async {
+    final response = await _request(
+      'GET',
+      ApiConstants.workspaceFileText(workspaceId, fileId),
+    );
+    return WorkspaceTextContent.fromJson(_extractData(_decode(response)));
+  }
+
+  Future<WorkspaceFileItem> createTextFile({
+    required int workspaceId,
+    required String fileName,
+    required String content,
+    int? folderId,
+    int? sourceBotId,
+    String? versionNote,
+  }) async {
+    final response = await _request(
+      'POST',
+      ApiConstants.workspaceCreateTextFile(workspaceId),
+      body: {
+        'fileName': fileName,
+        'content': content,
+        if (folderId != null) 'folderId': folderId,
+        if (sourceBotId != null) 'sourceBotId': sourceBotId,
+        if (versionNote != null && versionNote.isNotEmpty)
+          'versionNote': versionNote,
+      },
+    );
+    return WorkspaceFileItem.fromJson(_extractData(_decode(response)));
+  }
+
+  Future<WorkspaceFileItem> saveText({
+    required int workspaceId,
+    required int fileId,
+    required String content,
+    int? sourceBotId,
+    String? versionNote,
+  }) async {
+    final response = await _request(
+      'POST',
+      ApiConstants.workspaceFileText(workspaceId, fileId),
+      body: {
+        'content': content,
+        if (sourceBotId != null) 'sourceBotId': sourceBotId,
+        if (versionNote != null && versionNote.isNotEmpty)
+          'versionNote': versionNote,
+      },
+    );
+    return WorkspaceFileItem.fromJson(_extractData(_decode(response)));
+  }
+
   Future<List<WorkspaceVersion>> listVersions({
     required int workspaceId,
     required int fileId,
@@ -485,7 +546,8 @@ class WorkspaceService {
 
   Map<String, dynamic> _decode(dynamic response) {
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw WorkspaceException(_extractError(response.body));
+      throw WorkspaceException(_extractError(response.body),
+          statusCode: response.statusCode);
     }
     if (response.bodyBytes.isEmpty) {
       return {};

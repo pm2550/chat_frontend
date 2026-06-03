@@ -11,6 +11,7 @@ import '../../models/user.dart';
 import '../../models/workspace.dart';
 import '../../services/file_save.dart' as file_save;
 import '../../services/workspace_service.dart';
+import 'workspace_text_editor_page.dart';
 import '../../widgets/pm_brand.dart';
 import '../../widgets/pm_responsive.dart';
 
@@ -276,6 +277,31 @@ class _WorkspacePageState extends State<WorkspacePage> {
       mimeType: preview.mimeType ?? file.mimeType,
     );
     _showSnackBar(opened ? '已打开 ${preview.name}' : '当前平台不支持新窗口预览，请下载查看');
+  }
+
+  // F6: only plain-text files are human-editable in this batch.
+  static const Set<String> _editableExtensions = {'.txt'};
+
+  bool _isEditableText(WorkspaceFileItem file) {
+    if (file.isLocked || file.isDeleted) return false;
+    final name = file.displayName.toLowerCase();
+    return _editableExtensions.any(name.endsWith);
+  }
+
+  Future<void> _openTextEditor(WorkspaceFileItem file) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => WorkspaceTextEditorPage(
+          workspaceId: file.workspaceId,
+          fileId: file.id,
+          fileName: file.displayName,
+          service: _service,
+        ),
+      ),
+    );
+    if (!mounted) return;
+    // Refresh contents so the bumped version / updatedAt is reflected.
+    _loadContents();
   }
 
   Future<void> _previewFile(WorkspaceFileItem file) async {
@@ -2055,6 +2081,9 @@ class _WorkspacePageState extends State<WorkspacePage> {
                 tooltip: '更多',
                 onSelected: (value) {
                   switch (value) {
+                    case 'edit':
+                      _openTextEditor(file);
+                      break;
                     case 'versions':
                       _showVersions(file);
                       break;
@@ -2080,6 +2109,8 @@ class _WorkspacePageState extends State<WorkspacePage> {
                   }
                 },
                 itemBuilder: (context) => [
+                  if (_isEditableText(file))
+                    const PopupMenuItem(value: 'edit', child: Text('编辑')),
                   const PopupMenuItem(value: 'versions', child: Text('版本')),
                   const PopupMenuItem(value: 'permission', child: Text('授权')),
                   const PopupMenuItem(value: 'replace', child: Text('上传新版本')),
