@@ -47,6 +47,8 @@ dependencies:
   cached_network_image: ^3.3.1
   photo_view: ^0.15.0
   flutter_staggered_grid_view: ^0.7.0
+  flutter_markdown: ^0.7.4   # GFM markdown/tables for bot/agent messages
+  markdown: ^7.3.1           # ExtensionSet.gitHubFlavored (tables) for flutter_markdown
   
   # 功能组件
   image_picker: ^1.0.7

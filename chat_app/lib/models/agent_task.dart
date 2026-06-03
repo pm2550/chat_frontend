@@ -2,6 +2,7 @@ import 'message.dart';
 
 enum AgentTaskStatus { pending, running, succeeded, failed }
 
+@Deprecated('AgentTask is kept for backward compatibility; use @bot mentions in chat.')
 class AgentTask {
   const AgentTask({
     required this.id,

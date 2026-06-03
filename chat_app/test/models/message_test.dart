@@ -60,6 +60,67 @@ void main() {
       expect(message.fileType, 'image/jpeg');
     });
 
+    test('fromJson maps sender title from nested sender and top-level fields',
+        () {
+      final nested = Message.fromJson({
+        'id': 210,
+        'content': 'nested title',
+        'sender': {
+          'id': 5,
+          'displayName': 'Alice',
+          'title': '管理员',
+          'titleColor': '#2F6BFF',
+          'titleEffect': 'gradient',
+        },
+        'chatRoomId': 20,
+        'messageType': 'TEXT',
+        'messageStatus': 'SENT',
+        'createdAt': '2024-06-15T08:30:00.000Z',
+      });
+
+      final snake = Message.fromJson({
+        'id': 211,
+        'content': 'snake title',
+        'sender_id': 6,
+        'sender_name': 'Bob',
+        'sender_title': '值班',
+        'sender_title_color': '#18B98F',
+        'sender_title_effect': 'glow',
+        'chat_room_id': 20,
+        'message_type': 'TEXT',
+        'message_status': 'SENT',
+        'created_at': '2024-06-15T08:30:00.000Z',
+      });
+
+      expect(nested.senderTitle, '管理员');
+      expect(nested.senderTitleColor, '#2F6BFF');
+      expect(nested.senderTitleEffect, 'gradient');
+      expect(snake.senderTitle, '值班');
+      expect(snake.senderTitleColor, '#18B98F');
+      expect(snake.senderTitleEffect, 'glow');
+    });
+
+    test('fromJson does not leak real title on anonymous messages', () {
+      final message = Message.fromJson({
+        'id': 212,
+        'content': 'anonymous',
+        'senderId': 5,
+        'senderName': 'RealUser',
+        'senderTitle': '管理员',
+        'chatRoomId': 20,
+        'messageType': 'TEXT',
+        'messageStatus': 'SENT',
+        'createdAt': '2024-06-15T08:30:00.000Z',
+        'isAnonymous': true,
+        'anonymousName': '神秘小象',
+        'anonymousAvatar': '#7C3AED',
+      });
+
+      expect(message.isAnonymous, isTrue);
+      expect(message.senderTitle, isNull);
+      expect(message.senderTitleEffect, 'none');
+    });
+
     test('fromJson maps anonymous display metadata over real sender name', () {
       final json = {
         'id': 201,
@@ -362,6 +423,28 @@ void main() {
       expect(notEdited.isEdited, false);
       expect(edited.isEdited, true);
     });
+
+    test('parses IMAGE_GENERATION payload with status fields', () {
+      final message = Message.fromJson({
+        'id': 99,
+        'content': '画蓝色机器人',
+        'senderId': 7,
+        'senderName': 'Alice',
+        'chatRoomId': 42,
+        'messageType': 'IMAGE_GENERATION',
+        'messageStatus': 'SENDING',
+        'imageGenPrompt': '画蓝色机器人',
+        'imageGenStatus': 'PROCESSING',
+        'imageGenProviderTaskId': 'task-1',
+        'createdAt': '2026-06-01T09:00:00',
+      });
+
+      expect(message.type, MessageType.imageGeneration);
+      expect(message.isImageGenerationMessage, isTrue);
+      expect(message.imageGenStatus, 'PROCESSING');
+      expect(message.imageGenProviderTaskId, 'task-1');
+      expect(message.resolvedFileLabel, '[AI图片生成中]');
+    });
   });
 
   group('MessageType', () {
@@ -371,6 +454,7 @@ void main() {
       expect(MessageType.file.description, '文件');
       expect(MessageType.voice.description, '语音');
       expect(MessageType.video.description, '视频');
+      expect(MessageType.imageGeneration.description, 'AI图片生成');
       expect(MessageType.system.description, '系统消息');
     });
   });

@@ -11,6 +11,9 @@ void main() {
         'phone': '1234567890',
         'displayName': 'Test User',
         'avatarUrl': 'https://example.com/avatar.jpg',
+        'title': '管理员',
+        'titleColor': '#2F6BFF',
+        'titleEffect': 'gradient',
         'bio': 'Hello world',
         'onlineStatus': 'ONLINE',
         'lastSeen': '2024-01-01T00:00:00.000Z',
@@ -28,6 +31,9 @@ void main() {
       expect(user.phone, '1234567890');
       expect(user.displayName, 'Test User');
       expect(user.avatarUrl, 'https://example.com/avatar.jpg');
+      expect(user.title, '管理员');
+      expect(user.titleColor, '#2F6BFF');
+      expect(user.titleEffect, 'gradient');
       expect(user.bio, 'Hello world');
       expect(user.onlineStatus, OnlineStatus.online);
       expect(user.isActive, true);
@@ -41,6 +47,8 @@ void main() {
         'username': 'user2',
         'email': 'user2@example.com',
         'display_name': 'User Two',
+        'title_color': '#18B98F',
+        'title_effect': 'glow',
         'online_status': 'AWAY',
         'is_active': false,
         'created_at': '2024-06-01T00:00:00.000Z',
@@ -49,6 +57,8 @@ void main() {
       final user = User.fromJson(json);
 
       expect(user.displayName, 'User Two');
+      expect(user.titleColor, '#18B98F');
+      expect(user.titleEffect, 'glow');
       expect(user.onlineStatus, OnlineStatus.away);
       expect(user.isActive, false);
     });

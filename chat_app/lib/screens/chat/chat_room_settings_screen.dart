@@ -58,6 +58,7 @@ class _ChatRoomSettingsScreenState extends State<ChatRoomSettingsScreen> {
   bool _isLoadingMembers = true;
   bool _isLoadingInvitees = false;
   bool _currentUserIsAdmin = false;
+  bool _currentUserIsOwner = false;
   bool _isMuted = false;
   bool _isPinned = false;
   bool _isSavingRoom = false;
@@ -454,6 +455,9 @@ class _ChatRoomSettingsScreenState extends State<ChatRoomSettingsScreen> {
   }
 
   Future<void> _loadMembers() async {
+    // Re-entered from member-action handlers (role/transfer/kick/mute) after their own
+    // network awaits; guard before the entry setState in case the screen was popped.
+    if (!mounted) return;
     setState(() {
       _isLoadingMembers = true;
       _memberError = null;
@@ -462,15 +466,20 @@ class _ChatRoomSettingsScreenState extends State<ChatRoomSettingsScreen> {
     try {
       final members =
           await _chatService.getChatRoomMembers(widget.chatRoomId.toString());
+      if (!mounted) return;
       final currentUserId = _currentUserId;
       setState(() {
         _members = members;
         _currentUserIsAdmin = widget.isAdmin ||
             members.any(
                 (member) => member.userId == currentUserId && member.isAdmin);
+        // F5: real OWNER role, derived from the authoritative member list.
+        _currentUserIsOwner = members.any(
+            (member) => member.userId == currentUserId && member.isOwner);
         _isLoadingMembers = false;
       });
     } catch (error) {
+      if (!mounted) return;
       setState(() {
         _memberError = error.toString();
         _isLoadingMembers = false;
@@ -1423,8 +1432,12 @@ class _ChatRoomSettingsScreenState extends State<ChatRoomSettingsScreen> {
         _currentUserIsAdmin && widget.isGroup && !isSelf && member.canBeManaged;
     final canEditProfile = widget.isGroup && (isSelf || _currentUserIsAdmin);
     final showTextActions = PMBreakpoints.isDesktop(context);
+    // F5: owner-only role + transfer controls. Gated at render (not at click) so
+    // non-owners never see them.
+    final showOwnerControls =
+        _currentUserIsOwner && widget.isGroup && !isSelf && !member.isOwner;
 
-    return PMListRow(
+    final tile = PMListRow(
       leading: PMUserAvatar.raw(
         imageUrl: _resolveAvatarUrl(member.user.avatarUrl),
         fallbackText: member.displayName,
@@ -1441,7 +1454,7 @@ class _ChatRoomSettingsScreenState extends State<ChatRoomSettingsScreen> {
             ),
         ],
       ),
-      subtitle: Text(_memberSubtitle(member)),
+      subtitle: _memberSubtitleWidget(member),
       trailing: canManage
           ? Wrap(
               spacing: showTextActions ? 6 : 2,
@@ -1561,6 +1574,106 @@ class _ChatRoomSettingsScreenState extends State<ChatRoomSettingsScreen> {
                 )
               : null,
     );
+    if (!showOwnerControls) return tile;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [tile, _ownerControls(member)],
+    );
+  }
+
+  /// F5: owner-only role chips (成员 / 协管 / 管理员 — never OWNER) + transfer button.
+  Widget _ownerControls(ChatRoomMember member) {
+    final role = member.role.toUpperCase();
+    return Padding(
+      padding: const EdgeInsets.only(
+          left: 56, right: PMSpacing.s, bottom: PMSpacing.s),
+      child: Wrap(
+        spacing: 6,
+        runSpacing: 6,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          const Text('角色',
+              style:
+                  TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+          PMChip(
+            label: '成员',
+            selected: role == 'MEMBER',
+            onTap: () => _setMemberRole(member, 'MEMBER'),
+          ),
+          PMChip(
+            label: '协管',
+            selected: role == 'MODERATOR',
+            onTap: () => _setMemberRole(member, 'MODERATOR'),
+          ),
+          PMChip(
+            label: '管理员',
+            selected: role == 'ADMIN',
+            onTap: () => _setMemberRole(member, 'ADMIN'),
+          ),
+          PMButton(
+            label: '转让群主',
+            icon: Icons.workspace_premium_rounded,
+            compact: true,
+            variant: PMButtonVariant.secondary,
+            onPressed: () => _confirmTransferOwnership(member),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _setMemberRole(ChatRoomMember member, String role) async {
+    try {
+      await _chatService.setChatRoomMemberRole(
+        chatRoomId: widget.chatRoomId.toString(),
+        userId: member.userId,
+        role: role,
+      );
+      await _loadMembers();
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+            content: Text('设置角色失败: $error'),
+            backgroundColor: AppColors.error),
+      );
+    }
+  }
+
+  Future<void> _confirmTransferOwnership(ChatRoomMember member) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const PMDialogHeader(title: '确认转让群主', showHandle: false),
+        content: Text('确定将群主转让给 ${member.displayName} 吗？转让后你将降为管理员，'
+            '此操作无法撤销。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('确认'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    try {
+      await _chatService.transferChatRoomOwnership(
+        chatRoomId: widget.chatRoomId.toString(),
+        newOwnerId: member.userId,
+      );
+      await _loadMembers();
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+            content: Text('转让群主失败: $error'),
+            backgroundColor: AppColors.error),
+      );
+    }
   }
 
   Widget _memberActionButton({
@@ -1606,6 +1719,29 @@ class _ChatRoomSettingsScreenState extends State<ChatRoomSettingsScreen> {
       parts.add('已禁言');
     }
     return parts.join(' · ');
+  }
+
+  /// F5: owners get a gold 群主 badge; everyone else keeps the text subtitle.
+  Widget _memberSubtitleWidget(ChatRoomMember member) {
+    if (!member.isOwner) {
+      return Text(_memberSubtitle(member));
+    }
+    return Wrap(
+      spacing: 6,
+      runSpacing: 4,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        const PMChip(
+          label: '群主',
+          icon: Icons.workspace_premium_rounded,
+          selected: true,
+          color: Color(0xFFD4A017),
+        ),
+        if (member.isMuted)
+          const Text('已禁言',
+              style: TextStyle(fontSize: 12, color: AppColors.warning)),
+      ],
+    );
   }
 
   ChatRoomMember? _currentMember(String? currentUserId) {

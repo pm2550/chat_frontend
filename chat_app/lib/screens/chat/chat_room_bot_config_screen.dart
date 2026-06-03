@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../constants/app_colors.dart';
 import '../../design/design.dart';
 import '../../services/bot_service.dart';
+import '../../services/chat_data_service.dart';
 import '../../widgets/pm_brand.dart';
 
 class ChatRoomBotConfigScreen extends StatefulWidget {
@@ -11,11 +12,20 @@ class ChatRoomBotConfigScreen extends StatefulWidget {
     required this.roomId,
     required this.bot,
     this.botService,
+    this.chatService,
+    this.isOwner = false,
   });
 
   final int roomId;
   final BotConfig bot;
   final BotService? botService;
+
+  /// Used for the owner-only moderation-grant call (separate endpoint from the bot config).
+  final ChatDataService? chatService;
+
+  /// Whether the current viewer is the room OWNER. Gates the moderation-grant chips
+  /// (server is authoritative and returns 403 for non-owners regardless).
+  final bool isOwner;
 
   @override
   State<ChatRoomBotConfigScreen> createState() =>
@@ -24,11 +34,13 @@ class ChatRoomBotConfigScreen extends StatefulWidget {
 
 class _ChatRoomBotConfigScreenState extends State<ChatRoomBotConfigScreen> {
   late final BotService _botService;
+  late final ChatDataService _chatService;
   late final TextEditingController _keywordsController;
   late final TextEditingController _nicknameController;
   late final TextEditingController _promptSuffixController;
 
   String _triggerMode = 'MENTION';
+  String _moderationGrant = 'NONE';
   bool _enabledInRoom = true;
   bool _isSaving = false;
   bool _isRemoving = false;
@@ -37,7 +49,9 @@ class _ChatRoomBotConfigScreenState extends State<ChatRoomBotConfigScreen> {
   void initState() {
     super.initState();
     _botService = widget.botService ?? BotService();
+    _chatService = widget.chatService ?? ChatDataService();
     _triggerMode = (widget.bot.triggerMode ?? 'MENTION').toUpperCase();
+    _moderationGrant = (widget.bot.moderationGrant ?? 'NONE').toUpperCase();
     _enabledInRoom = widget.bot.enabledInRoom;
     _keywordsController =
         TextEditingController(text: widget.bot.triggerKeywords ?? '');
@@ -69,6 +83,17 @@ class _ChatRoomBotConfigScreenState extends State<ChatRoomBotConfigScreen> {
         roomPromptSuffix: _promptSuffixController.text.trim(),
         enabledInRoom: _enabledInRoom,
       );
+      // F5: the moderation grant is a separate, owner-only endpoint. Only push it
+      // when the viewer is the owner and the value actually changed.
+      if (widget.isOwner &&
+          _moderationGrant !=
+              (widget.bot.moderationGrant ?? 'NONE').toUpperCase()) {
+        await _chatService.setChatRoomBotModerationGrant(
+          chatRoomId: widget.roomId.toString(),
+          botId: botId,
+          grant: _moderationGrant,
+        );
+      }
       if (!mounted) return;
       Navigator.of(context).pop(true);
     } catch (error) {
@@ -241,6 +266,42 @@ class _ChatRoomBotConfigScreenState extends State<ChatRoomBotConfigScreen> {
                       ),
                     ],
                   ),
+                  const SizedBox(height: PMSpacing.l),
+                  PMSectionCard(
+                    title: '管理权限 (群主可设)',
+                    subtitle: widget.isOwner
+                        ? 'AI 可代为禁言/移出成员的最高权限。KICK 含 MUTE。'
+                        : '仅群主可修改。',
+                    children: [
+                      Opacity(
+                        opacity: widget.isOwner ? 1.0 : 0.5,
+                        child: Padding(
+                          padding: const EdgeInsets.all(PMSpacing.m),
+                          child: Wrap(
+                            spacing: PMSpacing.s,
+                            runSpacing: PMSpacing.s,
+                            children: [
+                              for (final grant in const ['NONE', 'MUTE', 'KICK'])
+                                PMChip(
+                                  label: _grantLabel(grant),
+                                  icon: grant == 'NONE'
+                                      ? Icons.block
+                                      : grant == 'MUTE'
+                                          ? Icons.volume_off
+                                          : Icons.person_remove,
+                                  selected: _moderationGrant == grant,
+                                  color: AppColors.error,
+                                  onTap: widget.isOwner
+                                      ? () => setState(
+                                          () => _moderationGrant = grant)
+                                      : null,
+                                ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                   const SizedBox(height: PMSpacing.xl),
                   Row(
                     children: [
@@ -276,6 +337,14 @@ class _ChatRoomBotConfigScreenState extends State<ChatRoomBotConfigScreen> {
       'KEYWORD' => '关键词',
       'ALL' => '全部消息',
       _ => '提及',
+    };
+  }
+
+  String _grantLabel(String grant) {
+    return switch (grant) {
+      'MUTE' => '可禁言',
+      'KICK' => '可移出',
+      _ => '无',
     };
   }
 }

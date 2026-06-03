@@ -89,12 +89,27 @@ extension _ChatScreenBotsPanelParts on _ChatScreenState {
                     compact: true,
                     variant: PMButtonVariant.secondary,
                     onPressed: () async {
+                      // Authoritative owner check via member role; createdBy goes stale
+                      // after an ownership transfer, so only use it as a fallback.
+                      final uid = _authService.currentUser?.id;
+                      var isOwner = _chat.createdBy == uid;
+                      try {
+                        final members =
+                            await _chatService.getChatRoomMembers(_chat.id);
+                        isOwner = members
+                            .any((m) => m.userId == uid && m.isOwner);
+                      } catch (_) {
+                        // Fall back to the createdBy heuristic; server still enforces 403.
+                      }
+                      if (!context.mounted) return;
                       await Navigator.of(context).push(
                         MaterialPageRoute(
                           builder: (_) => ChatRoomBotConfigScreen(
                             roomId: roomId,
                             bot: bot,
                             botService: _botService,
+                            chatService: _chatService,
+                            isOwner: isOwner,
                           ),
                         ),
                       );

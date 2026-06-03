@@ -368,6 +368,61 @@ void main() {
       expect(calls[2], contains('/api/v1/bots/5'));
     });
 
+    test('character card import posts card and parses summary', () async {
+      Object? capturedBody;
+      final service = BotService(
+        authenticatedRequest: (method, url, {headers, body}) async {
+          expect(method, 'POST');
+          expect(url, contains('/api/v1/bots/7/character-card/import'));
+          capturedBody = body;
+          return jsonResponse({
+            'code': 200,
+            'data': {
+              'id': 7,
+              'botName': 'Kirara',
+              'llmProvider': 'OPENAI',
+              'hasCharacterCard': true,
+              'characterPersona': 'A fox courier.',
+              'characterFirstMes': 'Package delivered!',
+              'characterAlternateGreetings': ['Hi!', 'Ready.'],
+              'characterBookEntryCount': 2,
+            },
+          });
+        },
+      );
+
+      final bot = await service.importCharacterCard(7, {
+        'spec': 'chara_card_v2',
+        'data': {'name': 'Kirara'},
+      });
+
+      expect((capturedBody as Map<String, dynamic>)['card'], isA<Map>());
+      expect(bot.hasCharacterCard, isTrue);
+      expect(bot.characterAlternateGreetings, ['Hi!', 'Ready.']);
+      expect(bot.characterBookEntryCount, 2);
+    });
+
+    test('character card export returns card map', () async {
+      final service = BotService(
+        authenticatedRequest: (method, url, {headers, body}) async {
+          expect(method, 'GET');
+          expect(url, contains('/api/v1/bots/7/character-card/export'));
+          return jsonResponse({
+            'code': 200,
+            'data': {
+              'spec': 'chara_card_v2',
+              'data': {'name': 'Kirara'},
+            },
+          });
+        },
+      );
+
+      final card = await service.exportCharacterCard(7);
+
+      expect(card['spec'], 'chara_card_v2');
+      expect(card['data'], isA<Map<String, dynamic>>());
+    });
+
     test('failed response throws BotServiceException', () async {
       final service = BotService(
         authenticatedRequest: (method, url, {headers, body}) async {

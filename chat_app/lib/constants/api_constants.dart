@@ -69,6 +69,8 @@ class ApiConstants {
   static const String profileSearch = '$profileBaseUrl/search';
   static String getUserById(int id) => '$apiBaseUrl/users/$id';
   static String uploadAvatar(int id) => '$apiBaseUrl/users/$id/avatar';
+  static const String myTitle = '$apiBaseUrl/users/me/title';
+  static String userTitle(int id) => '$apiBaseUrl/users/$id/title';
 
   // Chat room endpoints
   static const String chatRooms = '$apiBaseUrl/chat-rooms';
@@ -106,9 +108,27 @@ class ApiConstants {
       '$apiBaseUrl/chat-rooms/$roomId/mentions/me';
   static const String searchChatRooms = '$apiBaseUrl/chat-rooms/search';
 
+  // F5: owner role + AI-as-admin moderation (owner-only endpoints).
+  static String transferChatRoomOwnership(int roomId) =>
+      '$apiBaseUrl/chat-rooms/$roomId/transfer-ownership';
+  static String setChatRoomMemberRole(int roomId, int userId) =>
+      '$apiBaseUrl/chat-rooms/$roomId/members/$userId/role';
+  static String setChatRoomBotModerationGrant(int roomId, int botId) =>
+      '$apiBaseUrl/chat-rooms/$roomId/bots/$botId/moderation-grant';
+
+  // F2: room memory library. Note the `/rooms/` prefix (NOT `/chat-rooms/`).
+  static String roomMemories(int roomId) => '$apiBaseUrl/rooms/$roomId/memories';
+  static String roomMemoryDetail(int roomId, int memoryId) =>
+      '$apiBaseUrl/rooms/$roomId/memories/$memoryId';
+  static String roomMemoryPin(int roomId, int memoryId) =>
+      '$apiBaseUrl/rooms/$roomId/memories/$memoryId/pin';
+  static String roomMemoryArchive(int roomId, int memoryId) =>
+      '$apiBaseUrl/rooms/$roomId/memories/$memoryId/archive';
+
   // Message endpoints
   static const String sendMessage = '$apiBaseUrl/messages';
   static const String sendFileMessage = '$apiBaseUrl/messages/file';
+  static const String generateImage = '$apiBaseUrl/images/generate';
   static String chatRoomMessages(int roomId) =>
       '$apiBaseUrl/messages/chat-room/$roomId';
   static String recentMessages(int roomId) =>
@@ -127,6 +147,15 @@ class ApiConstants {
       '$apiBaseUrl/messages/$messageId/recall';
   static String deleteMessage(int messageId) =>
       '$apiBaseUrl/messages/$messageId';
+  static String editMessage(int messageId) => '$apiBaseUrl/messages/$messageId';
+  static String forwardMessage(int messageId) =>
+      '$apiBaseUrl/messages/$messageId/forward';
+  static String pinMessage(int roomId, int messageId) =>
+      '$apiBaseUrl/rooms/$roomId/pin/$messageId';
+  static String roomPins(int roomId) => '$apiBaseUrl/rooms/$roomId/pins';
+  static String starMessage(int messageId) =>
+      '$apiBaseUrl/messages/$messageId/star';
+  static const String myStarredMessages = '$apiBaseUrl/users/me/starred';
   static String messageReactions(int messageId) =>
       '$apiBaseUrl/messages/$messageId/reactions';
   static String messageReaction(int messageId, String emoji) =>
@@ -189,6 +218,10 @@ class ApiConstants {
   static const String createBot = '$apiBaseUrl/bots';
   static const String myBots = '$apiBaseUrl/bots/my';
   static String botDetail(int botId) => '$apiBaseUrl/bots/$botId';
+  static String botCharacterCardImport(int botId) =>
+      '$apiBaseUrl/bots/$botId/character-card/import';
+  static String botCharacterCardExport(int botId) =>
+      '$apiBaseUrl/bots/$botId/character-card/export';
   static String addBotToRoom(int roomId, int botId) =>
       '$apiBaseUrl/bots/chat-rooms/$roomId/bots/$botId/add';
   static String removeBotFromRoom(int roomId, int botId) =>
@@ -197,12 +230,12 @@ class ApiConstants {
       '$apiBaseUrl/bots/chat-rooms/$roomId/bots/$botId';
   static String botsInRoom(int roomId) =>
       '$apiBaseUrl/bots/chat-rooms/$roomId/bots';
-  static const String providerCredentials =
-      '$apiBaseUrl/provider-credentials';
+  static const String providerCredentials = '$apiBaseUrl/provider-credentials';
   static String providerCredentialDetail(int credentialId) =>
       '$providerCredentials/$credentialId';
 
   // Agent workflow endpoints
+  // Deprecated: legacy AgentTask API. New AI asks use normal @bot messages.
   static const String agentTasks = '$apiBaseUrl/agent-tasks';
 
   // Sticker endpoints
@@ -244,6 +277,11 @@ class ApiConstants {
       '$workspaces/$workspaceId/folders/$folderId/restore';
   static String workspaceFiles(int workspaceId) =>
       '$workspaces/$workspaceId/files';
+  // F6: workspace inline text editing.
+  static String workspaceFileText(int workspaceId, int fileId) =>
+      '$workspaces/$workspaceId/files/$fileId/text';
+  static String workspaceCreateTextFile(int workspaceId) =>
+      '$workspaces/$workspaceId/files/text';
   static String workspaceFileDetail(int workspaceId, int fileId) =>
       '$workspaces/$workspaceId/files/$fileId';
   static String workspaceFileDownload(int workspaceId, int fileId) =>

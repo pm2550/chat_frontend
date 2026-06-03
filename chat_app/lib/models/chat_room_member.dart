@@ -93,4 +93,7 @@ class ChatRoomMember {
       memberTitle?.isNotEmpty == true ? memberTitle! : roleDescription ?? role;
 
   bool get canBeManaged => role.toUpperCase() != 'OWNER';
+
+  /// F5: true real OWNER role (above ADMIN). Distinct from [isAdmin].
+  bool get isOwner => role.toUpperCase() == 'OWNER';
 }

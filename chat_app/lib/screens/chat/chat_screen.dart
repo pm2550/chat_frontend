@@ -11,7 +11,6 @@ import 'package:timeago/timeago.dart' as timeago;
 import '../../constants/api_constants.dart';
 import '../../constants/app_colors.dart';
 import '../../design/design.dart';
-import '../../models/agent_task.dart';
 import '../../models/call_state.dart';
 import '../../models/chat.dart';
 import '../../models/chat_customization.dart';
@@ -19,9 +18,11 @@ import '../../models/message.dart';
 import '../../models/sticker.dart';
 import '../../models/user.dart';
 import '../../services/auth_service.dart';
+import '../../services/agent_client_tools.dart';
 import '../../services/anonymous_service.dart';
 import '../../services/bot_service.dart';
 import '../../services/chat_data_service.dart';
+import '../../services/memory_service.dart';
 import '../../services/chat_call_service.dart';
 import '../../services/contact_data_service.dart';
 import '../../services/chat_drop_paste.dart'
@@ -31,6 +32,7 @@ import '../../services/platform_chat_file_picker.dart'
     if (dart.library.js_interop) '../../services/platform_chat_file_picker_web.dart';
 import '../../services/user_profile_service.dart';
 import '../../services/websocket_service.dart';
+import 'sub/memory_panel.dart';
 import '../../widgets/anonymous_toggle_button.dart';
 import '../../widgets/anonymous_identity_hint.dart';
 import '../../widgets/call_grid_view.dart';
@@ -125,6 +127,7 @@ class _ChatScreenState extends State<ChatScreen> {
   late final ChatCallService _callService;
   late final AnonymousService _anonymousService;
   late final BotService _botService;
+  late final MemoryService _memoryService;
   late final UserProfileService _profileService;
   late final ContactDataService _contactService;
   late final bool _ownsCallService;
@@ -139,7 +142,6 @@ class _ChatScreenState extends State<ChatScreen> {
   Timer? _messageHighlightTimer;
 
   List<Message> _messages = [];
-  final List<AgentTask> _agentTasks = [];
   final Map<String, GlobalKey> _messageKeys = {};
   final Map<String, Future<LinkPreview?>> _linkPreviewFutures = {};
   final Set<String> _viewportReadMarkedMessageIds = {};
@@ -153,7 +155,6 @@ class _ChatScreenState extends State<ChatScreen> {
   bool _isLoadingOlderMessages = false;
   bool _hasMoreMessages = false;
   bool _isSendingAttachment = false;
-  bool _isRunningAgentTask = false;
   bool _isLoadingRoomBots = false;
   bool _desktopInfoPanelCollapsed = false;
   int _desktopInfoPanelTab = 0;
@@ -197,6 +198,7 @@ class _ChatScreenState extends State<ChatScreen> {
     _authService = widget.authService ?? AuthService();
     _anonymousService = AnonymousService();
     _botService = widget.botService ?? BotService();
+    _memoryService = MemoryService(authService: _authService);
     _profileService =
         widget.profileService ?? UserProfileService(authService: _authService);
     _contactService = widget.contactService ?? ContactDataService();
@@ -249,6 +251,7 @@ class _ChatScreenState extends State<ChatScreen> {
     _chat = chat;
     _pendingStartCall = startCall;
     _didInitialize = true;
+    _syncAgentClientToolState();
     _startChatSession();
   }
 
@@ -364,6 +367,9 @@ class _ChatScreenState extends State<ChatScreen> {
   void _setViewState(VoidCallback fn) {
     if (!mounted) return;
     setState(fn);
+    if (_didInitialize) {
+      _syncAgentClientToolState();
+    }
   }
 
   void _restoreCachedMessages() {
@@ -666,6 +672,28 @@ class _ChatScreenState extends State<ChatScreen> {
       hasMoreMessages: _hasMoreMessages,
       nextMessagePage: _nextMessagePage,
     );
+    _syncAgentClientToolState();
+  }
+
+  void _syncAgentClientToolState() {
+    if (!_didInitialize) return;
+    final tabName = switch (_desktopInfoPanelTab) {
+      0 => 'members',
+      1 => 'files',
+      _ => 'bots',
+    };
+    AgentClientToolState().updateRoom(
+      roomId: int.tryParse(_chat.id),
+      muted: _chat.isMuted,
+      pinnedToTop: _chat.isPinned,
+      notificationLevel: _chat.isMuted ? 'none' : 'all',
+      messages: _messages,
+      rightSidebarOpen: !_desktopInfoPanelCollapsed,
+      rightSidebarTab: tabName,
+      membersPanelOpen:
+          !_desktopInfoPanelCollapsed && _desktopInfoPanelTab == 0,
+      settingsOpen: false,
+    );
   }
 
   Color? _parseAnonymousColor(String? value) {
@@ -859,8 +887,8 @@ class _ChatScreenState extends State<ChatScreen> {
         ),
         _buildInputIconButton(
           symbol: PMSymbol.terminal,
-          onPressed: _showSlashCommandPanel,
-          tooltip: 'Agent 命令',
+          onPressed: _insertSystemAgentMention,
+          tooltip: '插入 AI 助手',
         ),
         _buildInputIconButton(
           symbol: PMSymbol.add,
@@ -945,22 +973,4 @@ class _ChatScreenState extends State<ChatScreen> {
     return AttachmentType.file;
   }
 
-  Widget _statusPill(String label, Color color) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.10),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: color.withValues(alpha: 0.24)),
-      ),
-      child: Text(
-        label,
-        style: TextStyle(
-          color: color,
-          fontSize: 12,
-          fontWeight: FontWeight.w800,
-        ),
-      ),
-    );
-  }
 }

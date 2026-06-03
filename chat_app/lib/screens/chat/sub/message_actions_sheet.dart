@@ -87,6 +87,109 @@ extension _ChatScreenActionSheetParts on _ChatScreenState {
     }
   }
 
+  Future<void> _editMessage(Message message) async {
+    final controller = TextEditingController(text: message.content);
+    final nextContent = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('编辑消息'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          maxLines: 4,
+          minLines: 1,
+          decoration: const InputDecoration(hintText: '输入新的消息内容'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(controller.text.trim()),
+            child: const Text('保存'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (nextContent == null || nextContent.isEmpty) return;
+    try {
+      final updated = await _chatService.editMessage(message.id, nextContent);
+      _upsertMessage(updated.chatRoomId.isEmpty
+          ? updated.copyWith(chatRoomId: _chat.id)
+          : updated);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('编辑失败: $e'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    }
+  }
+
+  Future<void> _forwardMessage(Message message) async {
+    final target = await _selectForwardTarget();
+    if (target == null) return;
+    try {
+      final sent = await _chatService.forwardMessage(message.id, target.id);
+      if (!mounted) return;
+      if (target.id == _chat.id) {
+        _upsertMessage(sent);
+        _scrollToBottom();
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('已转发到 ${target.name}')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('转发失败: $e'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    }
+  }
+
+  Future<void> _pinMessage(Message message) async {
+    try {
+      await _chatService.pinMessage(_chat.id, message.id);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('消息已置顶')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('置顶失败: $e'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    }
+  }
+
+  Future<void> _starMessage(Message message) async {
+    try {
+      await _chatService.starMessage(message.id);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('已收藏')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('收藏失败: $e'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    }
+  }
+
   void _showMessageActions(Message message, bool isMe) {
     if (message.id.startsWith('local-') || message.isRemoved) {
       return;
@@ -94,128 +197,169 @@ extension _ChatScreenActionSheetParts on _ChatScreenState {
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
-      builder: (context) => Container(
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.only(
-            topLeft: Radius.circular(20),
-            topRight: Radius.circular(20),
-          ),
+      isScrollControlled: true,
+      builder: (context) => ConstrainedBox(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(context).size.height * 0.86,
         ),
-        child: SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 40,
-                height: 4,
-                margin: const EdgeInsets.only(top: 12),
-                decoration: BoxDecoration(
-                  color: Colors.grey[300],
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(18, 14, 18, 6),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    for (final emoji in const [
-                      '👍',
-                      '❤️',
-                      '😂',
-                      '🎉',
-                      '😮',
-                      '😢'
-                    ])
-                      InkWell(
-                        borderRadius: BorderRadius.circular(999),
-                        onTap: () {
-                          Navigator.pop(context);
-                          unawaited(_toggleReaction(
-                            message,
-                            emoji,
-                            message.hasReactionFrom(
-                              emoji,
-                              _authService.currentUser?.id,
+        child: Container(
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.only(
+              topLeft: Radius.circular(20),
+              topRight: Radius.circular(20),
+            ),
+          ),
+          child: SafeArea(
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 40,
+                    height: 4,
+                    margin: const EdgeInsets.only(top: 12),
+                    decoration: BoxDecoration(
+                      color: Colors.grey[300],
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(18, 14, 18, 6),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        for (final emoji in const [
+                          '👍',
+                          '❤️',
+                          '😂',
+                          '🎉',
+                          '😮',
+                          '😢'
+                        ])
+                          InkWell(
+                            borderRadius: BorderRadius.circular(999),
+                            onTap: () {
+                              Navigator.pop(context);
+                              unawaited(_toggleReaction(
+                                message,
+                                emoji,
+                                message.hasReactionFrom(
+                                  emoji,
+                                  _authService.currentUser?.id,
+                                ),
+                              ));
+                            },
+                            child: Padding(
+                              padding: const EdgeInsets.all(8),
+                              child: Text(
+                                emoji,
+                                style: const TextStyle(fontSize: 24),
+                              ),
                             ),
-                          ));
-                        },
-                        child: Padding(
-                          padding: const EdgeInsets.all(8),
-                          child: Text(
-                            emoji,
-                            style: const TextStyle(fontSize: 24),
                           ),
-                        ),
-                      ),
+                      ],
+                    ),
+                  ),
+                  if (isMe)
+                    _buildChatOption(
+                      icon: Icons.undo,
+                      title: '撤回消息',
+                      onTap: () {
+                        Navigator.pop(context);
+                        _recallMessage(message);
+                      },
+                    ),
+                  if (isMe && message.type == MessageType.text)
+                    _buildChatOption(
+                      icon: Icons.edit,
+                      title: '编辑',
+                      onTap: () {
+                        Navigator.pop(context);
+                        unawaited(_editMessage(message));
+                      },
+                    ),
+                  _buildChatOption(
+                    icon: Icons.copy,
+                    title: '复制',
+                    onTap: () {
+                      Navigator.pop(context);
+                      Clipboard.setData(ClipboardData(text: message.content));
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('已复制')),
+                      );
+                    },
+                  ),
+                  _buildChatOption(
+                    icon: Icons.reply,
+                    title: '引用',
+                    onTap: () {
+                      Navigator.pop(context);
+                      _quoteMessage(message);
+                    },
+                  ),
+                  _buildChatOption(
+                    icon: Icons.delete_outline,
+                    title: '删除消息',
+                    color: AppColors.error,
+                    onTap: () {
+                      Navigator.pop(context);
+                      _deleteMessage(message);
+                    },
+                  ),
+                  _buildChatOption(
+                    icon: Icons.forward,
+                    title: '转发',
+                    onTap: () {
+                      Navigator.pop(context);
+                      unawaited(_forwardMessage(message));
+                    },
+                  ),
+                  _buildChatOption(
+                    icon: Icons.push_pin,
+                    title: '置顶消息',
+                    onTap: () {
+                      Navigator.pop(context);
+                      unawaited(_pinMessage(message));
+                    },
+                  ),
+                  _buildChatOption(
+                    icon: Icons.star_border,
+                    title: '收藏',
+                    onTap: () {
+                      Navigator.pop(context);
+                      unawaited(_starMessage(message));
+                    },
+                  ),
+                  _buildChatOption(
+                    icon: Icons.done_all,
+                    title: '查看已读',
+                    onTap: () {
+                      Navigator.pop(context);
+                      unawaited(_showReadReceipts(message));
+                    },
+                  ),
+                  if (message.fileUrl?.isNotEmpty == true) ...[
+                    _buildChatOption(
+                      icon: Icons.download,
+                      title: message.isImageMessage ? '保存图片' : '下载附件',
+                      onTap: () {
+                        Navigator.pop(context);
+                        unawaited(_downloadAttachment(message));
+                      },
+                    ),
+                    _buildChatOption(
+                      icon: Icons.forward,
+                      title: '下载后转发附件',
+                      onTap: () {
+                        Navigator.pop(context);
+                        unawaited(_forwardAttachment(message));
+                      },
+                    ),
                   ],
-                ),
+                ],
               ),
-              if (isMe)
-                _buildChatOption(
-                  icon: Icons.undo,
-                  title: '撤回消息',
-                  onTap: () {
-                    Navigator.pop(context);
-                    _recallMessage(message);
-                  },
-                ),
-              _buildChatOption(
-                icon: Icons.copy,
-                title: '复制',
-                onTap: () {
-                  Navigator.pop(context);
-                  Clipboard.setData(ClipboardData(text: message.content));
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('已复制')),
-                  );
-                },
-              ),
-              _buildChatOption(
-                icon: Icons.reply,
-                title: '引用',
-                onTap: () {
-                  Navigator.pop(context);
-                  _quoteMessage(message);
-                },
-              ),
-              _buildChatOption(
-                icon: Icons.done_all,
-                title: '查看已读',
-                onTap: () {
-                  Navigator.pop(context);
-                  unawaited(_showReadReceipts(message));
-                },
-              ),
-              if (message.fileUrl?.isNotEmpty == true) ...[
-                _buildChatOption(
-                  icon: Icons.download,
-                  title: message.isImageMessage ? '保存图片' : '下载附件',
-                  onTap: () {
-                    Navigator.pop(context);
-                    unawaited(_downloadAttachment(message));
-                  },
-                ),
-                _buildChatOption(
-                  icon: Icons.forward,
-                  title: '转发',
-                  onTap: () {
-                    Navigator.pop(context);
-                    unawaited(_forwardAttachment(message));
-                  },
-                ),
-              ],
-              _buildChatOption(
-                icon: Icons.delete_outline,
-                title: '删除消息',
-                color: AppColors.error,
-                onTap: () {
-                  Navigator.pop(context);
-                  _deleteMessage(message);
-                },
-              ),
-            ],
+            ),
           ),
         ),
       ),

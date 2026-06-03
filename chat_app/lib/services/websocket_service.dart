@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import '../constants/api_constants.dart';
 import '../models/message.dart';
+import 'agent_client_tools.dart';
 import 'auth_service.dart';
 
 abstract class ChatRealtimeService {
@@ -31,6 +32,7 @@ class WebSocketService extends ChangeNotifier implements ChatRealtimeService {
 
   WebSocketChannel? _channel;
   final AuthService _authService = AuthService();
+  AgentClientToolRegistry _agentClientToolRegistry = AgentClientToolRegistry();
   bool _isConnected = false;
   Timer? _heartbeatTimer;
   Timer? _reconnectTimer;
@@ -205,6 +207,9 @@ class WebSocketService extends ChangeNotifier implements ChatRealtimeService {
         case 'app_update_available':
           _appUpdateController.add(Map<String, dynamic>.from(json));
           break;
+        case 'agent_tool_request':
+          unawaited(_handleAgentToolRequest(Map<String, dynamic>.from(json)));
+          break;
         case 'pong':
           // Heartbeat response
           break;
@@ -218,6 +223,69 @@ class WebSocketService extends ChangeNotifier implements ChatRealtimeService {
 
   @visibleForTesting
   void handleMessageForTest(dynamic data) => _handleMessage(data);
+
+  @visibleForTesting
+  void setAgentClientToolRegistryForTesting(AgentClientToolRegistry registry) {
+    _agentClientToolRegistry = registry;
+  }
+
+  Future<void> _handleAgentToolRequest(Map<String, dynamic> message) async {
+    final payload = await buildAgentToolResultForTest(message);
+    if (payload != null) {
+      sendMessage(payload);
+    }
+  }
+
+  @visibleForTesting
+  Future<Map<String, dynamic>?> buildAgentToolResultForTest(
+    Map<String, dynamic> message,
+  ) async {
+    final callId = message['callId']?.toString();
+    final toolName = message['toolName']?.toString();
+    final paramsValue = message['params'];
+    if (callId == null ||
+        callId.isEmpty ||
+        toolName == null ||
+        toolName.isEmpty) {
+      debugPrint('Invalid agent_tool_request: missing callId/toolName');
+      return null;
+    }
+    final params = paramsValue is Map
+        ? Map<String, dynamic>.from(paramsValue)
+        : <String, dynamic>{};
+    debugPrint(
+        'Agent client tool request received tool=$toolName callId=$callId');
+    final tool = _agentClientToolRegistry.getByName(toolName);
+    if (tool == null) {
+      return {
+        'type': 'agent_tool_result',
+        'callId': callId,
+        'error': {
+          'code': 'tool_not_registered',
+          'message': 'Client tool is not registered: $toolName',
+        },
+      };
+    }
+    try {
+      final result = await tool.execute(params);
+      final payload = {
+        'type': 'agent_tool_result',
+        'callId': callId,
+        'result': result,
+      };
+      debugPrint('Agent client tool result sent tool=$toolName callId=$callId');
+      return payload;
+    } catch (e) {
+      return {
+        'type': 'agent_tool_result',
+        'callId': callId,
+        'error': {
+          'code': 'client_tool_error',
+          'message': e.toString(),
+        },
+      };
+    }
+  }
 
   void _handleDisconnect() {
     _isConnected = false;

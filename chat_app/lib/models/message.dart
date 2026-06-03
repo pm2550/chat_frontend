@@ -7,6 +7,7 @@ enum MessageType {
   location('位置'),
   sticker('贴纸'),
   poll('投票'),
+  imageGeneration('AI图片生成'),
   system('系统消息');
 
   const MessageType(this.description);
@@ -103,23 +104,32 @@ class MessageReaction {
       };
 }
 
+/// Rendering format of a message body. Only bot/agent/system messages ever carry
+/// a non-plain value; defaults to plain for older servers/clients.
+enum MessageContentFormat { plain, markdown, card }
+
 class Message {
   final String id;
   final String content;
   final String senderId;
   final String senderName;
   final String? senderAvatar;
+  final String? senderTitle;
+  final String? senderTitleColor;
+  final String senderTitleEffect;
   final String? botConfigId;
   final String? botSenderId;
   final String? botName;
   final String? botAvatar;
   final String chatRoomId;
   final MessageType type;
+  final MessageContentFormat contentFormat;
   final MessageStatus status;
   final DateTime timestamp;
   final DateTime? editedAt;
   final String? replyToId;
   final Message? replyToMessage;
+  final String? forwardedFromMessageId;
   final List<String> mentionedUserIds;
   final Map<String, dynamic>? metadata;
   final String? replyToMessageId;
@@ -129,6 +139,10 @@ class Message {
   final String? fileType;
   final int? stickerId;
   final int? pollId;
+  final String? imageGenPrompt;
+  final String? imageGenStatus;
+  final String? imageGenUrl;
+  final String? imageGenProviderTaskId;
   final bool isDeleted;
   final bool isRecalled;
   final String? encryptedContent;
@@ -147,17 +161,22 @@ class Message {
     required this.senderId,
     required this.senderName,
     this.senderAvatar,
+    this.senderTitle,
+    this.senderTitleColor,
+    this.senderTitleEffect = 'none',
     this.botConfigId,
     this.botSenderId,
     this.botName,
     this.botAvatar,
     required this.chatRoomId,
     this.type = MessageType.text,
+    this.contentFormat = MessageContentFormat.plain,
     this.status = MessageStatus.sending,
     required this.timestamp,
     this.editedAt,
     this.replyToId,
     this.replyToMessage,
+    this.forwardedFromMessageId,
     this.mentionedUserIds = const [],
     this.metadata,
     this.replyToMessageId,
@@ -167,6 +186,10 @@ class Message {
     this.fileType,
     this.stickerId,
     this.pollId,
+    this.imageGenPrompt,
+    this.imageGenStatus,
+    this.imageGenUrl,
+    this.imageGenProviderTaskId,
     this.isDeleted = false,
     this.isRecalled = false,
     this.encryptedContent,
@@ -227,6 +250,30 @@ class Message {
               json['sender_avatar'] ??
               senderJson?['avatarUrl'] ??
               senderJson?['avatar_url'],
+      senderTitle: isAnonymous
+          ? null
+          : _stringOrNull(
+              json['senderTitle'] ??
+                  json['sender_title'] ??
+                  senderJson?['title'],
+            ),
+      senderTitleColor: isAnonymous
+          ? null
+          : _stringOrNull(
+              json['senderTitleColor'] ??
+                  json['sender_title_color'] ??
+                  senderJson?['titleColor'] ??
+                  senderJson?['title_color'],
+            ),
+      senderTitleEffect: isAnonymous
+          ? 'none'
+          : (_stringOrNull(
+                json['senderTitleEffect'] ??
+                    json['sender_title_effect'] ??
+                    senderJson?['titleEffect'] ??
+                    senderJson?['title_effect'],
+              ) ??
+              'none'),
       botConfigId: _stringOrNull(json['botConfigId'] ?? json['bot_config_id']),
       botSenderId: _stringOrNull(json['botSenderId'] ?? json['bot_sender_id']),
       botName: botName,
@@ -236,10 +283,9 @@ class Message {
           chatRoomJson?['id']?.toString() ??
           fallbackChatRoomId ??
           '',
-      type: MessageType.values.firstWhere(
-        (e) => e.name.toUpperCase() == typeValue.toString().toUpperCase(),
-        orElse: () => MessageType.text,
-      ),
+      type: _parseMessageType(typeValue),
+      contentFormat: _parseContentFormat(
+          json['contentFormat'] ?? json['content_format']),
       status: MessageStatus.values.firstWhere(
         (e) => e.name.toUpperCase() == statusValue.toString().toUpperCase(),
         orElse: () => MessageStatus.sent,
@@ -257,6 +303,9 @@ class Message {
               fallbackChatRoomId: fallbackChatRoomId,
             )
           : null,
+      forwardedFromMessageId:
+          (json['forwardedFromMessageId'] ?? json['forwarded_from_message_id'])
+              ?.toString(),
       mentionedUserIds: _parseStringList(
         json['mentionedUserIds'] ??
             json['mentioned_user_ids'] ??
@@ -272,6 +321,14 @@ class Message {
       fileType: json['fileType'] ?? json['file_type'],
       stickerId: _parseInt(json['stickerId'] ?? json['sticker_id']),
       pollId: _parseInt(json['pollId'] ?? json['poll_id']),
+      imageGenPrompt: json['imageGenPrompt']?.toString() ??
+          json['image_gen_prompt']?.toString(),
+      imageGenStatus: json['imageGenStatus']?.toString() ??
+          json['image_gen_status']?.toString(),
+      imageGenUrl:
+          json['imageGenUrl']?.toString() ?? json['image_gen_url']?.toString(),
+      imageGenProviderTaskId: json['imageGenProviderTaskId']?.toString() ??
+          json['image_gen_provider_task_id']?.toString(),
       isDeleted: _parseBool(json['isDeleted'] ?? json['is_deleted']),
       isRecalled: _parseBool(json['isRecalled'] ?? json['is_recalled']) ||
           (json['content']?.toString() == '[消息已撤回]'),
@@ -298,17 +355,21 @@ class Message {
       'senderId': senderId,
       'senderName': senderName,
       'senderAvatar': senderAvatar,
+      'senderTitle': senderTitle,
+      'senderTitleColor': senderTitleColor,
+      'senderTitleEffect': senderTitleEffect,
       'botConfigId': botConfigId,
       'botSenderId': botSenderId,
       'botName': botName,
       'botAvatar': botAvatar,
       'chatRoomId': chatRoomId,
-      'type': type.name.toUpperCase(),
+      'type': _wireMessageType(type),
       'status': status.name.toUpperCase(),
       'timestamp': timestamp.toIso8601String(),
       'editedAt': editedAt?.toIso8601String(),
       'replyToId': replyToId,
       'replyToMessage': replyToMessage?.toJson(),
+      'forwardedFromMessageId': forwardedFromMessageId,
       'mentionedUserIds': mentionedUserIds,
       'metadata': metadata,
       'replyToMessageId': replyToMessageId,
@@ -318,6 +379,10 @@ class Message {
       'fileType': fileType,
       'stickerId': stickerId,
       'pollId': pollId,
+      'imageGenPrompt': imageGenPrompt,
+      'imageGenStatus': imageGenStatus,
+      'imageGenUrl': imageGenUrl,
+      'imageGenProviderTaskId': imageGenProviderTaskId,
       'isDeleted': isDeleted,
       'isRecalled': isRecalled,
       'encryptedContent': encryptedContent,
@@ -338,17 +403,22 @@ class Message {
     String? senderId,
     String? senderName,
     String? senderAvatar,
+    String? senderTitle,
+    String? senderTitleColor,
+    String? senderTitleEffect,
     String? botConfigId,
     String? botSenderId,
     String? botName,
     String? botAvatar,
     String? chatRoomId,
     MessageType? type,
+    MessageContentFormat? contentFormat,
     MessageStatus? status,
     DateTime? timestamp,
     DateTime? editedAt,
     String? replyToId,
     Message? replyToMessage,
+    String? forwardedFromMessageId,
     List<String>? mentionedUserIds,
     Map<String, dynamic>? metadata,
     String? replyToMessageId,
@@ -358,6 +428,10 @@ class Message {
     String? fileType,
     int? stickerId,
     int? pollId,
+    String? imageGenPrompt,
+    String? imageGenStatus,
+    String? imageGenUrl,
+    String? imageGenProviderTaskId,
     bool? isDeleted,
     bool? isRecalled,
     String? encryptedContent,
@@ -376,17 +450,23 @@ class Message {
       senderId: senderId ?? this.senderId,
       senderName: senderName ?? this.senderName,
       senderAvatar: senderAvatar ?? this.senderAvatar,
+      senderTitle: senderTitle ?? this.senderTitle,
+      senderTitleColor: senderTitleColor ?? this.senderTitleColor,
+      senderTitleEffect: senderTitleEffect ?? this.senderTitleEffect,
       botConfigId: botConfigId ?? this.botConfigId,
       botSenderId: botSenderId ?? this.botSenderId,
       botName: botName ?? this.botName,
       botAvatar: botAvatar ?? this.botAvatar,
       chatRoomId: chatRoomId ?? this.chatRoomId,
       type: type ?? this.type,
+      contentFormat: contentFormat ?? this.contentFormat,
       status: status ?? this.status,
       timestamp: timestamp ?? this.timestamp,
       editedAt: editedAt ?? this.editedAt,
       replyToId: replyToId ?? this.replyToId,
       replyToMessage: replyToMessage ?? this.replyToMessage,
+      forwardedFromMessageId:
+          forwardedFromMessageId ?? this.forwardedFromMessageId,
       mentionedUserIds: mentionedUserIds ?? this.mentionedUserIds,
       metadata: metadata ?? this.metadata,
       replyToMessageId: replyToMessageId ?? this.replyToMessageId,
@@ -396,6 +476,11 @@ class Message {
       fileType: fileType ?? this.fileType,
       stickerId: stickerId ?? this.stickerId,
       pollId: pollId ?? this.pollId,
+      imageGenPrompt: imageGenPrompt ?? this.imageGenPrompt,
+      imageGenStatus: imageGenStatus ?? this.imageGenStatus,
+      imageGenUrl: imageGenUrl ?? this.imageGenUrl,
+      imageGenProviderTaskId:
+          imageGenProviderTaskId ?? this.imageGenProviderTaskId,
       isDeleted: isDeleted ?? this.isDeleted,
       isRecalled: isRecalled ?? this.isRecalled,
       encryptedContent: encryptedContent ?? this.encryptedContent,
@@ -447,10 +532,16 @@ class Message {
   bool get isLocationMessage => type == MessageType.location;
   bool get isStickerMessage => type == MessageType.sticker;
   bool get isPollMessage => type == MessageType.poll;
+  bool get isImageGenerationMessage => type == MessageType.imageGeneration;
+  bool get isImageGenerationDone =>
+      isImageGenerationMessage && imageGenStatus?.toUpperCase() == 'DONE';
+  bool get isImageGenerationFailed =>
+      isImageGenerationMessage && imageGenStatus?.toUpperCase() == 'FAILED';
   bool get isFileMessage =>
       type == MessageType.file ||
       (fileUrl != null &&
           !isImageMessage &&
+          !isImageGenerationMessage &&
           !isStickerMessage &&
           !isPollMessage &&
           !isVoiceMessage &&
@@ -470,6 +561,9 @@ class Message {
     }
     if (isPollMessage) {
       return content.isNotEmpty ? content : '[投票]';
+    }
+    if (isImageGenerationMessage) {
+      return isImageGenerationDone ? '[AI图片]' : '[AI图片生成中]';
     }
     if (isFileMessage) {
       return fileName?.isNotEmpty == true ? '[文件] $fileName' : '[文件]';
@@ -502,6 +596,31 @@ class Message {
     if (value is int) return value;
     if (value is num) return value.toInt();
     return int.tryParse(value.toString());
+  }
+
+  static MessageType _parseMessageType(dynamic value) {
+    final normalized =
+        value.toString().replaceAll('_', '').replaceAll('-', '').toLowerCase();
+    return MessageType.values.firstWhere(
+      (type) => type.name.toLowerCase() == normalized,
+      orElse: () => MessageType.text,
+    );
+  }
+
+  static String _wireMessageType(MessageType type) {
+    if (type == MessageType.imageGeneration) {
+      return 'IMAGE_GENERATION';
+    }
+    return type.name.toUpperCase();
+  }
+
+  static MessageContentFormat _parseContentFormat(dynamic value) {
+    if (value == null) return MessageContentFormat.plain;
+    final normalized = value.toString().toLowerCase();
+    return MessageContentFormat.values.firstWhere(
+      (format) => format.name == normalized,
+      orElse: () => MessageContentFormat.plain,
+    );
   }
 
   static String? _stringOrNull(dynamic value) {

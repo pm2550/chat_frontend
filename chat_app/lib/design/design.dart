@@ -14,5 +14,6 @@ export 'pm_section_card.dart';
 export 'pm_skeleton.dart';
 export 'pm_status_badge.dart';
 export 'pm_symbol_icon.dart';
+export 'pm_title_badge.dart';
 export 'pm_user_avatar.dart';
 export 'tokens.dart';

@@ -11,10 +11,12 @@ import 'screens/settings/settings_screen.dart';
 import 'screens/settings/points_screen.dart';
 import 'constants/app_brand.dart';
 import 'constants/app_colors.dart';
+import 'services/agent_client_tools.dart';
 import 'widgets/app_update_listener.dart';
 import 'widgets/auth_guard.dart';
 
 void main() {
+  AgentClientToolRegistry().registerDefaults();
   runApp(
     const ProviderScope(
       child: ChatApp(),
@@ -25,9 +27,14 @@ void main() {
 class ChatApp extends StatelessWidget {
   const ChatApp({super.key});
 
+  static final GlobalKey<NavigatorState> navigatorKey =
+      GlobalKey<NavigatorState>();
+
   @override
   Widget build(BuildContext context) {
+    AgentClientToolState().navigatorKey = navigatorKey;
     return MaterialApp(
+      navigatorKey: navigatorKey,
       title: AppBrand.name,
       debugShowCheckedModeBanner: false,
       locale: const Locale('en', 'US'),

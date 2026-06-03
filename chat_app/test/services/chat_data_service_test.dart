@@ -686,6 +686,54 @@ void main() {
       expect(deleted.isDeleted, isTrue);
     });
 
+    test('phase5 message quick win endpoints use expected methods and payloads',
+        () async {
+      final calls = <String>[];
+      final bodies = <Object?>[];
+      final service = ChatDataService(
+        authenticatedRequest: (method, url, {headers, body}) async {
+          calls.add('$method $url');
+          bodies.add(body);
+          final data = {
+            'id': 55,
+            'content': method == 'PUT' ? 'edited' : 'hello',
+            'messageType': 'TEXT',
+            'messageStatus': 'SENT',
+            'createdAt': '2024-01-01T10:06:00',
+            'senderId': 7,
+            'senderName': 'Sender',
+            'chatRoomId': 42,
+            if (method == 'PUT') 'editedAt': '2024-01-01T10:07:00',
+            if (url.contains('/forward')) 'forwardedFromMessageId': 55,
+          };
+          if (url.contains('/rooms/42/pin/55')) {
+            return jsonResponse({'data': [data]});
+          }
+          return jsonResponse({'data': data});
+        },
+      );
+
+      final edited = await service.editMessage('55', 'edited');
+      final forwarded = await service.forwardMessage('55', '42');
+      final pins = await service.pinMessage('42', '55');
+      final starred = await service.starMessage('55');
+
+      expect(calls[0], contains('PUT '));
+      expect(calls[0], contains('/api/v1/messages/55'));
+      expect(bodies[0], {'content': 'edited'});
+      expect(calls[1], contains('POST '));
+      expect(calls[1], contains('/api/v1/messages/55/forward'));
+      expect(bodies[1], {'targetChatRoomId': 42});
+      expect(calls[2], contains('POST '));
+      expect(calls[2], contains('/api/v1/rooms/42/pin/55'));
+      expect(calls[3], contains('POST '));
+      expect(calls[3], contains('/api/v1/messages/55/star'));
+      expect(edited.isEdited, isTrue);
+      expect(forwarded.forwardedFromMessageId, '55');
+      expect(pins.single.id, '55');
+      expect(starred.id, '55');
+    });
+
     test('throws ChatDataException for failed backend response', () async {
       final service = ChatDataService(
         authenticatedRequest: (method, url, {headers, body}) async {
@@ -814,6 +862,54 @@ void main() {
       expect(members.first.userId, '7');
       expect(members.first.displayName, 'Alice');
       expect(members.first.isAdmin, isTrue);
+    });
+
+    test(
+        'generateImageMessage posts request and parses nested message response',
+        () async {
+      Object? sentBody;
+      final service = ChatDataService(
+        authenticatedRequest: (method, url, {headers, body}) async {
+          expect(method, 'POST');
+          expect(url, ApiConstants.generateImage);
+          sentBody = body;
+          return jsonResponse({
+            'code': 200,
+            'data': {
+              'messageId': 88,
+              'pointsCharged': 10,
+              'status': 'QUEUED',
+              'message': {
+                'id': 88,
+                'content': '画蓝色机器人',
+                'senderId': 7,
+                'senderName': 'Alice',
+                'chatRoomId': 42,
+                'messageType': 'IMAGE_GENERATION',
+                'messageStatus': 'SENDING',
+                'imageGenPrompt': '画蓝色机器人',
+                'imageGenStatus': 'QUEUED',
+                'createdAt': '2026-06-01T09:00:00',
+              },
+            },
+          });
+        },
+      );
+
+      final message = await service.generateImageMessage(
+        '42',
+        prompt: '画蓝色机器人',
+      );
+
+      expect(sentBody, {
+        'roomId': 42,
+        'prompt': '画蓝色机器人',
+        'n': 1,
+        'size': '1024*1024',
+      });
+      expect(message.id, '88');
+      expect(message.type, MessageType.imageGeneration);
+      expect(message.imageGenStatus, 'QUEUED');
     });
 
     test('group member management calls backend endpoints', () async {

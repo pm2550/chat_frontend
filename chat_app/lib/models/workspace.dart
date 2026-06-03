@@ -266,6 +266,34 @@ class WorkspaceFileItem {
   }
 }
 
+/// F6: full text body of an editable workspace file. Mirrors
+/// `WorkspaceDto.TextContent {fileId, displayName, mimeType, currentVersion, content}`.
+class WorkspaceTextContent {
+  const WorkspaceTextContent({
+    required this.fileId,
+    required this.displayName,
+    required this.currentVersion,
+    required this.content,
+    this.mimeType,
+  });
+
+  final int fileId;
+  final String displayName;
+  final int currentVersion;
+  final String content;
+  final String? mimeType;
+
+  factory WorkspaceTextContent.fromJson(Map<String, dynamic> json) {
+    return WorkspaceTextContent(
+      fileId: _asInt(json['fileId']),
+      displayName: json['displayName']?.toString() ?? '',
+      currentVersion: _asNullableInt(json['currentVersion']) ?? 1,
+      content: json['content']?.toString() ?? '',
+      mimeType: json['mimeType']?.toString(),
+    );
+  }
+}
+
 class WorkspaceVersion {
   const WorkspaceVersion({
     required this.id,

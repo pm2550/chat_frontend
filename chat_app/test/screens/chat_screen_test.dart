@@ -210,7 +210,7 @@ void main() {
       expect(find.byTooltip('其它操作'), findsOneWidget);
       expect(find.byTooltip('表情'), findsNothing);
       expect(find.byTooltip('贴纸'), findsNothing);
-      expect(find.byTooltip('Agent 命令'), findsNothing);
+      expect(find.byTooltip('插入 AI 助手'), findsNothing);
 
       await tester.tap(find.byTooltip('其它操作'));
       await tester.pumpAndSettle();
@@ -218,7 +218,7 @@ void main() {
       for (final label in [
         '表情',
         '贴纸',
-        'Agent 命令',
+        '插入 AI 助手',
         '拍照',
         '相册',
         '文件',
@@ -282,7 +282,7 @@ void main() {
       expect(find.text('暂无贴纸包'), findsOneWidget);
     });
 
-    testWidgets('375px more menu opens Agent command panel without sending',
+    testWidgets('375px more menu inserts system Agent mention without sending',
         (tester) async {
       tester.view.physicalSize = const Size(375, 667);
       tester.view.devicePixelRatio = 1;
@@ -298,7 +298,7 @@ void main() {
         chat,
         chatService: service,
         botService: FakeBotService(roomBots: [
-          BotConfig(id: 3, botName: 'DeployBot', llmProvider: 'HERMES'),
+          BotConfig(id: 3, botName: 'Deploy Bot', llmProvider: 'HERMES'),
         ]),
       ));
       await tester.pump();
@@ -306,14 +306,12 @@ void main() {
 
       await tester.tap(find.byTooltip('其它操作'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Agent 命令'));
+      await tester.tap(find.text('插入 AI 助手'));
       await tester.pumpAndSettle();
 
       final editable = tester.widget<EditableText>(find.byType(EditableText));
-      expect(editable.controller.text, isEmpty);
-      expect(find.text('/ask · 问 AI'), findsOneWidget);
-      expect(find.text('/draft · 生成草稿'), findsOneWidget);
-      expect(find.text('/summarize · 总结最近消息'), findsOneWidget);
+      expect(editable.controller.text, '@Deploy Bot ');
+      expect(find.text('/ask · 问 AI'), findsNothing);
       expect(service.sentTexts, isEmpty);
     });
 
@@ -342,7 +340,7 @@ void main() {
       for (final label in [
         '表情',
         '贴纸',
-        'Agent 命令',
+        '插入 AI 助手',
         '拍照',
         '相册',
         '文件',
@@ -373,7 +371,7 @@ void main() {
       expect(find.byTooltip('其它操作'), findsOneWidget);
       expect(find.byTooltip('表情'), findsNothing);
       expect(find.byTooltip('贴纸'), findsNothing);
-      expect(find.byTooltip('Agent 命令'), findsNothing);
+      expect(find.byTooltip('插入 AI 助手'), findsNothing);
 
       final shellWidth = tester
           .getSize(find.byKey(const ValueKey('chat-composer-text-field-shell')))
@@ -399,7 +397,7 @@ void main() {
 
       expect(find.byTooltip('表情'), findsOneWidget);
       expect(find.byTooltip('贴纸'), findsOneWidget);
-      expect(find.byTooltip('Agent 命令'), findsOneWidget);
+      expect(find.byTooltip('插入 AI 助手'), findsOneWidget);
       expect(find.byTooltip('附件'), findsOneWidget);
 
       final shellWidth = tester
@@ -408,7 +406,7 @@ void main() {
       expect(shellWidth, greaterThanOrEqualTo(180));
     });
 
-    testWidgets('inline Agent button opens command panel and does not submit',
+    testWidgets('inline Agent button inserts mention and does not submit',
         (tester) async {
       tester.view.physicalSize = const Size(720, 844);
       tester.view.devicePixelRatio = 1;
@@ -424,20 +422,18 @@ void main() {
         chat,
         chatService: service,
         botService: FakeBotService(roomBots: [
-          BotConfig(id: 4, botName: 'HelperBot', llmProvider: 'HERMES'),
+          BotConfig(id: 4, botName: 'Helper Bot', llmProvider: 'HERMES'),
         ]),
       ));
       await tester.pump();
       await tester.pump();
 
-      await tester.tap(find.byTooltip('Agent 命令'));
+      await tester.tap(find.byTooltip('插入 AI 助手'));
       await tester.pumpAndSettle();
 
       final editable = tester.widget<EditableText>(find.byType(EditableText));
-      expect(editable.controller.text, isEmpty);
-      expect(find.text('/ask · 问 AI'), findsOneWidget);
-      expect(find.text('/draft · 生成草稿'), findsOneWidget);
-      expect(find.text('/summarize · 总结最近消息'), findsOneWidget);
+      expect(editable.controller.text, '@Helper Bot ');
+      expect(find.text('/ask · 问 AI'), findsNothing);
       expect(service.sentTexts, isEmpty);
     });
 
