@@ -108,6 +108,23 @@ class ApiConstants {
       '$apiBaseUrl/chat-rooms/$roomId/mentions/me';
   static const String searchChatRooms = '$apiBaseUrl/chat-rooms/search';
 
+  // F5: owner role + AI-as-admin moderation (owner-only endpoints).
+  static String transferChatRoomOwnership(int roomId) =>
+      '$apiBaseUrl/chat-rooms/$roomId/transfer-ownership';
+  static String setChatRoomMemberRole(int roomId, int userId) =>
+      '$apiBaseUrl/chat-rooms/$roomId/members/$userId/role';
+  static String setChatRoomBotModerationGrant(int roomId, int botId) =>
+      '$apiBaseUrl/chat-rooms/$roomId/bots/$botId/moderation-grant';
+
+  // F2: room memory library. Note the `/rooms/` prefix (NOT `/chat-rooms/`).
+  static String roomMemories(int roomId) => '$apiBaseUrl/rooms/$roomId/memories';
+  static String roomMemoryDetail(int roomId, int memoryId) =>
+      '$apiBaseUrl/rooms/$roomId/memories/$memoryId';
+  static String roomMemoryPin(int roomId, int memoryId) =>
+      '$apiBaseUrl/rooms/$roomId/memories/$memoryId/pin';
+  static String roomMemoryArchive(int roomId, int memoryId) =>
+      '$apiBaseUrl/rooms/$roomId/memories/$memoryId/archive';
+
   // Message endpoints
   static const String sendMessage = '$apiBaseUrl/messages';
   static const String sendFileMessage = '$apiBaseUrl/messages/file';
@@ -260,6 +277,11 @@ class ApiConstants {
       '$workspaces/$workspaceId/folders/$folderId/restore';
   static String workspaceFiles(int workspaceId) =>
       '$workspaces/$workspaceId/files';
+  // F6: workspace inline text editing.
+  static String workspaceFileText(int workspaceId, int fileId) =>
+      '$workspaces/$workspaceId/files/$fileId/text';
+  static String workspaceCreateTextFile(int workspaceId) =>
+      '$workspaces/$workspaceId/files/text';
   static String workspaceFileDetail(int workspaceId, int fileId) =>
       '$workspaces/$workspaceId/files/$fileId';
   static String workspaceFileDownload(int workspaceId, int fileId) =>

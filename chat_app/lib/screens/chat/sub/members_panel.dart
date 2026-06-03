@@ -6,6 +6,9 @@ extension _ChatScreenMembersPanelParts on _ChatScreenState {
       (PMSymbol.members, '成员', AppColors.primary),
       (PMSymbol.files, '文件', AppColors.primary),
       (PMSymbol.ai, 'Bot', AppColors.secondaryDark),
+      // No dedicated memory glyph exists in PMSymbol; reuse the knowledge-node
+      // workspace glyph for the 记忆 (memory) tab.
+      (PMSymbol.workspace, '记忆', const Color(0xFF7C3AED)),
     ];
     if (_desktopInfoPanelCollapsed) {
       return Container(
@@ -91,7 +94,9 @@ extension _ChatScreenMembersPanelParts on _ChatScreenState {
                 child: switch (_desktopInfoPanelTab) {
                   0 => _buildMembersPanel(),
                   1 => _buildFilesPanel(),
-                  _ => _buildBotsPanel(),
+                  2 => _buildBotsPanel(),
+                  3 => _buildMemoryPanel(),
+                  _ => _buildMembersPanel(),
                 },
               ),
             ],
@@ -353,5 +358,31 @@ extension _ChatScreenMembersPanelParts on _ChatScreenState {
     if (user.displayName.isNotEmpty) return user.displayName;
     if (user.username.isNotEmpty) return user.username;
     return '成员';
+  }
+
+  Widget _buildMemoryPanel() {
+    return MemoryPanel(
+      service: _memoryService,
+      roomId: int.tryParse(_chat.id) ?? 0,
+      currentUserId: _authService.currentUser?.id,
+      resolveUserName: (userId) {
+        for (final u in _chat.participants) {
+          if (u.id == userId.toString()) {
+            return u.displayName.isNotEmpty ? u.displayName : u.username;
+          }
+        }
+        return '';
+      },
+      resolveBotName: (botId) {
+        for (final b in _roomBots) {
+          if (b.id.toString() == botId.toString()) {
+            return (b.roomNickname?.isNotEmpty == true)
+                ? b.roomNickname!
+                : b.botName;
+          }
+        }
+        return '';
+      },
+    );
   }
 }

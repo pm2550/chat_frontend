@@ -22,6 +22,7 @@ import '../../services/agent_client_tools.dart';
 import '../../services/anonymous_service.dart';
 import '../../services/bot_service.dart';
 import '../../services/chat_data_service.dart';
+import '../../services/memory_service.dart';
 import '../../services/chat_call_service.dart';
 import '../../services/contact_data_service.dart';
 import '../../services/chat_drop_paste.dart'
@@ -31,6 +32,7 @@ import '../../services/platform_chat_file_picker.dart'
     if (dart.library.js_interop) '../../services/platform_chat_file_picker_web.dart';
 import '../../services/user_profile_service.dart';
 import '../../services/websocket_service.dart';
+import 'sub/memory_panel.dart';
 import '../../widgets/anonymous_toggle_button.dart';
 import '../../widgets/anonymous_identity_hint.dart';
 import '../../widgets/call_grid_view.dart';
@@ -125,6 +127,7 @@ class _ChatScreenState extends State<ChatScreen> {
   late final ChatCallService _callService;
   late final AnonymousService _anonymousService;
   late final BotService _botService;
+  late final MemoryService _memoryService;
   late final UserProfileService _profileService;
   late final ContactDataService _contactService;
   late final bool _ownsCallService;
@@ -195,6 +198,7 @@ class _ChatScreenState extends State<ChatScreen> {
     _authService = widget.authService ?? AuthService();
     _anonymousService = AnonymousService();
     _botService = widget.botService ?? BotService();
+    _memoryService = MemoryService(authService: _authService);
     _profileService =
         widget.profileService ?? UserProfileService(authService: _authService);
     _contactService = widget.contactService ?? ContactDataService();
