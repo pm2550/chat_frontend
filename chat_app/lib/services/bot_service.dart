@@ -26,6 +26,8 @@ class BotConfig {
   final String? roomNickname;
   final String? roomPromptSuffix;
   final bool enabledInRoom;
+  /// F5: per-room moderation grant for this bot — NONE | MUTE | KICK (owner-set).
+  final String? moderationGrant;
   final int? providerCredentialId;
   final String? providerCredentialLabel;
   final String? providerCredentialLast4;
@@ -54,6 +56,7 @@ class BotConfig {
     this.roomNickname,
     this.roomPromptSuffix,
     this.enabledInRoom = true,
+    this.moderationGrant,
     this.providerCredentialId,
     this.providerCredentialLabel,
     this.providerCredentialLast4,
@@ -84,6 +87,7 @@ class BotConfig {
       roomNickname: json['roomNickname']?.toString(),
       roomPromptSuffix: json['roomPromptSuffix']?.toString(),
       enabledInRoom: json['enabledInRoom'] ?? true,
+      moderationGrant: json['moderationGrant']?.toString(),
       providerCredentialId: json['providerCredentialId'] is int
           ? json['providerCredentialId'] as int
           : int.tryParse(json['providerCredentialId']?.toString() ?? ''),

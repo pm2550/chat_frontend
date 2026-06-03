@@ -28,6 +28,75 @@ void main() {
       expect(find.text('邀请好友'), findsOneWidget);
     });
 
+    // ---- F5: owner role + transfer + role dropdown ----
+
+    testWidgets('nonOwnerCannotSeeTransferOwnership', (tester) async {
+      // Default members: alice(self) is ADMIN, not OWNER → viewer is not owner.
+      await tester.pumpWidget(buildWidget(chatService: FakeChatDataService()));
+      await tester.pumpAndSettle();
+
+      expect(find.text('转让群主'), findsNothing);
+    });
+
+    testWidgets('nonOwnerCannotSeeRoleDropdown', (tester) async {
+      await tester.pumpWidget(buildWidget(chatService: FakeChatDataService()));
+      await tester.pumpAndSettle();
+
+      // Role chips only appear inside the owner-only controls.
+      expect(find.text('协管'), findsNothing);
+    });
+
+    testWidgets('ownerSeesTransferAndRoleDropdown', (tester) async {
+      final svc = FakeChatDataService()
+        ..members = [
+          member('1', 'alice', 'Alice', role: 'OWNER'),
+          member('2', 'bob', 'Bob'),
+        ];
+      await tester.pumpWidget(buildWidget(chatService: svc));
+      await tester.pumpAndSettle();
+
+      // Transfer button + role chips render for the non-owner member (bob).
+      expect(find.text('转让群主'), findsOneWidget);
+      expect(find.text('协管'), findsOneWidget);
+      expect(find.text('管理员'), findsOneWidget);
+
+      // The dropdown must never offer OWNER as a settable role.
+      expect(find.text('群主'), findsOneWidget); // only the badge on alice
+    });
+
+    testWidgets('ownerBadgeRendersForOwnerMember', (tester) async {
+      final svc = FakeChatDataService()
+        ..members = [
+          member('1', 'alice', 'Alice', role: 'OWNER'),
+          member('2', 'bob', 'Bob'),
+        ];
+      await tester.pumpWidget(buildWidget(chatService: svc));
+      await tester.pumpAndSettle();
+
+      expect(find.text('群主'), findsOneWidget);
+    });
+
+    testWidgets('owner role chip change calls setChatRoomMemberRole',
+        (tester) async {
+      tester.view.physicalSize = const Size(1400, 3000);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      final svc = FakeChatDataService()
+        ..members = [
+          member('1', 'alice', 'Alice', role: 'OWNER'),
+          member('2', 'bob', 'Bob'),
+        ];
+      await tester.pumpWidget(buildWidget(chatService: svc));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('协管'));
+      await tester.pumpAndSettle();
+
+      expect(svc.lastRoleChangeUserId, '2');
+      expect(svc.lastRoleChange, 'MODERATOR');
+    });
+
     testWidgets('renders member rows when avatar and member title are null',
         (tester) async {
       final chatService = FakeChatDataService()
@@ -326,6 +395,41 @@ class FakeChatDataService extends ChatDataService {
   Future<void> leaveChatRoom(String chatRoomId) async {
     leftRooms.add(chatRoomId);
   }
+
+  // F5 captures.
+  String? lastTransferOwnership;
+  String? lastRoleChangeUserId;
+  String? lastRoleChange;
+  int? lastModerationGrantBotId;
+  String? lastModerationGrant;
+
+  @override
+  Future<void> transferChatRoomOwnership({
+    required String chatRoomId,
+    required String newOwnerId,
+  }) async {
+    lastTransferOwnership = newOwnerId;
+  }
+
+  @override
+  Future<void> setChatRoomMemberRole({
+    required String chatRoomId,
+    required String userId,
+    required String role,
+  }) async {
+    lastRoleChangeUserId = userId;
+    lastRoleChange = role;
+  }
+
+  @override
+  Future<void> setChatRoomBotModerationGrant({
+    required String chatRoomId,
+    required int botId,
+    required String grant,
+  }) async {
+    lastModerationGrantBotId = botId;
+    lastModerationGrant = grant;
+  }
 }
 
 class FakeContactDataService extends ContactDataService {
@@ -388,14 +492,19 @@ ChatRoomMember member(
   String username,
   String displayName, {
   bool isAdmin = false,
+  String? role,
 }) {
+  final resolvedRole = role ?? (isAdmin ? 'ADMIN' : 'MEMBER');
+  final isOwner = resolvedRole == 'OWNER';
   return ChatRoomMember(
     id: 'member-$id',
     userId: id,
     user: user(id, username, displayName),
-    role: isAdmin ? 'ADMIN' : 'MEMBER',
-    roleDescription: isAdmin ? '管理员' : '普通成员',
-    isAdmin: isAdmin,
+    role: resolvedRole,
+    roleDescription: isOwner
+        ? '群主'
+        : (resolvedRole == 'ADMIN' ? '管理员' : '普通成员'),
+    isAdmin: isAdmin || isOwner || resolvedRole == 'ADMIN',
   );
 }
 

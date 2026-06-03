@@ -325,6 +325,50 @@ class ChatDataService {
     await _request('POST', ApiConstants.toggleChatRoomMute(roomId, targetId));
   }
 
+  // F5: owner-only operations (server returns 403 for non-owners; UI also gates them).
+  Future<void> transferChatRoomOwnership({
+    required String chatRoomId,
+    required String newOwnerId,
+  }) async {
+    final roomId = _parseRoomId(chatRoomId);
+    final targetId = _parseRoomId(newOwnerId);
+    await _request(
+      'POST',
+      ApiConstants.transferChatRoomOwnership(roomId),
+      body: {'newOwnerId': targetId},
+    );
+  }
+
+  /// Sets a member's role. Only ADMIN | MODERATOR | MEMBER are accepted; OWNER is
+  /// reachable only via [transferChatRoomOwnership].
+  Future<void> setChatRoomMemberRole({
+    required String chatRoomId,
+    required String userId,
+    required String role,
+  }) async {
+    final roomId = _parseRoomId(chatRoomId);
+    final targetId = _parseRoomId(userId);
+    await _request(
+      'PUT',
+      ApiConstants.setChatRoomMemberRole(roomId, targetId),
+      body: {'role': role},
+    );
+  }
+
+  /// Sets a bot's per-room moderation grant: NONE | MUTE | KICK.
+  Future<void> setChatRoomBotModerationGrant({
+    required String chatRoomId,
+    required int botId,
+    required String grant,
+  }) async {
+    final roomId = _parseRoomId(chatRoomId);
+    await _request(
+      'PUT',
+      ApiConstants.setChatRoomBotModerationGrant(roomId, botId),
+      body: {'grant': grant},
+    );
+  }
+
   Future<ChatRoomMember> updateChatRoomMemberProfile(
     String chatRoomId,
     String userId, {
