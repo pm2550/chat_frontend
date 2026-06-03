@@ -466,6 +466,7 @@ class _ChatRoomSettingsScreenState extends State<ChatRoomSettingsScreen> {
     try {
       final members =
           await _chatService.getChatRoomMembers(widget.chatRoomId.toString());
+      if (!mounted) return;
       final currentUserId = _currentUserId;
       setState(() {
         _members = members;
@@ -478,6 +479,7 @@ class _ChatRoomSettingsScreenState extends State<ChatRoomSettingsScreen> {
         _isLoadingMembers = false;
       });
     } catch (error) {
+      if (!mounted) return;
       setState(() {
         _memberError = error.toString();
         _isLoadingMembers = false;

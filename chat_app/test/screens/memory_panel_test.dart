@@ -148,6 +148,22 @@ void main() {
       expect(find.text('私有'), findsOneWidget);
     });
 
+    testWidgets('PRIVATE entry authored by another user is never rendered',
+        (tester) async {
+      final svc = FakeMemoryService([
+        mem(1, title: 'Room one'),
+        mem(2, title: 'Their private', vis: MemoryVisibility.private, authorUserId: 2),
+      ]);
+      await tester.pumpWidget(wrap(svc, currentUserId: '1'));
+      await tester.pumpAndSettle();
+
+      // Defence-in-depth: a PRIVATE entry whose author != current user must be dropped.
+      expect(find.text('Their private'), findsNothing);
+      expect(find.byKey(const ValueKey('memory-card-2')), findsNothing);
+      // Sanity: the ROOM entry still renders.
+      expect(find.text('Room one'), findsOneWidget);
+    });
+
     testWidgets('add dialog opens, scope toggle works, Save calls createMemory',
         (tester) async {
       final svc = FakeMemoryService([]);
