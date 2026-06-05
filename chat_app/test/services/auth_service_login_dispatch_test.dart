@@ -1,0 +1,139 @@
+import 'dart:convert';
+
+import 'package:chat_app/services/auth_service.dart';
+import 'package:chat_app/services/crypto/password_hasher.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+void main() {
+  setUp(() {
+    SharedPreferences.setMockInitialValues({});
+  });
+
+  test('CLIENT_ARGON2_BCRYPT login posts clientHash and never password',
+      () async {
+    final seenBodies = <Map<String, dynamic>>[];
+    final service = AuthService.test(
+      httpClient: MockClient((request) async {
+        if (request.url.path.endsWith('/client-salt-params')) {
+          return _json({
+            'code': 200,
+            'data': {
+              'salt': 'AAAAAAAAAAAAAAAAAAAAAA',
+              'argon2Params': 'm=32,t=1,p=1,v=19,hashLen=16',
+              'scheme': PasswordHasher.clientScheme,
+            },
+          });
+        }
+        if (request.url.path.endsWith('/login')) {
+          final body = jsonDecode(request.body) as Map<String, dynamic>;
+          seenBodies.add(body);
+          expect(body, contains('clientHash'));
+          expect(body, isNot(contains('password')));
+          return _loginOk();
+        }
+        return http.Response('not found', 404);
+      }),
+    );
+
+    expect(await service.login('alice', 'secret-pw'), isTrue);
+    expect(seenBodies, hasLength(1));
+    expect(service.passwordUpgradePending, isFalse);
+  });
+
+  test('BCRYPT_LEGACY login posts password and marks upgrade pending',
+      () async {
+    final seenBodies = <Map<String, dynamic>>[];
+    final service = AuthService.test(
+      httpClient: MockClient((request) async {
+        if (request.url.path.endsWith('/client-salt-params')) {
+          return _json({
+            'code': 200,
+            'data': {
+              'salt': 'LEGACYFAKESALT000000',
+              'argon2Params': PasswordHasher.defaultArgon2Params,
+              'scheme': PasswordHasher.legacyScheme,
+            },
+          });
+        }
+        if (request.url.path.endsWith('/login')) {
+          final body = jsonDecode(request.body) as Map<String, dynamic>;
+          seenBodies.add(body);
+          expect(body['password'], 'legacy-pw');
+          expect(body, isNot(contains('clientHash')));
+          return _loginOk();
+        }
+        return http.Response('not found', 404);
+      }),
+    );
+
+    expect(await service.login('legacy', 'legacy-pw'), isTrue);
+    expect(seenBodies, hasLength(1));
+    expect(service.passwordUpgradePending, isTrue);
+  });
+
+  test('409 PASSWORD_UPGRADE_REQUIRED retries with plaintext fallback',
+      () async {
+    final seenBodies = <Map<String, dynamic>>[];
+    final service = AuthService.test(
+      httpClient: MockClient((request) async {
+        if (request.url.path.endsWith('/client-salt-params')) {
+          return _json({
+            'code': 200,
+            'data': {
+              'salt': 'AAAAAAAAAAAAAAAAAAAAAA',
+              'argon2Params': 'm=32,t=1,p=1,v=19,hashLen=16',
+              'scheme': PasswordHasher.clientScheme,
+            },
+          });
+        }
+        if (request.url.path.endsWith('/login')) {
+          final body = jsonDecode(request.body) as Map<String, dynamic>;
+          seenBodies.add(body);
+          if (seenBodies.length == 1) {
+            expect(body, contains('clientHash'));
+            expect(body, isNot(contains('password')));
+            return _json({'code': 409, 'message': 'PASSWORD_UPGRADE_REQUIRED'},
+                statusCode: 409);
+          }
+          expect(body['password'], 'plain-after-race');
+          expect(body, isNot(contains('clientHash')));
+          return _loginOk();
+        }
+        return http.Response('not found', 404);
+      }),
+    );
+
+    expect(await service.login('race-user', 'plain-after-race'), isTrue);
+    expect(seenBodies, hasLength(2));
+    expect(service.passwordUpgradePending, isTrue);
+  });
+}
+
+http.Response _loginOk() {
+  return _json({
+    'code': 200,
+    'data': {
+      'accessToken': 'access-token',
+      'refreshToken': 'refresh-token',
+      'user': {
+        'id': 1,
+        'username': 'alice',
+        'email': 'alice@example.com',
+        'displayName': 'Alice',
+        'createdAt': '2026-06-05T00:00:00Z',
+        'roles': ['USER'],
+      },
+    },
+  });
+}
+
+http.Response _json(Map<String, dynamic> body, {int statusCode = 200}) {
+  return http.Response(
+    jsonEncode(body),
+    statusCode,
+    headers: {'content-type': 'application/json'},
+  );
+}

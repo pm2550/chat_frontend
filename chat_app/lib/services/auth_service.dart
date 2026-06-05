@@ -5,22 +5,37 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../constants/api_constants.dart';
 import '../models/user.dart';
+import 'crypto/password_hasher.dart';
 
 class AuthService extends ChangeNotifier {
   static final AuthService _instance = AuthService._internal();
   factory AuthService() => _instance;
-  AuthService._internal();
+  AuthService._internal()
+      : _httpClient = null,
+        _passwordHasher = PasswordHasher();
+
+  @visibleForTesting
+  AuthService.test({
+    http.Client? httpClient,
+    PasswordHasher? passwordHasher,
+  })  : _httpClient = httpClient,
+        _passwordHasher = passwordHasher ?? PasswordHasher();
 
   User? _currentUser;
   String? _accessToken;
   String? _refreshToken;
   bool _isLoading = false;
+  bool _passwordUpgradeRequired = false;
+  final http.Client? _httpClient;
+  final PasswordHasher _passwordHasher;
 
   User? get currentUser => _currentUser;
   String? get accessToken => _accessToken;
   String? get refreshToken => _refreshToken;
   bool get isLoading => _isLoading;
   bool get isAuthenticated => _accessToken != null && _currentUser != null;
+  bool get passwordUpgradeRequired => _passwordUpgradeRequired;
+  bool get passwordUpgradePending => _passwordUpgradeRequired;
 
   // Keys for SharedPreferences
   static const String _keyAccessToken = 'access_token';
@@ -86,32 +101,57 @@ class AuthService extends ChangeNotifier {
     await refreshAccessToken();
   }
 
-  /// Login with username and password
+  /// Login with username and password.
   Future<bool> login(String username, String password) async {
     _isLoading = true;
+    _passwordUpgradeRequired = false;
     notifyListeners();
 
     try {
-      final response = await http
-          .post(
-            Uri.parse(ApiConstants.login),
-            headers: {'Content-Type': 'application/json'},
-            body: jsonEncode({'username': username, 'password': password}),
-          )
-          .timeout(ApiConstants.requestTimeout);
+      final saltParams = await _fetchClientSaltParams(username);
+      final payload = <String, dynamic>{'username': username};
+      final usedLegacyPath = !saltParams.isClientArgon2;
+      if (saltParams.isClientArgon2) {
+        payload['clientHash'] = await _passwordHasher.hashWithSalt(
+          password: password,
+          salt: saltParams.salt,
+          argon2Params: saltParams.argon2Params,
+        );
+      } else {
+        payload['password'] = password;
+      }
+
+      final response = await _post(
+        Uri.parse(ApiConstants.login),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode(payload),
+      ).timeout(ApiConstants.requestTimeout);
 
       final data = jsonDecode(utf8.decode(response.bodyBytes));
 
       if (response.statusCode == 200 && data['code'] == 200) {
-        final responseData = data['data'];
-        _accessToken = responseData['accessToken'] ?? responseData['token'];
-        _refreshToken = responseData['refreshToken'];
-        _currentUser = User.fromJson(responseData['user']);
-
-        await _saveAuthData();
+        await _persistLoginData(data['data']);
+        _passwordUpgradeRequired = usedLegacyPath;
         _isLoading = false;
         notifyListeners();
         return true;
+      }
+      if (response.statusCode == 409 ||
+          data['message'] == 'PASSWORD_UPGRADE_REQUIRED') {
+        final retry = await _post(
+          Uri.parse(ApiConstants.login),
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode({'username': username, 'password': password}),
+        ).timeout(ApiConstants.requestTimeout);
+        final retryData = jsonDecode(utf8.decode(retry.bodyBytes));
+        if (retry.statusCode == 200 && retryData['code'] == 200) {
+          await _persistLoginData(retryData['data']);
+          _passwordUpgradeRequired = true;
+          _isLoading = false;
+          notifyListeners();
+          return true;
+        }
+        _passwordUpgradeRequired = false;
       }
     } catch (e) {
       debugPrint('Login error: $e');
@@ -120,6 +160,13 @@ class AuthService extends ChangeNotifier {
     _isLoading = false;
     notifyListeners();
     return false;
+  }
+
+  Future<void> _persistLoginData(dynamic responseData) async {
+    _accessToken = responseData['accessToken'] ?? responseData['token'];
+    _refreshToken = responseData['refreshToken'];
+    _currentUser = User.fromJson(responseData['user']);
+    await _saveAuthData();
   }
 
   /// Register new account
@@ -134,19 +181,17 @@ class AuthService extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final response = await http
-          .post(
-            Uri.parse(ApiConstants.register),
-            headers: {'Content-Type': 'application/json'},
-            body: jsonEncode({
-              'username': username,
-              'password': password,
-              'email': email,
-              if (phone != null) 'phone': phone,
-              if (displayName != null) 'displayName': displayName,
-            }),
-          )
-          .timeout(ApiConstants.requestTimeout);
+      final response = await _post(
+        Uri.parse(ApiConstants.register),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'username': username,
+          'email': email,
+          ...await _newPasswordBundle(password),
+          if (phone != null) 'phone': phone,
+          if (displayName != null) 'displayName': displayName,
+        }),
+      ).timeout(ApiConstants.requestTimeout);
 
       final data = jsonDecode(utf8.decode(response.bodyBytes));
       _isLoading = false;
@@ -164,12 +209,43 @@ class AuthService extends ChangeNotifier {
     }
   }
 
+  Future<ClientSaltParams> _fetchClientSaltParams(String username) async {
+    final uri = Uri.parse(ApiConstants.clientSaltParams).replace(
+      queryParameters: {'username': username},
+    );
+    final response = await _get(uri, headers: {'Accept': 'application/json'})
+        .timeout(ApiConstants.requestTimeout);
+    if (response.statusCode != 200) {
+      throw Exception('无法获取密码参数');
+    }
+    final decoded = jsonDecode(utf8.decode(response.bodyBytes));
+    final data = decoded is Map<String, dynamic> ? decoded['data'] : null;
+    if (data is! Map<String, dynamic>) {
+      throw Exception('密码参数格式错误');
+    }
+    return ClientSaltParams(
+      salt: data['salt']?.toString() ?? '',
+      argon2Params: data['argon2Params']?.toString() ??
+          PasswordHasher.defaultArgon2Params,
+      scheme: data['scheme']?.toString() ?? PasswordHasher.legacyScheme,
+    );
+  }
+
+  Future<Map<String, String>> _newPasswordBundle(String password) async {
+    final hashed = await _passwordHasher.hashNewPassword(password);
+    return {
+      'clientHash': hashed.clientHash,
+      'clientSalt': hashed.clientSalt,
+      'argon2Params': hashed.argon2Params,
+    };
+  }
+
   /// Refresh access token using refresh token
   Future<bool> refreshAccessToken() async {
     if (_refreshToken == null) return false;
 
     try {
-      final response = await http.post(
+      final response = await _post(
         Uri.parse(ApiConstants.refreshToken),
         headers: {
           'Content-Type': 'application/json',
@@ -201,7 +277,7 @@ class AuthService extends ChangeNotifier {
     if (_accessToken == null) return false;
 
     try {
-      final response = await http.get(
+      final response = await _get(
         Uri.parse(ApiConstants.validateToken),
         headers: {'Authorization': 'Bearer $_accessToken'},
       ).timeout(ApiConstants.requestTimeout);
@@ -216,7 +292,7 @@ class AuthService extends ChangeNotifier {
   Future<void> logout() async {
     try {
       if (_accessToken != null) {
-        await http.post(
+        await _post(
           Uri.parse(ApiConstants.logout),
           headers: {'Authorization': 'Bearer $_accessToken'},
         ).timeout(ApiConstants.requestTimeout);
@@ -239,21 +315,19 @@ class AuthService extends ChangeNotifier {
     if (_accessToken == null) return false;
 
     try {
-      final response = await http
-          .put(
-            Uri.parse(ApiConstants.userProfile),
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': 'Bearer $_accessToken',
-            },
-            body: jsonEncode({
-              if (displayName != null) 'displayName': displayName,
-              if (email != null) 'email': email,
-              if (bio != null) 'bio': bio,
-              if (phone != null) 'phone': phone,
-            }),
-          )
-          .timeout(ApiConstants.requestTimeout);
+      final response = await _put(
+        Uri.parse(ApiConstants.userProfile),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $_accessToken',
+        },
+        body: jsonEncode({
+          if (displayName != null) 'displayName': displayName,
+          if (email != null) 'email': email,
+          if (bio != null) 'bio': bio,
+          if (phone != null) 'phone': phone,
+        }),
+      ).timeout(ApiConstants.requestTimeout);
 
       if (response.statusCode == 200) {
         final data = jsonDecode(utf8.decode(response.bodyBytes));
@@ -281,13 +355,25 @@ class AuthService extends ChangeNotifier {
     required String oldPassword,
     required String newPassword,
   }) async {
+    final username = _currentUser?.username;
+    if (username == null || username.isEmpty) {
+      throw Exception('请先登录');
+    }
+    final saltParams = await _fetchClientSaltParams(username);
+    final body = <String, dynamic>{...await _newPasswordBundle(newPassword)};
+    if (saltParams.isClientArgon2) {
+      body['oldClientHash'] = await _passwordHasher.hashWithSalt(
+        password: oldPassword,
+        salt: saltParams.salt,
+        argon2Params: saltParams.argon2Params,
+      );
+    } else {
+      body['oldPassword'] = oldPassword;
+    }
     final response = await authenticatedRequest(
       'POST',
       ApiConstants.profilePassword,
-      body: {
-        'oldPassword': oldPassword,
-        'newPassword': newPassword,
-      },
+      body: body,
     );
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw Exception(_extractError(response.body));
@@ -309,27 +395,23 @@ class AuthService extends ChangeNotifier {
 
     switch (method.toUpperCase()) {
       case 'GET':
-        response = await http
-            .get(Uri.parse(url), headers: headers)
+        response = await _get(Uri.parse(url), headers: headers)
             .timeout(ApiConstants.requestTimeout);
         break;
       case 'POST':
-        response = await http
-            .post(Uri.parse(url),
+        response = await _post(Uri.parse(url),
                 headers: headers,
                 body: body is String ? body : jsonEncode(body))
             .timeout(ApiConstants.requestTimeout);
         break;
       case 'PUT':
-        response = await http
-            .put(Uri.parse(url),
+        response = await _put(Uri.parse(url),
                 headers: headers,
                 body: body is String ? body : jsonEncode(body))
             .timeout(ApiConstants.requestTimeout);
         break;
       case 'DELETE':
-        response = await http
-            .delete(Uri.parse(url), headers: headers)
+        response = await _delete(Uri.parse(url), headers: headers)
             .timeout(ApiConstants.requestTimeout);
         break;
       default:
@@ -344,27 +426,23 @@ class AuthService extends ChangeNotifier {
         headers['Authorization'] = 'Bearer $_accessToken';
         switch (method.toUpperCase()) {
           case 'GET':
-            response = await http
-                .get(Uri.parse(url), headers: headers)
+            response = await _get(Uri.parse(url), headers: headers)
                 .timeout(ApiConstants.requestTimeout);
             break;
           case 'POST':
-            response = await http
-                .post(Uri.parse(url),
+            response = await _post(Uri.parse(url),
                     headers: headers,
                     body: body is String ? body : jsonEncode(body))
                 .timeout(ApiConstants.requestTimeout);
             break;
           case 'PUT':
-            response = await http
-                .put(Uri.parse(url),
+            response = await _put(Uri.parse(url),
                     headers: headers,
                     body: body is String ? body : jsonEncode(body))
                 .timeout(ApiConstants.requestTimeout);
             break;
           case 'DELETE':
-            response = await http
-                .delete(Uri.parse(url), headers: headers)
+            response = await _delete(Uri.parse(url), headers: headers)
                 .timeout(ApiConstants.requestTimeout);
             break;
         }
@@ -420,6 +498,48 @@ class AuthService extends ChangeNotifier {
       // Use generic error below.
     }
     return '请求失败';
+  }
+
+  Future<http.Response> _get(
+    Uri url, {
+    Map<String, String>? headers,
+  }) {
+    final client = _httpClient;
+    return client == null
+        ? http.get(url, headers: headers)
+        : client.get(url, headers: headers);
+  }
+
+  Future<http.Response> _post(
+    Uri url, {
+    Map<String, String>? headers,
+    Object? body,
+  }) {
+    final client = _httpClient;
+    return client == null
+        ? http.post(url, headers: headers, body: body)
+        : client.post(url, headers: headers, body: body);
+  }
+
+  Future<http.Response> _put(
+    Uri url, {
+    Map<String, String>? headers,
+    Object? body,
+  }) {
+    final client = _httpClient;
+    return client == null
+        ? http.put(url, headers: headers, body: body)
+        : client.put(url, headers: headers, body: body);
+  }
+
+  Future<http.Response> _delete(
+    Uri url, {
+    Map<String, String>? headers,
+  }) {
+    final client = _httpClient;
+    return client == null
+        ? http.delete(url, headers: headers)
+        : client.delete(url, headers: headers);
   }
 
   /// Save auth data to SharedPreferences

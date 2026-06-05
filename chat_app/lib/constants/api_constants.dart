@@ -52,6 +52,8 @@ class ApiConstants {
   static const String refreshToken = '$authBaseUrl/refresh';
   static const String validateToken = '$authBaseUrl/validate';
   static const String checkUsername = '$authBaseUrl/check-username';
+  static const String clientSaltParams = '$authBaseUrl/client-salt-params';
+  static const String authClientSaltParams = clientSaltParams;
 
   // User endpoints
   static const String profileBaseUrl = '$baseUrl$apiPrefix/profile';
@@ -117,7 +119,8 @@ class ApiConstants {
       '$apiBaseUrl/chat-rooms/$roomId/bots/$botId/moderation-grant';
 
   // F2: room memory library. Note the `/rooms/` prefix (NOT `/chat-rooms/`).
-  static String roomMemories(int roomId) => '$apiBaseUrl/rooms/$roomId/memories';
+  static String roomMemories(int roomId) =>
+      '$apiBaseUrl/rooms/$roomId/memories';
   static String roomMemoryDetail(int roomId, int memoryId) =>
       '$apiBaseUrl/rooms/$roomId/memories/$memoryId';
   static String roomMemoryPin(int roomId, int memoryId) =>

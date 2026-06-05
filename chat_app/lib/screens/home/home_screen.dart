@@ -5,10 +5,12 @@ import '../../constants/app_colors.dart';
 import '../../design/pm_symbol_icon.dart';
 import '../../widgets/pm_brand.dart';
 import '../../widgets/pm_responsive.dart';
+import '../../services/auth_service.dart';
 import 'chat_list_page.dart';
 import 'contacts_page.dart';
 import 'profile_page.dart';
 import '../ai/ai_hub_page.dart';
+import '../settings/settings_screen.dart';
 import '../workspace/workspace_page.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -29,6 +31,7 @@ class _HomeScreenState extends State<HomeScreen> {
   int _currentIndex = 0;
   String _aiSection = 'bots';
   String? _cachedAiSection;
+  final AuthService _authService = AuthService();
   final PageStorageBucket _pageStorageBucket = PageStorageBucket();
   late final List<Widget?> _pageCache =
       List<Widget?>.filled(_tabs.length, null);
@@ -93,7 +96,7 @@ class _HomeScreenState extends State<HomeScreen> {
         body: Row(
           children: [
             _buildDesktopSidebar(context),
-            Expanded(child: _buildCachedTabStack()),
+            Expanded(child: _buildBodyWithMigrationBanner()),
           ],
         ),
       );
@@ -141,14 +144,14 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
             ),
-            Expanded(child: _buildCachedTabStack()),
+            Expanded(child: _buildBodyWithMigrationBanner()),
           ],
         ),
       );
     }
 
     return Scaffold(
-      body: _buildCachedTabStack(),
+      body: _buildBodyWithMigrationBanner(),
       bottomNavigationBar: DecoratedBox(
         decoration: const BoxDecoration(
           color: AppColors.surface,
@@ -187,6 +190,54 @@ class _HomeScreenState extends State<HomeScreen> {
             child: shouldBuild ? _pageAt(index) : const SizedBox.shrink(),
           );
         }),
+      ),
+    );
+  }
+
+  Widget _buildBodyWithMigrationBanner() {
+    return ListenableBuilder(
+      listenable: _authService,
+      builder: (context, _) {
+        final showBanner = _authService.passwordUpgradePending;
+        if (!showBanner) {
+          return _buildCachedTabStack();
+        }
+        return Column(
+          children: [
+            SafeArea(
+              bottom: false,
+              child: MaterialBanner(
+                backgroundColor: const Color(0xFFFFFBEB),
+                leading: const PMSymbolIcon(
+                  PMSymbol.settings,
+                  color: Color(0xFFD97706),
+                ),
+                content: const Text(
+                  '为了你的账户安全，请更新一次密码，之后服务器不会再收到明文密码。',
+                  style: TextStyle(
+                    color: AppColors.textPrimary,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: _openPasswordUpgrade,
+                    child: const Text('立即修改'),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(child: _buildCachedTabStack()),
+          ],
+        );
+      },
+    );
+  }
+
+  void _openPasswordUpgrade() {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => ChangePasswordScreen(authService: _authService),
       ),
     );
   }
