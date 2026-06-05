@@ -2,14 +2,26 @@ part of '../chat_screen.dart';
 
 extension _ChatScreenMembersPanelParts on _ChatScreenState {
   Widget _buildDesktopInfoPanel() {
-    final tabs = [
-      (PMSymbol.members, '成员', AppColors.primary),
-      (PMSymbol.files, '文件', AppColors.primary),
-      (PMSymbol.ai, 'Bot', AppColors.secondaryDark),
-      // No dedicated memory glyph exists in PMSymbol; reuse the knowledge-node
-      // workspace glyph for the 记忆 (memory) tab.
-      (PMSymbol.workspace, '记忆', const Color(0xFF7C3AED)),
-    ];
+    // Private (1-on-1) chats get a QQ-style panel: friend profile + files + actions.
+    // Group chats keep the members/files/Bot/memory tabs.
+    final isGroup = _chat.type == ChatType.group;
+    final tabs = isGroup
+        ? const [
+            (PMSymbol.members, '成员', AppColors.primary),
+            (PMSymbol.files, '文件', AppColors.primary),
+            (PMSymbol.ai, 'Bot', AppColors.secondaryDark),
+            // No dedicated memory glyph exists in PMSymbol; reuse the
+            // knowledge-node workspace glyph for the 记忆 (memory) tab.
+            (PMSymbol.workspace, '记忆', Color(0xFF7C3AED)),
+          ]
+        : const [
+            (PMSymbol.profile, '资料', AppColors.primary),
+            (PMSymbol.files, '文件', AppColors.primary),
+          ];
+    // Tab index is shared state across rooms; a leftover group index (e.g. 记忆=3)
+    // falls back to the first tab (资料) when viewing a 2-tab private panel.
+    final selectedTab =
+        _desktopInfoPanelTab <= (tabs.length - 1) ? _desktopInfoPanelTab : 0;
     if (_desktopInfoPanelCollapsed) {
       return Container(
         width: 64,
@@ -33,11 +45,11 @@ extension _ChatScreenMembersPanelParts on _ChatScreenState {
                   child: IconButton.filledTonal(
                     tooltip: tabs[i].$2,
                     icon: PMSymbolIcon(tabs[i].$1, size: 18),
-                    color: _desktopInfoPanelTab == i
+                    color: selectedTab == i
                         ? tabs[i].$3
                         : AppColors.textSecondary,
                     style: IconButton.styleFrom(
-                      backgroundColor: _desktopInfoPanelTab == i
+                      backgroundColor: selectedTab == i
                           ? tabs[i].$3.withValues(alpha: 0.12)
                           : AppColors.cloud,
                     ),
@@ -73,7 +85,7 @@ extension _ChatScreenMembersPanelParts on _ChatScreenState {
                           PMChip(
                             label: tabs[i].$2,
                             leading: PMSymbolIcon(tabs[i].$1, size: 16),
-                            selected: _desktopInfoPanelTab == i,
+                            selected: selectedTab == i,
                             color: tabs[i].$3,
                             onTap: () =>
                                 _setViewState(() => _desktopInfoPanelTab = i),
@@ -91,13 +103,18 @@ extension _ChatScreenMembersPanelParts on _ChatScreenState {
               ),
               const SizedBox(height: 16),
               Expanded(
-                child: switch (_desktopInfoPanelTab) {
-                  0 => _buildMembersPanel(),
-                  1 => _buildFilesPanel(),
-                  2 => _buildBotsPanel(),
-                  3 => _buildMemoryPanel(),
-                  _ => _buildMembersPanel(),
-                },
+                child: isGroup
+                    ? switch (selectedTab) {
+                        0 => _buildMembersPanel(),
+                        1 => _buildFilesPanel(),
+                        2 => _buildBotsPanel(),
+                        3 => _buildMemoryPanel(),
+                        _ => _buildMembersPanel(),
+                      }
+                    : switch (selectedTab) {
+                        1 => _buildFilesPanel(),
+                        _ => _buildPrivateProfilePanel(),
+                      },
               ),
             ],
           ),
@@ -383,6 +400,145 @@ extension _ChatScreenMembersPanelParts on _ChatScreenState {
         }
         return '';
       },
+    );
+  }
+
+  // ---- Private (1-on-1) info panel: friend profile + actions (QQ-style) ----
+
+  Widget _buildPrivateProfilePanel() {
+    final currentUserId = _authService.currentUser?.id;
+    final others =
+        _chat.participants.where((u) => u.id != currentUserId).toList();
+    final User? other = others.isNotEmpty
+        ? others.first
+        : (_chat.participants.isNotEmpty ? _chat.participants.first : null);
+
+    return ListView(
+      children: [
+        PMCard(
+          elevated: false,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              if (other != null) ...[
+                PMUserAvatar(
+                  user: other,
+                  size: 72,
+                  status: PMOnlineStatus.fromUserStatus(other.onlineStatus),
+                  showOnlineDot: true,
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  _memberDisplayName(other),
+                  style: const TextStyle(
+                      fontWeight: FontWeight.w900, fontSize: 16),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  other.onlineStatus.name,
+                  style: const TextStyle(
+                      color: AppColors.textSecondary, fontSize: 12),
+                ),
+                const SizedBox(height: 12),
+                _buildFriendshipAction(other),
+              ] else
+                const Text('聊天信息',
+                    style: TextStyle(fontWeight: FontWeight.w900)),
+            ],
+          ),
+        ),
+        const SizedBox(height: 14),
+        const Text('操作', style: TextStyle(fontWeight: FontWeight.w900)),
+        const SizedBox(height: 8),
+        PMCard(
+          elevated: false,
+          padding: EdgeInsets.zero,
+          child: Column(
+            children: [
+              SwitchListTile(
+                title: const Text('消息免打扰'),
+                value: _chat.isMuted,
+                onChanged: _togglePrivateMute,
+              ),
+              SwitchListTile(
+                title: const Text('置顶聊天'),
+                value: _chat.isPinned,
+                onChanged: _togglePrivatePin,
+              ),
+              PMListRow(
+                leading: const Icon(Icons.delete_sweep_rounded,
+                    color: AppColors.error),
+                title: const Text('清空聊天记录'),
+                onTap: _confirmClearPrivateHistory,
+              ),
+              PMListRow(
+                leading: const Icon(Icons.settings_rounded,
+                    color: AppColors.textSecondary),
+                title: const Text('聊天设置'),
+                onTap: _openRoomSettings,
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _togglePrivateMute(bool value) async {
+    try {
+      await _chatService.updateNotificationSettings(_chat.id, muted: value);
+      if (!mounted) return;
+      _setViewState(() => _chat = _chat.copyWith(isMuted: value));
+    } catch (error) {
+      _privateActionError('设置失败: $error');
+    }
+  }
+
+  Future<void> _togglePrivatePin(bool value) async {
+    try {
+      await _chatService.updateNotificationSettings(_chat.id, pinned: value);
+      if (!mounted) return;
+      _setViewState(() => _chat = _chat.copyWith(isPinned: value));
+    } catch (error) {
+      _privateActionError('设置失败: $error');
+    }
+  }
+
+  Future<void> _confirmClearPrivateHistory() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const PMDialogHeader(title: '清空聊天记录', showHandle: false),
+        content: const Text('确定清空与对方的聊天记录吗？此操作仅清空你这边，无法撤销。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            style: TextButton.styleFrom(foregroundColor: AppColors.error),
+            child: const Text('清空'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    try {
+      await _chatService.clearChatHistory(_chat.id);
+      if (!mounted) return;
+      _setViewState(() => _messages = []);
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('已清空聊天记录')));
+    } catch (error) {
+      _privateActionError('清空失败: $error');
+    }
+  }
+
+  void _privateActionError(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), backgroundColor: AppColors.error),
     );
   }
 }
