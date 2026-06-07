@@ -34,7 +34,8 @@ class ChatListPage extends StatefulWidget {
   State<ChatListPage> createState() => _ChatListPageState();
 }
 
-class _ChatListPageState extends State<ChatListPage> {
+class _ChatListPageState extends State<ChatListPage>
+    with AutomaticKeepAliveClientMixin<ChatListPage> {
   final TextEditingController _searchController = TextEditingController();
   final FocusNode _searchFocusNode = FocusNode();
   late final ChatDataService _chatService;
@@ -145,6 +146,7 @@ class _ChatListPageState extends State<ChatListPage> {
         unreadCount: nextUnreadCount,
         updatedAt: shouldPromoteToLast ? message.timestamp : original.updatedAt,
       );
+      ChatDataService.patchCachedChatRoom(_chats[index]);
       if (_showMentionsOnly && message.mentionsUser(currentUserId)) {
         _mentionHits.insert(
             0, _MentionHit(chat: _chats[index], message: message));
@@ -374,7 +376,11 @@ class _ChatListPageState extends State<ChatListPage> {
   }
 
   @override
+  bool get wantKeepAlive => true;
+
+  @override
   Widget build(BuildContext context) {
+    super.build(context);
     if (PMBreakpoints.isDesktop(context)) {
       return _buildDesktopScaffold();
     }

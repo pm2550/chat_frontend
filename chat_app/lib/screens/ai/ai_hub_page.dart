@@ -26,7 +26,8 @@ class AiHubPage extends StatefulWidget {
   State<AiHubPage> createState() => _AiHubPageState();
 }
 
-class _AiHubPageState extends State<AiHubPage> {
+class _AiHubPageState extends State<AiHubPage>
+    with AutomaticKeepAliveClientMixin<AiHubPage> {
   late final BotService _botService;
   late final ChatDataService _chatDataService;
   late int _selectedIndex;
@@ -91,7 +92,11 @@ class _AiHubPageState extends State<AiHubPage> {
   }
 
   @override
+  bool get wantKeepAlive => true;
+
+  @override
   Widget build(BuildContext context) {
+    super.build(context);
     final content = PMChatPattern(
       dense: true,
       child: SafeArea(

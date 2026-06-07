@@ -19,7 +19,8 @@ class ContactsPage extends StatefulWidget {
   State<ContactsPage> createState() => _ContactsPageState();
 }
 
-class _ContactsPageState extends State<ContactsPage> {
+class _ContactsPageState extends State<ContactsPage>
+    with AutomaticKeepAliveClientMixin<ContactsPage> {
   final TextEditingController _searchController = TextEditingController();
   final TextEditingController _addSearchController = TextEditingController();
   final FocusNode _searchFocusNode = FocusNode();
@@ -80,7 +81,11 @@ class _ContactsPageState extends State<ContactsPage> {
   }
 
   @override
+  bool get wantKeepAlive => true;
+
+  @override
   Widget build(BuildContext context) {
+    super.build(context);
     if (PMBreakpoints.isDesktop(context)) {
       return _buildDesktopScaffold();
     }

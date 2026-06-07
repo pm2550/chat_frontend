@@ -104,12 +104,48 @@ class ChatDataService {
   final AuthenticatedMultipartRequest? _multipartRequest;
   final AuthenticatedMultipartFilesRequest? _multipartFilesRequest;
 
+  static const Duration _chatRoomsCacheTtl = Duration(seconds: 30);
+  static List<Chat>? _cachedChatRooms;
+  static DateTime? _cachedChatRoomsAt;
+  static int? _cachedChatRoomsPage;
+  static int? _cachedChatRoomsSize;
+
+  static void clearChatRoomsCacheForTesting() {
+    _cachedChatRooms = null;
+    _cachedChatRoomsAt = null;
+    _cachedChatRoomsPage = null;
+    _cachedChatRoomsSize = null;
+  }
+
+  static void patchCachedChatRoom(Chat chat) {
+    final cached = _cachedChatRooms;
+    if (cached == null) return;
+    final index = cached.indexWhere((room) => room.id == chat.id);
+    if (index == -1) return;
+    final patched = List<Chat>.from(cached);
+    patched[index] = chat;
+    _cachedChatRooms = _sortChatsInPlace(patched);
+    _cachedChatRoomsAt = DateTime.now();
+  }
+
   Future<List<Chat>> getChatRooms({
     int page = 0,
     int size = 30,
     bool includeDetails = true,
     int detailLimit = 8,
   }) async {
+    final useSharedCache = _canUseSharedChatRoomsCache(
+      includeDetails: includeDetails,
+      page: page,
+      size: size,
+    );
+    if (useSharedCache) {
+      final cached = _freshCachedChatRooms(page: page, size: size);
+      if (cached != null) {
+        return cached;
+      }
+    }
+
     final uri = Uri.parse(ApiConstants.chatRooms).replace(
       queryParameters: {
         'page': page.toString(),
@@ -130,10 +166,81 @@ class ChatDataService {
       return _sortChats(rooms);
     }
 
-    final visibleRooms = rooms.take(detailLimit).toList(growable: false);
-    final remainingRooms = rooms.skip(detailLimit).toList(growable: false);
-    final enrichedVisible = await Future.wait(visibleRooms.map(_enrichChat));
-    return _sortChats([...enrichedVisible, ...remainingRooms]);
+    final enrichedRooms = await _enrichChatsWithLimit(
+      rooms,
+      concurrency: detailLimit.clamp(1, 8),
+    );
+    final sortedRooms = _sortChats(enrichedRooms);
+    if (useSharedCache) {
+      _cacheChatRooms(sortedRooms, page: page, size: size);
+    }
+    return sortedRooms;
+  }
+
+  bool _canUseSharedChatRoomsCache({
+    required bool includeDetails,
+    required int page,
+    required int size,
+  }) {
+    return includeDetails &&
+        page >= 0 &&
+        size > 0 &&
+        _authenticatedRequest == null &&
+        _multipartRequest == null &&
+        _multipartFilesRequest == null;
+  }
+
+  List<Chat>? _freshCachedChatRooms({
+    required int page,
+    required int size,
+  }) {
+    final cached = _cachedChatRooms;
+    final cachedAt = _cachedChatRoomsAt;
+    if (cached == null ||
+        cachedAt == null ||
+        _cachedChatRoomsPage != page ||
+        _cachedChatRoomsSize != size ||
+        DateTime.now().difference(cachedAt) >= _chatRoomsCacheTtl) {
+      return null;
+    }
+    return List<Chat>.from(cached);
+  }
+
+  void _cacheChatRooms(
+    List<Chat> rooms, {
+    required int page,
+    required int size,
+  }) {
+    _cachedChatRooms = List<Chat>.from(rooms);
+    _cachedChatRoomsAt = DateTime.now();
+    _cachedChatRoomsPage = page;
+    _cachedChatRoomsSize = size;
+  }
+
+  Future<List<Chat>> _enrichChatsWithLimit(
+    List<Chat> rooms, {
+    required int concurrency,
+  }) async {
+    if (rooms.isEmpty) {
+      return const <Chat>[];
+    }
+    final enriched = List<Chat?>.filled(rooms.length, null);
+    var nextIndex = 0;
+
+    Future<void> worker() async {
+      while (true) {
+        final index = nextIndex;
+        nextIndex += 1;
+        if (index >= rooms.length) {
+          return;
+        }
+        enriched[index] = await _enrichChat(rooms[index]);
+      }
+    }
+
+    final workerCount = rooms.length < concurrency ? rooms.length : concurrency;
+    await Future.wait(List.generate(workerCount, (_) => worker()));
+    return enriched.map((chat) => chat!).toList(growable: false);
   }
 
   Future<Chat> getChatRoom(
@@ -1228,6 +1335,10 @@ class ChatDataService {
   }
 
   List<Chat> _sortChats(List<Chat> chats) {
+    return _sortChatsInPlace(chats);
+  }
+
+  static List<Chat> _sortChatsInPlace(List<Chat> chats) {
     chats.sort((a, b) {
       final aTime = a.lastMessage?.timestamp ?? a.updatedAt ?? a.createdAt;
       final bTime = b.lastMessage?.timestamp ?? b.updatedAt ?? b.createdAt;

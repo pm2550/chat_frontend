@@ -9,6 +9,8 @@ import 'package:http/http.dart' as http;
 
 void main() {
   group('ChatDataService', () {
+    setUp(ChatDataService.clearChatRoomsCacheForTesting);
+
     test('getChatRooms reads backend chatRooms response', () async {
       final service = ChatDataService(
         authenticatedRequest: (method, url, {headers, body}) async {
@@ -34,6 +36,102 @@ void main() {
       expect(rooms.first.id, '10');
       expect(rooms.first.name, 'Backend Room');
       expect(rooms.first.type, ChatType.group);
+    });
+
+    test('getChatRooms enriches every room with bounded detail concurrency',
+        () async {
+      final recentRoomIds = <String>[];
+      final unreadRoomIds = <String>[];
+      final memberRoomIds = <String>[];
+      final settingsRoomIds = <String>[];
+      final service = ChatDataService(
+        authenticatedRequest: (method, url, {headers, body}) async {
+          expect(method, 'GET');
+          final uri = Uri.parse(url);
+          final path = uri.path;
+          final roomIdMatch =
+              RegExp(r'/chat-rooms/(\d+)').firstMatch(path) ??
+                  RegExp(r'/messages/chat-room/(\d+)').firstMatch(path);
+          final roomId = roomIdMatch?.group(1);
+
+          if (path.endsWith('/chat-rooms')) {
+            return jsonResponse({
+              'chatRooms': [
+                for (final id in [10, 11, 12])
+                  {
+                    'id': id,
+                    'name': 'Room $id',
+                    'roomType': 'GROUP',
+                    'isPrivate': false,
+                    'createdAt': '2024-01-01T10:00:00',
+                    'updatedAt': '2024-01-01T10:00:00',
+                  },
+              ],
+            });
+          }
+
+          if (path.contains('/messages/chat-room/') &&
+              path.endsWith('/recent')) {
+            recentRoomIds.add(roomId!);
+            return jsonResponse({
+              'messages': [
+                {
+                  'id': int.parse(roomId),
+                  'content': 'last $roomId',
+                  'messageStatus': 'SENT',
+                  'createdAt': '2024-01-01T10:0${int.parse(roomId) - 9}:00',
+                  'senderId': 7,
+                  'sender': {'id': 7, 'displayName': 'Sender'},
+                },
+              ],
+            });
+          }
+
+          if (path.endsWith('/messages/unread-count')) {
+            final id = uri.queryParameters['chatRoomId']!;
+            unreadRoomIds.add(id);
+            return jsonResponse({'unreadCount': int.parse(id) - 9});
+          }
+
+          if (path.endsWith('/members')) {
+            memberRoomIds.add(roomId!);
+            return jsonResponse({
+              'members': [
+                {
+                  'id': int.parse(roomId),
+                  'userId': 1,
+                  'role': 'MEMBER',
+                  'joinedAt': '2024-01-01T10:00:00',
+                  'user': {
+                    'id': 1,
+                    'username': 'member$roomId',
+                    'email': 'member$roomId@test.com',
+                    'displayName': 'Member $roomId',
+                    'createdAt': '2024-01-01T10:00:00',
+                  },
+                },
+              ],
+            });
+          }
+
+          if (path.endsWith('/notification-settings')) {
+            settingsRoomIds.add(roomId!);
+            return jsonResponse({'pinned': false, 'muted': false});
+          }
+
+          fail('Unexpected request: $url');
+        },
+      );
+
+      final rooms = await service.getChatRooms(detailLimit: 1);
+
+      expect(rooms, hasLength(3));
+      expect(rooms.map((room) => room.id).toSet(), {'10', '11', '12'});
+      expect(rooms.every((room) => room.lastMessage != null), isTrue);
+      expect(recentRoomIds.toSet(), {'10', '11', '12'});
+      expect(unreadRoomIds.toSet(), {'10', '11', '12'});
+      expect(memberRoomIds.toSet(), {'10', '11', '12'});
+      expect(settingsRoomIds.toSet(), {'10', '11', '12'});
     });
 
     test('getChatRoom reads backend chatRoom detail response', () async {

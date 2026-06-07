@@ -27,7 +27,8 @@ class WorkspacePage extends StatefulWidget {
   State<WorkspacePage> createState() => _WorkspacePageState();
 }
 
-class _WorkspacePageState extends State<WorkspacePage> {
+class _WorkspacePageState extends State<WorkspacePage>
+    with AutomaticKeepAliveClientMixin<WorkspacePage> {
   late final WorkspaceService _service;
   final TextEditingController _workspaceSearchController =
       TextEditingController();
@@ -1296,7 +1297,11 @@ class _WorkspacePageState extends State<WorkspacePage> {
   }
 
   @override
+  bool get wantKeepAlive => true;
+
+  @override
   Widget build(BuildContext context) {
+    super.build(context);
     if (PMBreakpoints.isDesktop(context)) {
       return _buildDesktop();
     }
