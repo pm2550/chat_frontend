@@ -1066,6 +1066,85 @@ void main() {
       expect(find.textContaining('/6 人'), findsNothing);
     });
 
+    testWidgets('private outgoing call status shows peer name not room name',
+        (tester) async {
+      final chat = createTestChat(
+        id: '42',
+        name: '参与者1&李四',
+        participantId: '7',
+      );
+      final callService = FixedStateCallService(const ChatCallState(
+        phase: CallPhase.outgoing,
+        callId: 'call-private-outgoing',
+        chatRoomId: 42,
+        mediaKind: CallMediaKind.audio,
+        selfUserId: 1,
+        participants: [
+          CallParticipant(
+            userId: 1,
+            displayName: '我',
+            state: PeerConnectionState.connected,
+          ),
+          CallParticipant(userId: 7, displayName: '李四'),
+        ],
+      ));
+
+      await tester.pumpWidget(buildTestWidget(chat, callService: callService));
+      await tester.pump();
+
+      expect(find.text('李四 · 正在呼叫'), findsOneWidget);
+      expect(find.textContaining('/6'), findsNothing);
+      expect(find.textContaining('参与者1&'), findsNothing);
+    });
+
+    testWidgets('group call status keeps mesh participant limit',
+        (tester) async {
+      final chat = createTestChat(
+        id: '43',
+        name: '项目群',
+        type: ChatType.group,
+      );
+      final callService = FixedStateCallService(const ChatCallState(
+        phase: CallPhase.connected,
+        callId: 'call-group',
+        chatRoomId: 43,
+        mediaKind: CallMediaKind.audio,
+        selfUserId: 1,
+        participants: [
+          CallParticipant(userId: 1, displayName: '我'),
+          CallParticipant(userId: 2, displayName: '成员二'),
+          CallParticipant(userId: 3, displayName: '成员三'),
+        ],
+      ));
+
+      await tester.pumpWidget(buildTestWidget(chat, callService: callService));
+      await tester.pump();
+
+      expect(find.text('3/6 人 · 通话中'), findsOneWidget);
+    });
+
+    testWidgets('private ringing call status shows peer name plus label',
+        (tester) async {
+      final chat = createTestChat(id: '44', participantId: '7');
+      final callService = FixedStateCallService(const ChatCallState(
+        phase: CallPhase.ringing,
+        callId: 'call-private-ringing',
+        chatRoomId: 44,
+        mediaKind: CallMediaKind.audio,
+        selfUserId: 1,
+        participants: [
+          CallParticipant(userId: 1, displayName: '我'),
+          CallParticipant(userId: 7, displayName: '李四'),
+        ],
+      ));
+
+      await tester.pumpWidget(buildTestWidget(chat, callService: callService));
+      await tester.pump();
+
+      expect(find.text('李四 · 等待对方接听'), findsOneWidget);
+      expect(find.textContaining('/6'), findsNothing);
+    });
+
     testWidgets('renders add button for input options', (tester) async {
       final chat = createTestChat();
 
