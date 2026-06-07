@@ -66,7 +66,7 @@ extension _ChatScreenChromeParts on _ChatScreenState {
               ),
               const SizedBox(height: 14),
               Text(
-                _chat.name,
+                _displayChatTitle(),
                 textAlign: TextAlign.center,
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
@@ -141,7 +141,7 @@ extension _ChatScreenChromeParts on _ChatScreenState {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          _chat.name,
+                          _displayChatTitle(),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
@@ -294,8 +294,9 @@ extension _ChatScreenChromeParts on _ChatScreenState {
   }
 
   String _chatSubtitle() {
-    if (_chat.type == ChatType.private && _chat.participants.isNotEmpty) {
-      final participant = _chat.participants.first;
+    if (_chat.type == ChatType.private) {
+      final participant = _privatePeer();
+      if (participant == null) return '私聊';
       if (participant.onlineStatus == OnlineStatus.online) {
         return '在线';
       }
@@ -310,22 +311,61 @@ extension _ChatScreenChromeParts on _ChatScreenState {
     return '会话';
   }
 
+  User? _privatePeer() {
+    if (_chat.type != ChatType.private || _chat.participants.isEmpty) {
+      return null;
+    }
+    final currentUserId = _authService.currentUser?.id;
+    if (currentUserId == null || currentUserId.isEmpty) {
+      return _chat.participants.first;
+    }
+    return _chat.participants.firstWhere(
+      (user) => user.id != currentUserId,
+      orElse: () => _chat.participants.first,
+    );
+  }
+
+  String _displayChatTitle() {
+    if (_chat.type != ChatType.private) {
+      return _chat.name;
+    }
+    final peer = _privatePeer();
+    final peerName = peer?.displayName.trim();
+    if (peerName != null && peerName.isNotEmpty) {
+      return peerName;
+    }
+    final username = peer?.username.trim();
+    if (username != null && username.isNotEmpty) {
+      return username;
+    }
+    return _chat.name;
+  }
+
+  String? _displayChatAvatarUrl() {
+    if (_chat.type == ChatType.private) {
+      return _privatePeer()?.avatarUrl ?? _chat.avatarUrl;
+    }
+    return _chat.avatarUrl;
+  }
+
   Widget _buildChatAvatar() {
+    final avatarUrl = _displayChatAvatarUrl();
+    final title = _displayChatTitle();
     final fallback = _chat.type == ChatType.group
         ? '群'
-        : _chat.name.isNotEmpty
-            ? _chat.name[0].toUpperCase()
+        : title.isNotEmpty
+            ? title.characters.first.toUpperCase()
             : '?';
     return CircleAvatar(
       radius: 20,
       backgroundColor:
           _chat.type == ChatType.group ? AppColors.primary : AppColors.accent,
-      backgroundImage: _chat.avatarUrl != null
+      backgroundImage: avatarUrl != null
           ? NetworkImage(
-              ApiConstants.resolveFileUrl(_chat.avatarUrl!),
+              ApiConstants.resolveFileUrl(avatarUrl),
             )
           : null,
-      child: _chat.avatarUrl == null
+      child: avatarUrl == null
           ? Text(
               fallback,
               style: const TextStyle(

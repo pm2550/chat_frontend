@@ -126,13 +126,15 @@ void main() {
   }
 
   group('ChatScreen', () {
-    testWidgets('renders chat name in app bar', (tester) async {
+    testWidgets('renders private peer display name in app bar',
+        (tester) async {
       final chat = createTestChat(name: '李四');
 
       await tester.pumpWidget(buildTestWidget(chat));
       await tester.pump();
 
-      expect(find.text('李四'), findsOneWidget);
+      expect(find.text('好友'), findsOneWidget);
+      expect(find.text('李四'), findsNothing);
     });
 
     testWidgets('mobile composer moves above keyboard viewInsets',
@@ -453,7 +455,8 @@ void main() {
       await tester.pump();
 
       expect(service.loadedChatRoomIds, ['42']);
-      expect(find.text('直链房间'), findsWidgets);
+      expect(find.text('好友'), findsWidgets);
+      expect(find.text('直链房间'), findsNothing);
       expect(find.text('无法打开聊天'), findsNothing);
     });
 

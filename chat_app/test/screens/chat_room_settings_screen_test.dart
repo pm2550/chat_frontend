@@ -28,6 +28,33 @@ void main() {
       expect(find.text('邀请好友'), findsOneWidget);
     });
 
+    testWidgets('private settings show peer name and hide group controls',
+        (tester) async {
+      final chatService = FakeChatDataService()
+        ..roomName = '管理员 & 黑登'
+        ..members = [
+          member('1', 'admin', '管理员', isAdmin: true),
+          member('2', 'heideng', '黑登'),
+        ];
+
+      await tester.pumpWidget(buildWidget(
+        chatService: chatService,
+        isGroup: false,
+        chatRoomName: '管理员 & 黑登',
+      ));
+      await tester.pumpAndSettle();
+
+      expect(find.text('聊天信息'), findsOneWidget);
+      expect(find.text('黑登'), findsWidgets);
+      expect(find.text('私聊成员'), findsOneWidget);
+      expect(find.text('成员管理'), findsNothing);
+      expect(find.text('邀请成员'), findsNothing);
+      expect(find.text('群资料与群名片'), findsNothing);
+      expect(find.text('群公告'), findsNothing);
+      expect(find.text('添加机器人'), findsNothing);
+      expect(find.byKey(const Key('leave-group-row')), findsNothing);
+    });
+
     // ---- F5: owner role + transfer + role dropdown ----
 
     testWidgets('nonOwnerCannotSeeTransferOwnership', (tester) async {
@@ -284,12 +311,14 @@ Widget buildWidget({
   FakeContactDataService? contactService,
   FakeBotService? botService,
   bool enableBotLoading = false,
+  bool isGroup = true,
+  String chatRoomName = 'Project Room',
 }) {
   return MaterialApp(
     home: ChatRoomSettingsScreen(
       chatRoomId: 42,
-      chatRoomName: 'Project Room',
-      isGroup: true,
+      chatRoomName: chatRoomName,
+      isGroup: isGroup,
       currentUserId: '1',
       chatService: chatService ?? FakeChatDataService(),
       contactService: contactService ?? FakeContactDataService(),

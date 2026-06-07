@@ -140,7 +140,7 @@ extension _ChatScreenMembersPanelParts on _ChatScreenState {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          _chat.name,
+                          _displayChatTitle(),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(

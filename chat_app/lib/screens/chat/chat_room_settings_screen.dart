@@ -764,6 +764,7 @@ class _ChatRoomSettingsScreenState extends State<ChatRoomSettingsScreen> {
   }
 
   Widget _buildRoomHero() {
+    final displayName = _settingsDisplayName();
     return PMCard(
       padding: const EdgeInsets.all(PMSpacing.xl),
       background: AppColors.pixelBlue,
@@ -774,7 +775,7 @@ class _ChatRoomSettingsScreenState extends State<ChatRoomSettingsScreen> {
             children: [
               PMUserAvatar.raw(
                 imageUrl: _resolveAvatarUrl(_roomAvatarUrl),
-                fallbackText: widget.isGroup ? '群' : _roomName,
+                fallbackText: widget.isGroup ? '群' : displayName,
                 isGroup: widget.isGroup,
                 size: 68,
               ),
@@ -814,7 +815,7 @@ class _ChatRoomSettingsScreenState extends State<ChatRoomSettingsScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  _roomName,
+                  displayName,
                   style: const TextStyle(
                     color: AppColors.textPrimary,
                     fontSize: 22,
@@ -845,6 +846,32 @@ class _ChatRoomSettingsScreenState extends State<ChatRoomSettingsScreen> {
         ],
       ),
     );
+  }
+
+  String _settingsDisplayName() {
+    if (widget.isGroup) {
+      return _roomName;
+    }
+    final currentUserId = _currentUserId;
+    final peer = _members.firstWhere(
+      (member) => currentUserId == null || member.userId != currentUserId,
+      orElse: () => _members.isNotEmpty
+          ? _members.first
+          : ChatRoomMember(
+              id: '',
+              userId: '',
+              role: 'MEMBER',
+              joinedAt: DateTime.now(),
+              user: User(
+                id: '',
+                username: _roomName,
+                email: '',
+                displayName: _roomName,
+                createdAt: DateTime.now(),
+              ),
+            ),
+    );
+    return peer.displayName.trim().isNotEmpty ? peer.displayName : _roomName;
   }
 
   Widget _buildGroupProfileSection(String? currentUserId) {
@@ -1051,8 +1078,8 @@ class _ChatRoomSettingsScreenState extends State<ChatRoomSettingsScreen> {
   Widget _buildMembersSection(String? currentUserId) {
     if (_isLoadingMembers) {
       return PMSectionCard(
-        title: '成员管理',
-        subtitle: '加载群成员和权限',
+        title: widget.isGroup ? '成员管理' : '私聊成员',
+        subtitle: widget.isGroup ? '加载群成员和权限' : '加载私聊成员',
         children: [
           Padding(
             padding: const EdgeInsets.all(PMSpacing.l),
@@ -1063,8 +1090,8 @@ class _ChatRoomSettingsScreenState extends State<ChatRoomSettingsScreen> {
     }
     if (_memberError != null) {
       return PMSectionCard(
-        title: '成员管理',
-        subtitle: '加载群成员和权限',
+        title: widget.isGroup ? '成员管理' : '私聊成员',
+        subtitle: widget.isGroup ? '加载群成员和权限' : '加载私聊成员',
         children: [
           PMErrorState(message: _memberError!, onRetry: _loadMembers),
         ],
@@ -1072,7 +1099,7 @@ class _ChatRoomSettingsScreenState extends State<ChatRoomSettingsScreen> {
     }
 
     return PMSectionCard(
-      title: '成员管理',
+      title: widget.isGroup ? '成员管理' : '私聊成员',
       subtitle: widget.isGroup ? '横向浏览成员，管理员可邀请和管理权限' : '当前私聊成员',
       trailing: widget.isGroup
           ? TextButton(

@@ -742,9 +742,7 @@ class _ChatScreenState extends State<ChatScreen> {
                     children: [
                       _buildChatAvatar(),
                       if (_chat.type == ChatType.private &&
-                          _chat.participants.isNotEmpty &&
-                          _chat.participants.first.onlineStatus ==
-                              OnlineStatus.online)
+                          _privatePeer()?.onlineStatus == OnlineStatus.online)
                         Positioned(
                           right: 0,
                           bottom: 0,
@@ -766,24 +764,22 @@ class _ChatScreenState extends State<ChatScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          _chat.name,
+                          _displayChatTitle(),
                           style: const TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.w600,
                           ),
                         ),
-                        if (_chat.type == ChatType.private &&
-                            _chat.participants.isNotEmpty)
+                        if (_chat.type == ChatType.private)
                           Text(
-                            _chat.participants.first.onlineStatus ==
-                                    OnlineStatus.online
+                            _privatePeer()?.onlineStatus == OnlineStatus.online
                                 ? '在线'
-                                : _chat.participants.first.lastSeen != null
-                                    ? '最后在线 ${timeago.format(_chat.participants.first.lastSeen!, locale: 'zh')}'
+                                : _privatePeer()?.lastSeen != null
+                                    ? '最后在线 ${timeago.format(_privatePeer()!.lastSeen!, locale: 'zh')}'
                                     : '离线',
                             style: TextStyle(
                               fontSize: 12,
-                              color: _chat.participants.first.onlineStatus ==
+                              color: _privatePeer()?.onlineStatus ==
                                       OnlineStatus.online
                                   ? AppColors.online
                                   : AppColors.textSecondary,
