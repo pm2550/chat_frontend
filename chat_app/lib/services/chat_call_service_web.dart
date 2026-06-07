@@ -34,6 +34,7 @@ class ChatCallService extends ChangeNotifier {
   web.MediaStream? _localStream;
   web.HTMLVideoElement? _localVideo;
   Timer? _iceConfigRefreshTimer;
+  Timer? _outgoingTimeoutTimer;
   CallIceConfig? _cachedIceConfig;
   bool _disposed = false;
 
@@ -71,7 +72,6 @@ class ChatCallService extends ChangeNotifier {
 
     try {
       await _ensureLocalMedia(mediaKind);
-      _setState(_state.copyWith(phase: CallPhase.connected, clearError: true));
       _sendJoin();
       _sendSignal({
         'action': 'invite',
@@ -80,6 +80,7 @@ class ChatCallService extends ChangeNotifier {
         if (peerUserId != null) 'toUserId': peerUserId,
         'mediaType': mediaKind.wireName,
       });
+      _startOutgoingTimeout(callId);
     } catch (error) {
       _fail('无法启动${mediaKind.label}通话: $error');
     }
@@ -142,6 +143,9 @@ class ChatCallService extends ChangeNotifier {
       case 'invite':
         _receiveInvite(signal);
         break;
+      case 'call_ringing':
+        _handleCallRinging(signal);
+        break;
       case 'join_accepted':
         await _handleJoinAccepted(signal);
         break;
@@ -158,7 +162,7 @@ class ChatCallService extends ChangeNotifier {
         await _handleAccept(signal);
         break;
       case 'reject':
-        _endRemote('对方已拒绝通话');
+        _endRemote('对方已拒绝通话', phase: CallPhase.declined);
         break;
       case 'offer':
         await _handleOffer(signal);
@@ -328,15 +332,19 @@ class ChatCallService extends ChangeNotifier {
     if (!_isCurrentCall(signal)) return;
     final selfUserId = _state.selfUserId ?? _currentUserId();
     if (selfUserId == null) return;
+    final existingParticipantIds = _intList(signal['existingParticipantIds'])
+        .where((id) => id != selfUserId)
+        .toList(growable: false);
+    final nextPhase =
+        existingParticipantIds.isEmpty ? _state.phase : CallPhase.connecting;
 
     _setState(_state.copyWith(
-      phase: CallPhase.connected,
+      phase: nextPhase,
       selfUserId: selfUserId,
       clearError: true,
     ));
 
-    for (final peerUserId in _intList(signal['existingParticipantIds'])) {
-      if (peerUserId == selfUserId) continue;
+    for (final peerUserId in existingParticipantIds) {
       final peerName = _knownParticipantName(peerUserId);
       final isOfferer = shouldCreateMeshOffer(
         selfUserId: selfUserId,
@@ -360,6 +368,10 @@ class ChatCallService extends ChangeNotifier {
     }
 
     final peerName = _participantName(signal, fallback: '成员 $peerUserId');
+    _outgoingTimeoutTimer?.cancel();
+    if (_state.phase != CallPhase.connected) {
+      _setState(_state.copyWith(phase: CallPhase.connecting, clearError: true));
+    }
     final isOfferer = shouldCreateMeshOffer(
       selfUserId: selfUserId,
       peerUserId: peerUserId,
@@ -403,6 +415,10 @@ class ChatCallService extends ChangeNotifier {
       selfUserId: selfUserId,
       peerUserId: peerUserId,
     );
+    _outgoingTimeoutTimer?.cancel();
+    if (_state.phase != CallPhase.connected) {
+      _setState(_state.copyWith(phase: CallPhase.connecting, clearError: true));
+    }
     await _ensurePeerSession(
       peerUserId,
       peerName: _participantName(signal, fallback: '联系人'),
@@ -596,6 +612,7 @@ class ChatCallService extends ChangeNotifier {
       }
       _registerRemoteVideo(peerUserId, session.remoteStream!);
       _markPeerState(peerUserId, PeerConnectionState.connected);
+      _outgoingTimeoutTimer?.cancel();
       _setState(_state.copyWith(phase: CallPhase.connected, clearError: true));
     });
 
@@ -606,6 +623,7 @@ class ChatCallService extends ChangeNotifier {
       final connectionState = pc.connectionState;
       if (connectionState == 'connected') {
         _markPeerState(peerUserId, PeerConnectionState.connected);
+        _outgoingTimeoutTimer?.cancel();
         _setState(
             _state.copyWith(phase: CallPhase.connected, clearError: true));
       } else if (connectionState == 'disconnected') {
@@ -821,6 +839,35 @@ class ChatCallService extends ChangeNotifier {
     }
   }
 
+  void _handleCallRinging(Map<String, dynamic> signal) {
+    if (!_isCurrentCall(signal)) return;
+    if (_state.phase == CallPhase.outgoing) {
+      _setState(_state.copyWith(phase: CallPhase.ringing, clearError: true));
+    }
+  }
+
+  void _startOutgoingTimeout(String callId) {
+    _outgoingTimeoutTimer?.cancel();
+    _outgoingTimeoutTimer = Timer(const Duration(seconds: 30), () {
+      if (_state.callId == callId &&
+          (_state.phase == CallPhase.outgoing ||
+              _state.phase == CallPhase.ringing)) {
+        _timeoutOutgoingCall();
+      }
+    });
+  }
+
+  void _timeoutOutgoingCall() {
+    _disposeAllPeers();
+    _stopLocalMedia();
+    _setState(ChatCallState(
+      phase: CallPhase.timeout,
+      mediaKind: _state.mediaKind,
+      errorMessage: '对方未应答',
+      selfUserId: _state.selfUserId,
+    ));
+  }
+
   void _markPeerState(int peerUserId, PeerConnectionState state) {
     _setState(_state.updateParticipant(
       peerUserId,
@@ -828,17 +875,17 @@ class ChatCallService extends ChangeNotifier {
     ));
   }
 
-  void _endRemote(String message) {
+  void _endRemote(String message, {CallPhase phase = CallPhase.ended}) {
     _disposeAllPeers();
     _stopLocalMedia();
     _setState(ChatCallState(
-      phase: CallPhase.ended,
+      phase: phase,
       mediaKind: _state.mediaKind,
       errorMessage: message,
       selfUserId: _state.selfUserId,
     ));
     Future<void>.delayed(const Duration(milliseconds: 1200), () {
-      if (_state.phase == CallPhase.ended) {
+      if (_state.phase == phase) {
         clear();
       }
     });
@@ -856,6 +903,7 @@ class ChatCallService extends ChangeNotifier {
   }
 
   void _disposeAllPeers() {
+    _outgoingTimeoutTimer?.cancel();
     for (final peerUserId in List<int>.from(_peers.keys)) {
       _disposePeerSession(peerUserId);
     }

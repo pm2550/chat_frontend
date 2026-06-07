@@ -231,7 +231,7 @@ extension _ChatScreenCallParts on _ChatScreenState {
                 Padding(
                   padding: const EdgeInsets.only(top: 8),
                   child: Text(
-                    '${state.participants.length}/$kCallMeshParticipantLimit 人 · ${state.statusLabel}',
+                    _callStatusLine(state),
                     style: const TextStyle(color: Colors.white70),
                   ),
                 ),
@@ -304,6 +304,13 @@ extension _ChatScreenCallParts on _ChatScreenState {
       return state.others.first.displayName;
     }
     return '${state.others.length + (state.self == null ? 0 : 1)} 人通话';
+  }
+
+  String _callStatusLine(ChatCallState state) {
+    if (_chat.type == ChatType.private) {
+      return '${state.primaryPeerName} · ${state.statusLabel}';
+    }
+    return '${state.participants.length}/$kCallMeshParticipantLimit 人 · ${state.statusLabel}';
   }
 
   double _callGridHeight(ChatCallState state, bool isDesktop) {

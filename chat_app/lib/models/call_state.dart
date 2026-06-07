@@ -21,8 +21,11 @@ enum CallPhase {
   idle,
   incoming,
   outgoing,
+  ringing,
   connecting,
   connected,
+  declined,
+  timeout,
   ended,
   failed,
 }
@@ -112,6 +115,7 @@ class ChatCallState {
   bool get isActive =>
       phase == CallPhase.incoming ||
       phase == CallPhase.outgoing ||
+      phase == CallPhase.ringing ||
       phase == CallPhase.connecting ||
       phase == CallPhase.connected;
   bool get isVideo => mediaKind == CallMediaKind.video;
@@ -146,8 +150,11 @@ class ChatCallState {
       CallPhase.idle => '未通话',
       CallPhase.incoming => '来电',
       CallPhase.outgoing => '正在呼叫',
+      CallPhase.ringing => '等待对方接听',
       CallPhase.connecting => '正在连接',
       CallPhase.connected => '通话中',
+      CallPhase.declined => '对方已拒绝通话',
+      CallPhase.timeout => '对方未应答',
       CallPhase.ended => '通话已结束',
       CallPhase.failed => '通话失败',
     };

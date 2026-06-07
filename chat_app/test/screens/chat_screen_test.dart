@@ -1037,6 +1037,32 @@ void main() {
       expect(callService.startedMediaKind, CallMediaKind.audio);
     });
 
+    testWidgets('private voice call panel hides mesh participant limit',
+        (tester) async {
+      final chat = createTestChat(id: '42', participantId: '7');
+      final callService = FixedStateCallService(const ChatCallState(
+        phase: CallPhase.outgoing,
+        callId: 'call-private',
+        chatRoomId: 42,
+        mediaKind: CallMediaKind.audio,
+        selfUserId: 1,
+        participants: [
+          CallParticipant(
+            userId: 1,
+            displayName: '我',
+            state: PeerConnectionState.connected,
+          ),
+          CallParticipant(userId: 7, displayName: '好友'),
+        ],
+      ));
+
+      await tester.pumpWidget(buildTestWidget(chat, callService: callService));
+      await tester.pump();
+
+      expect(find.text('好友 · 正在呼叫'), findsOneWidget);
+      expect(find.textContaining('/6 人'), findsNothing);
+    });
+
     testWidgets('renders add button for input options', (tester) async {
       final chat = createTestChat();
 
@@ -1655,4 +1681,17 @@ class RecordingCallService extends ChatCallService {
     startedPeerName = peerName;
     startedPeerUserId = peerUserId;
   }
+}
+
+class FixedStateCallService extends ChatCallService {
+  FixedStateCallService(this.fixedState)
+      : super(webSocketService: WebSocketService());
+
+  final ChatCallState fixedState;
+
+  @override
+  ChatCallState get state => fixedState;
+
+  @override
+  Future<void> hangUp() async {}
 }

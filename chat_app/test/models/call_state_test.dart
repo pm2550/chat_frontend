@@ -113,6 +113,29 @@ void main() {
 
       expect(state.hasRemoteMedia, isTrue);
     });
+
+    test('new outgoing phases expose non-connected user-facing labels', () {
+      expect(
+        const ChatCallState(phase: CallPhase.outgoing).statusLabel,
+        '正在呼叫',
+      );
+      expect(
+        const ChatCallState(phase: CallPhase.ringing).statusLabel,
+        '等待对方接听',
+      );
+      expect(
+        const ChatCallState(phase: CallPhase.connecting).statusLabel,
+        '正在连接',
+      );
+      expect(
+        const ChatCallState(phase: CallPhase.timeout).statusLabel,
+        '对方未应答',
+      );
+      expect(
+        const ChatCallState(phase: CallPhase.declined).statusLabel,
+        '对方已拒绝通话',
+      );
+    });
   });
 
   group('CallParticipant', () {
