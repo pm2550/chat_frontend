@@ -79,9 +79,12 @@ void main() {
     ContactDataService? contactService,
     AuthService? authService,
     BotService? botService,
+    WebSocketService? webSocketService,
     ChatAttachmentPicker? imagePicker,
     ChatAttachmentPicker? filePicker,
   }) {
+    final effectiveWebSocketService = webSocketService ??
+        WebSocketService.forTesting(authService: _NoSocketAuthService());
     return MaterialApp(
       home: Builder(
         builder: (context) {
@@ -98,6 +101,7 @@ void main() {
                   contactService: contactService,
                   authService: authService,
                   botService: botService,
+                  webSocketService: effectiveWebSocketService,
                   imagePicker: imagePicker,
                   filePicker: filePicker,
                 ),
@@ -126,8 +130,7 @@ void main() {
   }
 
   group('ChatScreen', () {
-    testWidgets('renders private peer display name in app bar',
-        (tester) async {
+    testWidgets('renders private peer display name in app bar', (tester) async {
       final chat = createTestChat(name: '李四');
 
       await tester.pumpWidget(buildTestWidget(chat));
@@ -1658,6 +1661,24 @@ class FakeContactDataService extends ContactDataService {
       ),
       friend: target,
     );
+  }
+}
+
+class _NoSocketAuthService extends AuthService {
+  _NoSocketAuthService() : super.test();
+
+  String? _token = 'test-stale-access-token';
+
+  @override
+  String? get accessToken => _token;
+
+  @override
+  Future<bool> ensureAuthenticated() async => true;
+
+  @override
+  Future<bool> refreshAccessToken() async {
+    _token = null;
+    return false;
   }
 }
 

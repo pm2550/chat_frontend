@@ -1,5 +1,6 @@
 import 'package:chat_app/models/message.dart';
 import 'package:chat_app/services/agent_client_tools.dart';
+import 'package:chat_app/services/auth_service.dart';
 import 'package:chat_app/services/websocket_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -170,6 +171,42 @@ void main() {
 
     expect(payload?['error']['code'], 'tool_not_registered');
   });
+
+  test('websocket service refreshes access token before reconnecting',
+      () async {
+    final authService = _RefreshingAuthService();
+    final service = WebSocketService.forTesting(authService: authService);
+
+    await service.connect();
+
+    expect(authService.ensureAuthenticatedCalls, 1);
+    expect(authService.refreshAccessTokenCalls, 1);
+    expect(service.isConnected, isFalse);
+  });
+}
+
+class _RefreshingAuthService extends AuthService {
+  _RefreshingAuthService() : super.test();
+
+  int ensureAuthenticatedCalls = 0;
+  int refreshAccessTokenCalls = 0;
+  String? _token = 'stale-access-token';
+
+  @override
+  String? get accessToken => _token;
+
+  @override
+  Future<bool> ensureAuthenticated() async {
+    ensureAuthenticatedCalls++;
+    return true;
+  }
+
+  @override
+  Future<bool> refreshAccessToken() async {
+    refreshAccessTokenCalls++;
+    _token = null;
+    return false;
+  }
 }
 
 Message message(

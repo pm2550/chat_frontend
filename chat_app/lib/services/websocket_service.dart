@@ -28,10 +28,15 @@ abstract class ChatRealtimeService {
 class WebSocketService extends ChangeNotifier implements ChatRealtimeService {
   static final WebSocketService _instance = WebSocketService._internal();
   factory WebSocketService() => _instance;
-  WebSocketService._internal();
+  WebSocketService._internal({AuthService? authService})
+      : _authService = authService ?? AuthService();
+
+  @visibleForTesting
+  WebSocketService.forTesting({required AuthService authService})
+      : _authService = authService;
 
   WebSocketChannel? _channel;
-  final AuthService _authService = AuthService();
+  final AuthService _authService;
   AgentClientToolRegistry _agentClientToolRegistry = AgentClientToolRegistry();
   bool _isConnected = false;
   Timer? _heartbeatTimer;
@@ -69,6 +74,13 @@ class WebSocketService extends ChangeNotifier implements ChatRealtimeService {
   Future<void> connect() async {
     if (_isConnected) return;
 
+    await _authService.ensureAuthenticated();
+    if (_authService.accessToken == null) return;
+
+    // A mobile app may reconnect long after the cached access token expired.
+    // Refresh before opening the socket so app updates/restarts do not fall
+    // into a stale-token reconnect loop that looks like a forced logout.
+    await _authService.refreshAccessToken();
     final token = _authService.accessToken;
     if (token == null) return;
 
