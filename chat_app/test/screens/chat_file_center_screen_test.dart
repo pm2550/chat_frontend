@@ -28,6 +28,28 @@ void main() {
     expect(find.text('已取回 doc.pdf (3 B)'), findsOneWidget);
   });
 
+  testWidgets('tapping image opens preview instead of saving immediately',
+      (tester) async {
+    final service = FakeFileCenterChatService();
+
+    await tester.pumpWidget(MaterialApp(
+      home: ChatFileCenterScreen(
+        chatRoomId: '42',
+        chatRoomName: 'Project Room',
+        chatService: service,
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('photo.png').first);
+    await tester.pumpAndSettle();
+
+    expect(service.downloadedIds, ['1']);
+    expect(find.byType(InteractiveViewer), findsOneWidget);
+    expect(find.byTooltip('保存图片'), findsOneWidget);
+    expect(find.textContaining('已保存'), findsNothing);
+  });
+
   testWidgets('filters file center by image type', (tester) async {
     final service = FakeFileCenterChatService();
 

@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 
 import '../../constants/api_constants.dart';
@@ -116,8 +118,19 @@ class _ChatFileCenterScreenState extends State<ChatFileCenterScreen> {
   }
 
   Future<void> _openFile(Message message) async {
+    if (message.isImageMessage) {
+      await _showImagePreview(message);
+      return;
+    }
+    await _downloadFile(message);
+  }
+
+  Future<void> _downloadFile(
+    Message message, {
+    DownloadedChatFile? downloaded,
+  }) async {
     try {
-      final file = await _chatService.downloadFile(message);
+      final file = downloaded ?? await _chatService.downloadFile(message);
       final saved = await file_save.saveBytesAsFile(
         bytes: file.bytes,
         name: file.name,
@@ -130,6 +143,19 @@ class _ChatFileCenterScreenState extends State<ChatFileCenterScreen> {
     } catch (error) {
       _showSnackBar('下载失败: $error', isError: true);
     }
+  }
+
+  Future<void> _showImagePreview(Message message) async {
+    final fileFuture = _chatService.downloadFile(message);
+    await showDialog<void>(
+      context: context,
+      barrierColor: Colors.black.withValues(alpha: 0.88),
+      builder: (dialogContext) => _FileCenterImagePreviewDialog(
+        message: message,
+        fileFuture: fileFuture,
+        onDownload: (file) => _downloadFile(message, downloaded: file),
+      ),
+    );
   }
 
   void _setFilter(MessageType? type) {
@@ -385,8 +411,10 @@ class _ChatFileCenterScreenState extends State<ChatFileCenterScreen> {
                 _formatDate(message.timestamp),
               ].join(' · '),
             ),
-            trailing: const Icon(
-              Icons.download_outlined,
+            trailing: Icon(
+              message.isImageMessage
+                  ? Icons.zoom_out_map
+                  : Icons.download_outlined,
               color: AppColors.textSecondary,
             ),
           ),
@@ -407,6 +435,151 @@ class _ChatFileCenterScreenState extends State<ChatFileCenterScreen> {
       SnackBar(
         content: Text(message),
         backgroundColor: isError ? AppColors.error : null,
+      ),
+    );
+  }
+}
+
+class _FileCenterImagePreviewDialog extends StatelessWidget {
+  const _FileCenterImagePreviewDialog({
+    required this.message,
+    required this.fileFuture,
+    required this.onDownload,
+  });
+
+  final Message message;
+  final Future<DownloadedChatFile> fileFuture;
+  final Future<void> Function(DownloadedChatFile file) onDownload;
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog.fullscreen(
+      backgroundColor: Colors.black,
+      child: SafeArea(
+        child: FutureBuilder<DownloadedChatFile>(
+          future: fileFuture,
+          builder: (context, snapshot) {
+            final file = snapshot.data;
+            return Stack(
+              children: [
+                Positioned.fill(child: _buildBody(snapshot)),
+                Positioned(
+                  left: 16,
+                  top: 12,
+                  right: 16,
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          file?.name ??
+                              message.fileName ??
+                              message.resolvedFileLabel,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ),
+                      Tooltip(
+                        message: '保存图片',
+                        child: IconButton(
+                          onPressed: file == null
+                              ? null
+                              : () {
+                                  onDownload(file);
+                                },
+                          icon: const Icon(Icons.download),
+                          color: Colors.white,
+                          disabledColor: Colors.white38,
+                          style: IconButton.styleFrom(
+                            backgroundColor:
+                                Colors.white.withValues(alpha: 0.14),
+                            disabledBackgroundColor:
+                                Colors.white.withValues(alpha: 0.07),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Tooltip(
+                        message: '关闭',
+                        child: IconButton(
+                          onPressed: () => Navigator.of(context).pop(),
+                          icon: const Icon(Icons.close),
+                          color: Colors.white,
+                          style: IconButton.styleFrom(
+                            backgroundColor:
+                                Colors.white.withValues(alpha: 0.14),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBody(AsyncSnapshot<DownloadedChatFile> snapshot) {
+    if (snapshot.connectionState != ConnectionState.done) {
+      return const Center(
+        child: CircularProgressIndicator(color: Colors.white),
+      );
+    }
+    if (snapshot.hasError || !snapshot.hasData) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(28),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(
+                Icons.broken_image_outlined,
+                color: Colors.white70,
+                size: 52,
+              ),
+              const SizedBox(height: 14),
+              const Text(
+                '图片加载失败',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                snapshot.error?.toString() ?? '无法读取图片文件',
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Colors.white70),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return Center(
+      child: InteractiveViewer(
+        minScale: 0.6,
+        maxScale: 5,
+        child: Image.memory(
+          Uint8List.fromList(snapshot.data!.bytes),
+          fit: BoxFit.contain,
+          errorBuilder: (_, __, ___) => const Padding(
+            padding: EdgeInsets.all(28),
+            child: Text(
+              '图片格式无法预览，请保存后查看',
+              style: TextStyle(color: Colors.white),
+            ),
+          ),
+        ),
       ),
     );
   }
