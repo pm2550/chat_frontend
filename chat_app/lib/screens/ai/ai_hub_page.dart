@@ -1,10 +1,15 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../constants/app_colors.dart';
 import '../../design/design.dart';
 import '../../models/chat.dart';
+import '../../models/message.dart';
 import '../../services/bot_service.dart';
 import '../../services/chat_data_service.dart';
+import '../../widgets/cost_preview_chip.dart';
+import '../../widgets/message_bubble.dart';
 import '../../widgets/pm_brand.dart';
 import '../../widgets/pm_responsive.dart';
 import 'api_keys_screen.dart';
@@ -36,10 +41,18 @@ class _AiHubPageState extends State<AiHubPage>
   String? _error;
   List<BotConfig> _bots = const [];
   List<Chat> _rooms = const [];
+  Chat? _selectedImageRoom;
+  final TextEditingController _imagePromptController = TextEditingController();
+  bool _imageFastMode = false;
+  bool _imageSubmitting = false;
+  String? _imageError;
+  _ImageGenerationJob? _latestImageJob;
+  Timer? _imagePollTimer;
 
   static const _sections = [
     _AiSection('bots', 'Bots', '创建、编辑和管理可加入群聊的助手', Icons.smart_toy),
     _AiSection('rooms', '群配置', '把 Bot 接入群聊并设置触发方式', Icons.hub),
+    _AiSection('images', '画图', '用积分生成图片并发到会话', Icons.auto_awesome),
   ];
 
   @override
@@ -80,6 +93,7 @@ class _AiHubPageState extends State<AiHubPage>
       setState(() {
         _bots = bots;
         _rooms = rooms;
+        _selectedImageRoom = _resolveSelectedImageRoom(rooms);
         _loading = false;
       });
     } catch (error) {
@@ -93,6 +107,13 @@ class _AiHubPageState extends State<AiHubPage>
 
   @override
   bool get wantKeepAlive => true;
+
+  @override
+  void dispose() {
+    _imagePollTimer?.cancel();
+    _imagePromptController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -157,6 +178,7 @@ class _AiHubPageState extends State<AiHubPage>
                   children: [
                     _buildBotsTab(),
                     _buildRoomsTab(),
+                    _buildImagesTab(),
                   ],
                 ),
             ],
@@ -374,6 +396,384 @@ class _AiHubPageState extends State<AiHubPage>
     );
   }
 
+  Widget _buildImagesTab() {
+    if (_rooms.isEmpty) {
+      return const PMEmptyState(
+        icon: Icons.auto_awesome_outlined,
+        title: '还没有可发送图片的会话',
+        subtitle: '先创建或加入一个会话，再用积分生成图片并发到那里。',
+      );
+    }
+
+    final selectedRoom = _selectedImageRoom ?? _rooms.first;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        PMCard(
+          padding: const EdgeInsets.all(PMSpacing.l),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _AiAvatar(
+                    icon: Icons.auto_awesome,
+                    label: 'AI 画图',
+                    color: Color(0xFF7C3AED),
+                    active: true,
+                  ),
+                  SizedBox(width: PMSpacing.m),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'AI 点数画图',
+                          style: TextStyle(
+                            color: AppColors.textPrimary,
+                            fontSize: 19,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                        SizedBox(height: PMSpacing.xs),
+                        Text(
+                          '生成完成后会作为图片消息发送到选中的会话，失败会自动退回积分。',
+                          style: TextStyle(
+                            color: AppColors.textSecondary,
+                            height: 1.45,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  PMCostPreviewChip(featureKey: 'image_generation'),
+                ],
+              ),
+              const SizedBox(height: PMSpacing.l),
+              PMListRow(
+                leading: _AiAvatar(
+                  icon: selectedRoom.type == ChatType.private
+                      ? Icons.person
+                      : Icons.groups,
+                  label: selectedRoom.name,
+                  color: AppColors.secondary,
+                  active: true,
+                ),
+                title: Text(
+                  selectedRoom.name.isEmpty ? '未命名会话' : selectedRoom.name,
+                ),
+                subtitle: Text('图片将发送到这个${selectedRoom.type.description}'),
+                trailing: PMButton(
+                  label: '选择会话',
+                  icon: Icons.swap_horiz,
+                  compact: true,
+                  variant: PMButtonVariant.secondary,
+                  onPressed: _pickImageRoom,
+                ),
+              ),
+              const SizedBox(height: PMSpacing.m),
+              TextField(
+                controller: _imagePromptController,
+                minLines: 3,
+                maxLines: 6,
+                textInputAction: TextInputAction.newline,
+                decoration: InputDecoration(
+                  hintText: '描述你想要的图片，例如：一只蓝色玻璃杯放在雨后窗边，柔和自然光',
+                  filled: true,
+                  fillColor: AppColors.cloud,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(PMRadius.s),
+                    borderSide: const BorderSide(color: AppColors.border),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(PMRadius.s),
+                    borderSide: const BorderSide(color: AppColors.borderLight),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(PMRadius.s),
+                    borderSide: const BorderSide(color: AppColors.primary),
+                  ),
+                ),
+              ),
+              const SizedBox(height: PMSpacing.m),
+              PMListRow(
+                leading: const _AiAvatar(
+                  icon: Icons.speed,
+                  label: '快出图',
+                  color: AppColors.warning,
+                ),
+                title: const Text('快出图'),
+                subtitle: const Text('关闭 Grok prompt 扩写，直接把原始描述交给画图服务。'),
+                trailing: Switch(
+                  value: _imageFastMode,
+                  onChanged: _imageSubmitting
+                      ? null
+                      : (value) => setState(() => _imageFastMode = value),
+                ),
+              ),
+              if (_imageError != null) ...[
+                const SizedBox(height: PMSpacing.m),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(PMSpacing.m),
+                  decoration: BoxDecoration(
+                    color: AppColors.error.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(PMRadius.s),
+                    border: Border.all(
+                      color: AppColors.error.withValues(alpha: 0.24),
+                    ),
+                  ),
+                  child: Text(
+                    '提交失败：$_imageError',
+                    style: const TextStyle(
+                      color: AppColors.error,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ],
+              const SizedBox(height: PMSpacing.l),
+              Row(
+                children: [
+                  PMButton(
+                    label: _imageSubmitting ? '提交中' : '生成并发送',
+                    icon: Icons.auto_awesome,
+                    onPressed: _imageSubmitting ? null : _submitImageGeneration,
+                  ),
+                  const SizedBox(width: PMSpacing.s),
+                  PMButton(
+                    label: '打开会话',
+                    icon: Icons.open_in_new,
+                    variant: PMButtonVariant.secondary,
+                    onPressed: () => _openRoom(selectedRoom),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        if (_latestImageJob != null) ...[
+          const SizedBox(height: PMSpacing.l),
+          _buildLatestImageJob(_latestImageJob!),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildLatestImageJob(_ImageGenerationJob job) {
+    final status = job.message.isImageGenerationDone
+        ? '已完成'
+        : job.message.isImageGenerationFailed
+            ? '生成失败'
+            : '生成中';
+    final color = job.message.isImageGenerationDone
+        ? AppColors.success
+        : job.message.isImageGenerationFailed
+            ? AppColors.error
+            : AppColors.warning;
+
+    return PMCard(
+      padding: const EdgeInsets.all(PMSpacing.l),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              PMChip(
+                label: status,
+                icon: job.message.isImageGenerationDone
+                    ? Icons.check_circle
+                    : job.message.isImageGenerationFailed
+                        ? Icons.error_outline
+                        : Icons.hourglass_top,
+                selected: true,
+                color: color,
+              ),
+              const SizedBox(width: PMSpacing.s),
+              Expanded(
+                child: Text(
+                  job.room.name.isEmpty ? '未命名会话' : job.room.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: AppColors.textSecondary,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              PMButton(
+                label: '去会话查看',
+                icon: Icons.open_in_new,
+                compact: true,
+                variant: PMButtonVariant.secondary,
+                onPressed: () => _openRoom(job.room),
+              ),
+            ],
+          ),
+          const SizedBox(height: PMSpacing.m),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 520),
+              child: MessageBubble(
+                message: job.message,
+                isMe: true,
+                showAvatar: false,
+                onOpenAttachment: (_) async => _openRoom(job.room),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Chat? _resolveSelectedImageRoom(List<Chat> rooms) {
+    if (rooms.isEmpty) return null;
+    final current = _selectedImageRoom;
+    if (current == null) return rooms.first;
+    for (final room in rooms) {
+      if (room.id == current.id) return room;
+    }
+    return rooms.first;
+  }
+
+  Future<void> _pickImageRoom() async {
+    final selected = await showModalBottomSheet<Chat>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(
+            PMSpacing.l,
+            PMSpacing.s,
+            PMSpacing.l,
+            PMSpacing.l,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                '选择接收图片的会话',
+                style: TextStyle(
+                  color: AppColors.textPrimary,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const SizedBox(height: PMSpacing.m),
+              Flexible(
+                child: ListView(
+                  shrinkWrap: true,
+                  children: [
+                    for (final room in _rooms)
+                      PMListRow(
+                        leading: _AiAvatar(
+                          icon: room.type == ChatType.private
+                              ? Icons.person
+                              : Icons.groups,
+                          label: room.name,
+                          active: room.id == _selectedImageRoom?.id,
+                        ),
+                        title: Text(room.name.isEmpty ? '未命名会话' : room.name),
+                        subtitle: Text(
+                          '${room.type.description} · ${room.participants.length} 人',
+                        ),
+                        badge: room.id == _selectedImageRoom?.id ? '当前' : null,
+                        onTap: () => Navigator.pop(context, room),
+                      ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (selected == null || !mounted) return;
+    setState(() => _selectedImageRoom = selected);
+  }
+
+  Future<void> _submitImageGeneration() async {
+    final room = _selectedImageRoom ?? _rooms.firstOrNull;
+    final prompt = _imagePromptController.text.trim();
+    if (room == null || prompt.isEmpty || _imageSubmitting) return;
+
+    setState(() {
+      _imageSubmitting = true;
+      _imageError = null;
+    });
+    try {
+      final message = await _chatDataService.generateImageMessage(
+        room.id,
+        prompt: prompt,
+        expand: !_imageFastMode,
+      );
+      if (!mounted) return;
+      setState(() {
+        _latestImageJob = _ImageGenerationJob(room: room, message: message);
+      });
+      _startImageJobPolling(room, message.id);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('已提交到 ${room.name.isEmpty ? '会话' : room.name}')),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _imageError = error.toString());
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('AI 画图提交失败: $error')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _imageSubmitting = false);
+      }
+    }
+  }
+
+  void _startImageJobPolling(Chat room, String messageId) {
+    _imagePollTimer?.cancel();
+    var attempts = 0;
+
+    Future<void> refresh() async {
+      attempts += 1;
+      try {
+        final messages = await _chatDataService.getRecentMessages(
+          room.id,
+          limit: 30,
+        );
+        final message = messages
+            .where((item) => item.id == messageId)
+            .cast<Message?>()
+            .firstWhere((item) => item != null, orElse: () => null);
+        if (!mounted || message == null) return;
+        setState(() {
+          _latestImageJob = _ImageGenerationJob(room: room, message: message);
+        });
+        if (message.isImageGenerationDone ||
+            message.isImageGenerationFailed ||
+            attempts >= 80) {
+          _imagePollTimer?.cancel();
+        }
+      } catch (_) {
+        if (attempts >= 3) {
+          _imagePollTimer?.cancel();
+        }
+      }
+    }
+
+    unawaited(refresh());
+    _imagePollTimer = Timer.periodic(
+      const Duration(seconds: 3),
+      (_) => unawaited(refresh()),
+    );
+  }
+
+  void _openRoom(Chat room) {
+    Navigator.of(context).pushNamed('/chat/${room.id}', arguments: room);
+  }
+
   Future<void> _openApiKeys() async {
     await Navigator.of(context).push<void>(
       MaterialPageRoute(
@@ -482,6 +882,13 @@ class _AiHubPageState extends State<AiHubPage>
     }
   }
 
+}
+
+class _ImageGenerationJob {
+  const _ImageGenerationJob({required this.room, required this.message});
+
+  final Chat room;
+  final Message message;
 }
 
 class _AiLoadingGrid extends StatelessWidget {

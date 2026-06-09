@@ -997,6 +997,7 @@ void main() {
       final message = await service.generateImageMessage(
         '42',
         prompt: '画蓝色机器人',
+        expand: false,
       );
 
       expect(sentBody, {
@@ -1004,6 +1005,7 @@ void main() {
         'prompt': '画蓝色机器人',
         'n': 1,
         'size': '1024*1024',
+        'expand': false,
       });
       expect(message.id, '88');
       expect(message.type, MessageType.imageGeneration);

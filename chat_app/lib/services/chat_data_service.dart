@@ -648,6 +648,7 @@ class ChatDataService {
     String chatRoomId, {
     required String prompt,
     String size = '1024*1024',
+    bool expand = true,
   }) async {
     final roomId = _parseRoomId(chatRoomId);
     final response = await _request(
@@ -658,6 +659,7 @@ class ChatDataService {
         'prompt': prompt,
         'n': 1,
         'size': size,
+        'expand': expand,
       },
     );
     final data = _decodeResponse(response);
