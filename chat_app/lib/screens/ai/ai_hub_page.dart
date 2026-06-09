@@ -200,56 +200,67 @@ class _AiHubPageState extends State<AiHubPage>
           final children = List.generate(_sections.length, (index) {
             final section = _sections[index];
             final selected = _selectedIndex == index;
-            return Expanded(
-              child: InkWell(
-                borderRadius: BorderRadius.circular(PMRadius.s),
-                onTap: () => _selectSection(index),
-                child: AnimatedContainer(
-                  duration: PMMotion.fast,
-                  padding: EdgeInsets.symmetric(
-                    horizontal: compact ? PMSpacing.s : PMSpacing.l,
-                    vertical: PMSpacing.m,
+            final tile = InkWell(
+              borderRadius: BorderRadius.circular(PMRadius.s),
+              onTap: () => _selectSection(index),
+              child: AnimatedContainer(
+                duration: PMMotion.fast,
+                padding: EdgeInsets.symmetric(
+                  horizontal: compact ? PMSpacing.m : PMSpacing.l,
+                  vertical: PMSpacing.m,
+                ),
+                decoration: BoxDecoration(
+                  color: selected ? AppColors.pixelMint : Colors.transparent,
+                  borderRadius: BorderRadius.circular(PMRadius.s),
+                  border: Border.all(
+                    color: selected ? AppColors.secondary : Colors.transparent,
                   ),
-                  decoration: BoxDecoration(
-                    color: selected ? AppColors.pixelMint : Colors.transparent,
-                    borderRadius: BorderRadius.circular(PMRadius.s),
-                    border: Border.all(
-                      color:
-                          selected ? AppColors.secondary : Colors.transparent,
+                ),
+                child: Row(
+                  mainAxisAlignment:
+                      compact ? MainAxisAlignment.start : MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      section.icon,
+                      color: selected
+                          ? AppColors.secondaryDark
+                          : AppColors.textSecondary,
+                      size: 19,
                     ),
-                  ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(
-                        section.icon,
-                        color: selected
-                            ? AppColors.secondaryDark
-                            : AppColors.textSecondary,
-                        size: 19,
-                      ),
-                      const SizedBox(width: PMSpacing.s),
-                      Flexible(
-                        child: Text(
-                          compact ? section.label : section.fullLabel,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            color: selected
-                                ? AppColors.textPrimary
-                                : AppColors.textSecondary,
-                            fontWeight:
-                                selected ? FontWeight.w800 : FontWeight.w600,
-                          ),
+                    const SizedBox(width: PMSpacing.s),
+                    Flexible(
+                      child: Text(
+                        section.fullLabel,
+                        maxLines: compact ? 2 : 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: selected
+                              ? AppColors.textPrimary
+                              : AppColors.textSecondary,
+                          fontWeight:
+                              selected ? FontWeight.w800 : FontWeight.w600,
                         ),
                       ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
               ),
             );
+
+            if (compact) {
+              return Padding(
+                padding: EdgeInsets.only(
+                  bottom: index == _sections.length - 1 ? 0 : PMSpacing.xs,
+                ),
+                child: tile,
+              );
+            }
+            return Expanded(child: tile);
           });
 
-          return Row(children: children);
+          return compact
+              ? Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: children)
+              : Row(children: children);
         },
       ),
     );
@@ -414,42 +425,7 @@ class _AiHubPageState extends State<AiHubPage>
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _AiAvatar(
-                    icon: Icons.auto_awesome,
-                    label: 'AI 画图',
-                    color: Color(0xFF7C3AED),
-                    active: true,
-                  ),
-                  SizedBox(width: PMSpacing.m),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'AI 点数画图',
-                          style: TextStyle(
-                            color: AppColors.textPrimary,
-                            fontSize: 19,
-                            fontWeight: FontWeight.w900,
-                          ),
-                        ),
-                        SizedBox(height: PMSpacing.xs),
-                        Text(
-                          '生成完成后会作为图片消息发送到选中的会话，失败会自动退回积分。',
-                          style: TextStyle(
-                            color: AppColors.textSecondary,
-                            height: 1.45,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  PMCostPreviewChip(featureKey: 'image_generation'),
-                ],
-              ),
+              _buildImageIntro(),
               const SizedBox(height: PMSpacing.l),
               PMListRow(
                 leading: _AiAvatar(
@@ -534,14 +510,15 @@ class _AiHubPageState extends State<AiHubPage>
                 ),
               ],
               const SizedBox(height: PMSpacing.l),
-              Row(
+              Wrap(
+                spacing: PMSpacing.s,
+                runSpacing: PMSpacing.s,
                 children: [
                   PMButton(
                     label: _imageSubmitting ? '提交中' : '生成并发送',
                     icon: Icons.auto_awesome,
                     onPressed: _imageSubmitting ? null : _submitImageGeneration,
                   ),
-                  const SizedBox(width: PMSpacing.s),
                   PMButton(
                     label: '打开会话',
                     icon: Icons.open_in_new,
@@ -558,6 +535,67 @@ class _AiHubPageState extends State<AiHubPage>
           _buildLatestImageJob(_latestImageJob!),
         ],
       ],
+    );
+  }
+
+  Widget _buildImageIntro() {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final compact = constraints.maxWidth < 560;
+        const avatar = _AiAvatar(
+          icon: Icons.auto_awesome,
+          label: 'AI 画图',
+          color: Color(0xFF7C3AED),
+          active: true,
+        );
+        const copy = Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'AI 点数画图',
+              style: TextStyle(
+                color: AppColors.textPrimary,
+                fontSize: 19,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            SizedBox(height: PMSpacing.xs),
+            Text(
+              '生成完成后会作为图片消息发送到选中的会话，失败会自动退回积分。',
+              style: TextStyle(
+                color: AppColors.textSecondary,
+                height: 1.45,
+              ),
+            ),
+          ],
+        );
+        if (compact) {
+          return const Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  avatar,
+                  SizedBox(width: PMSpacing.m),
+                  Expanded(child: copy),
+                ],
+              ),
+              SizedBox(height: PMSpacing.m),
+              PMCostPreviewChip(featureKey: 'image_generation'),
+            ],
+          );
+        }
+        return const Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            avatar,
+            SizedBox(width: PMSpacing.m),
+            Expanded(child: copy),
+            PMCostPreviewChip(featureKey: 'image_generation'),
+          ],
+        );
+      },
     );
   }
 
