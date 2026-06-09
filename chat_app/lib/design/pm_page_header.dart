@@ -21,56 +21,101 @@ class PMPageHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final compact = constraints.maxWidth < 560;
+        final heading = Row(
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
             if (leading != null) ...[
               leading!,
-              const SizedBox(width: PMSpacing.l),
+              SizedBox(width: compact ? PMSpacing.m : PMSpacing.l),
             ],
             Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+              child: _PageHeading(
+                title: title,
+                subtitle: subtitle,
+                compact: compact,
+              ),
+            ),
+          ],
+        );
+        final actionWrap = Wrap(
+          spacing: PMSpacing.s,
+          runSpacing: PMSpacing.s,
+          alignment: compact ? WrapAlignment.start : WrapAlignment.end,
+          children: actions,
+        );
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (compact) ...[
+              heading,
+              if (actions.isNotEmpty) ...[
+                const SizedBox(height: PMSpacing.m),
+                actionWrap,
+              ],
+            ] else
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  Text(
-                    title,
-                    style: const TextStyle(
-                      color: AppColors.textPrimary,
-                      fontSize: 28,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                  if (subtitle != null) ...[
-                    const SizedBox(height: PMSpacing.xs),
-                    Text(
-                      subtitle!,
-                      style: const TextStyle(
-                        color: AppColors.textSecondary,
-                        fontSize: 15,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
+                  Expanded(child: heading),
+                  if (actions.isNotEmpty) ...[
+                    const SizedBox(width: PMSpacing.l),
+                    actionWrap,
                   ],
                 ],
               ),
-            ),
-            if (actions.isNotEmpty) ...[
-              const SizedBox(width: PMSpacing.l),
-              Wrap(
-                spacing: PMSpacing.s,
-                runSpacing: PMSpacing.s,
-                alignment: WrapAlignment.end,
-                children: actions,
-              ),
+            if (search != null) ...[
+              const SizedBox(height: PMSpacing.l),
+              search!,
             ],
           ],
+        );
+      },
+    );
+  }
+}
+
+class _PageHeading extends StatelessWidget {
+  const _PageHeading({
+    required this.title,
+    required this.compact,
+    this.subtitle,
+  });
+
+  final String title;
+  final String? subtitle;
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          title,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            color: AppColors.textPrimary,
+            fontSize: compact ? 24 : 28,
+            fontWeight: FontWeight.w800,
+          ),
         ),
-        if (search != null) ...[
-          const SizedBox(height: PMSpacing.l),
-          search!,
+        if (subtitle != null) ...[
+          const SizedBox(height: PMSpacing.xs),
+          Text(
+            subtitle!,
+            maxLines: compact ? 3 : 2,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: AppColors.textSecondary,
+              fontSize: 15,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
         ],
       ],
     );
