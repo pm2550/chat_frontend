@@ -106,7 +106,7 @@ void main() {
           },
         ),
       ));
-      await tester.pump();
+      await tester.pumpAndSettle();
       await tester.pump();
 
       expect(find.text('看看 https://example.com/post'), findsOneWidget);
@@ -568,7 +568,7 @@ void main() {
       expect(find.text('?'), findsOneWidget);
     });
 
-    testWidgets('renders image attachment preview and filename',
+    testWidgets('renders image attachment as a large visual preview',
         (tester) async {
       final message = createMessage(
         content: 'photo.png',
@@ -583,6 +583,7 @@ void main() {
         MessageBubble(
           message: message,
           isMe: false,
+          onOpenAttachment: (_) async {},
           imageLoader: (_) async => Uint8List.fromList([
             137,
             80,
@@ -657,10 +658,14 @@ void main() {
           ]),
         ),
       ));
-      await tester.pump();
+      await tester.pumpAndSettle();
 
       expect(find.byType(Image), findsOneWidget);
-      expect(find.text('photo.png'), findsOneWidget);
+      expect(find.byIcon(Icons.zoom_out_map), findsOneWidget);
+      expect(find.text('photo.png'), findsNothing);
+      final imageSize = tester.getSize(find.byType(Image));
+      expect(imageSize.width, greaterThan(220));
+      expect(imageSize.height, greaterThan(110));
     });
 
     testWidgets('tapping image attachment opens attachment action',

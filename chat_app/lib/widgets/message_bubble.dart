@@ -1,4 +1,6 @@
+import 'dart:math' as math;
 import 'dart:typed_data';
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
@@ -113,7 +115,7 @@ class MessageBubble extends StatelessWidget {
                         ),
 
                       // 消息内容
-                      _buildMessageContent(),
+                      _buildMessageContent(context),
 
                       // 消息状态和时间
                       Padding(
@@ -417,7 +419,7 @@ class MessageBubble extends StatelessWidget {
     return _secondaryTextColor;
   }
 
-  Widget _buildMessageContent() {
+  Widget _buildMessageContent(BuildContext context) {
     if (message.isRemoved) {
       return Text(
         message.isRecalled ? '[消息已撤回]' : '[消息已删除]',
@@ -438,7 +440,7 @@ class MessageBubble extends StatelessWidget {
       return _buildImageGenerationMessage();
     }
     if (message.isImageMessage) {
-      return _buildImageAttachment();
+      return _buildImageAttachment(context);
     }
     if (message.isVoiceMessage) {
       return _buildMediaAttachment(
@@ -571,12 +573,12 @@ class MessageBubble extends StatelessWidget {
     return Text.rich(TextSpan(style: baseStyle, children: spans));
   }
 
-  Widget _buildImageAttachment() {
+  Widget _buildImageAttachment(BuildContext context) {
     final fileUrl = message.fileUrl;
     if (fileUrl == null || fileUrl.isEmpty) {
       return _buildFileAttachment();
     }
-    return _buildImagePreviewCard(fileUrl);
+    return _buildImagePreviewCard(context, fileUrl);
   }
 
   Widget _buildImageGenerationMessage() {
@@ -588,19 +590,28 @@ class MessageBubble extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          _buildImagePreviewCard(fileUrl),
+          Builder(
+            builder: (context) => _buildImagePreviewCard(context, fileUrl),
+          ),
           if ((message.imageGenPrompt ?? message.content)
               .trim()
               .isNotEmpty) ...[
             const SizedBox(height: 7),
-            Text(
-              message.imageGenPrompt ?? message.content,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: _secondaryTextColor,
-                fontSize: 12,
-                height: 1.3,
+            Builder(
+              builder: (context) => ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxWidth: _imagePreviewMaxWidth(context),
+                ),
+                child: Text(
+                  message.imageGenPrompt ?? message.content,
+                  maxLines: 3,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: _secondaryTextColor,
+                    fontSize: 13,
+                    height: 1.3,
+                  ),
+                ),
               ),
             ),
           ],
@@ -679,59 +690,128 @@ class MessageBubble extends StatelessWidget {
     );
   }
 
-  Widget _buildImagePreviewCard(String fileUrl) {
-    return _buildAttachmentCard(
-      type: AttachmentType.image,
-      forcePreview: true,
-      preview: FutureBuilder<Uint8List>(
-        future: _loadImageBytes(fileUrl),
+  Widget _buildImagePreviewCard(BuildContext context, String fileUrl) {
+    final maxWidth = _imagePreviewMaxWidth(context);
+    final loadingHeight = math.min(320.0, maxWidth * 0.72);
+    return ConstrainedBox(
+      constraints: BoxConstraints(maxWidth: maxWidth),
+      child: FutureBuilder<_LoadedChatImage>(
+        future: _loadChatImage(fileUrl),
         builder: (context, snapshot) {
           if (snapshot.hasData) {
-            return Stack(
-              fit: StackFit.expand,
-              children: [
-                Image.memory(
-                  snapshot.data!,
-                  fit: BoxFit.cover,
-                  errorBuilder: (_, __, ___) =>
-                      _buildAttachmentFallback(Icons.broken_image_outlined),
-                ),
-                if (onOpenAttachment != null)
-                  Positioned(
-                    right: 8,
-                    bottom: 8,
-                    child: Container(
-                      padding: const EdgeInsets.all(6),
-                      decoration: BoxDecoration(
-                        color: Colors.black.withValues(alpha: 0.46),
-                        borderRadius: BorderRadius.circular(999),
-                      ),
-                      child: const Icon(
-                        Icons.zoom_out_map,
-                        color: Colors.white,
-                        size: 16,
-                      ),
-                    ),
-                  ),
-              ],
-            );
+            final image = snapshot.data!;
+            final size = _imagePreviewSize(context, image);
+            return _buildLoadedImagePreview(image, size);
           }
           if (snapshot.hasError) {
-            return _buildAttachmentFallback(Icons.broken_image_outlined);
+            return SizedBox(
+              width: maxWidth,
+              height: loadingHeight,
+              child: _buildAttachmentFallback(Icons.broken_image_outlined),
+            );
           }
-          return Center(
-            child: SizedBox(
-              width: 24,
-              height: 24,
-              child: CircularProgressIndicator(
-                strokeWidth: 2,
-                color: isMe ? Colors.white : AppColors.primary,
+          return SizedBox(
+            width: maxWidth,
+            height: loadingHeight,
+            child: Center(
+              child: SizedBox(
+                width: 24,
+                height: 24,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: isMe ? Colors.white : AppColors.primary,
+                ),
               ),
             ),
           );
         },
       ),
     );
+  }
+
+  Widget _buildLoadedImagePreview(_LoadedChatImage image, Size size) {
+    final preview = ClipRRect(
+      borderRadius: BorderRadius.circular(10),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: isMe
+              ? Colors.white.withValues(alpha: 0.10)
+              : AppColors.cloud.withValues(alpha: 0.86),
+          border: Border.all(
+            color: isMe
+                ? Colors.white.withValues(alpha: 0.42)
+                : AppColors.borderLight,
+          ),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: SizedBox(
+          width: size.width,
+          height: size.height,
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              Image.memory(
+                image.bytes,
+                fit: BoxFit.contain,
+                errorBuilder: (_, __, ___) =>
+                    _buildAttachmentFallback(Icons.broken_image_outlined),
+              ),
+              if (onOpenAttachment != null)
+                Positioned(
+                  right: 8,
+                  bottom: 8,
+                  child: Container(
+                    padding: const EdgeInsets.all(7),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.54),
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: const Icon(
+                      Icons.zoom_out_map,
+                      color: Colors.white,
+                      size: 18,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (onOpenAttachment == null || message.fileUrl == null) {
+      return preview;
+    }
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () => onOpenAttachment!(message),
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        child: preview,
+      ),
+    );
+  }
+
+  double _imagePreviewMaxWidth(BuildContext context) {
+    final screenWidth = MediaQuery.sizeOf(context).width;
+    final target = screenWidth >= 900 ? 460.0 : screenWidth * 0.68;
+    return target.clamp(230.0, 460.0).toDouble();
+  }
+
+  Size _imagePreviewSize(BuildContext context, _LoadedChatImage image) {
+    final maxWidth = _imagePreviewMaxWidth(context);
+    final maxHeight = MediaQuery.sizeOf(context).height >= 760 ? 520.0 : 420.0;
+    final aspect = image.width <= 0 || image.height <= 0
+        ? 1.0
+        : image.width / image.height;
+    var width = maxWidth;
+    var height = width / aspect;
+    if (height > maxHeight) {
+      height = maxHeight;
+      width = height * aspect;
+    }
+    width = width.clamp(math.min(180.0, maxWidth), maxWidth).toDouble();
+    height = height.clamp(120.0, maxHeight).toDouble();
+    return Size(width, height);
   }
 
   Color get _anonymousColor =>
@@ -921,6 +1001,32 @@ class MessageBubble extends StatelessWidget {
       throw Exception('Image load failed: ${response.statusCode}');
     }
     return response.bodyBytes;
+  }
+
+  Future<_LoadedChatImage> _loadChatImage(String fileUrl) async {
+    if (imageLoader != null) {
+      return _LoadedChatImage(
+        bytes: await imageLoader!(fileUrl),
+        width: 16,
+        height: 9,
+      );
+    }
+    final bytes = await _loadImageBytes(fileUrl);
+    try {
+      final codec = await ui.instantiateImageCodec(bytes);
+      final frame = await codec.getNextFrame();
+      final decoded = frame.image;
+      final width = decoded.width;
+      final height = decoded.height;
+      decoded.dispose();
+      return _LoadedChatImage(
+        bytes: bytes,
+        width: width,
+        height: height,
+      );
+    } catch (_) {
+      return _LoadedChatImage(bytes: bytes, width: 1, height: 1);
+    }
   }
 
   Widget _buildLinkPreview(String? url, LinkPreview? preview) {
@@ -1209,6 +1315,18 @@ class MessageBubble extends StatelessWidget {
       return null;
     }
   }
+}
+
+class _LoadedChatImage {
+  const _LoadedChatImage({
+    required this.bytes,
+    required this.width,
+    required this.height,
+  });
+
+  final Uint8List bytes;
+  final int width;
+  final int height;
 }
 
 class _ReactionChip extends StatelessWidget {

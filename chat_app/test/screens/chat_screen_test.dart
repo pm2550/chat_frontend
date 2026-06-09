@@ -1354,7 +1354,9 @@ void main() {
       await tester.pump();
 
       expect(service.sentFiles.single.name, 'photo.png');
-      expect(find.text('photo.png'), findsOneWidget);
+      expect(service.sentFiles.single.mimeType, 'image/png');
+      expect(find.byType(MessageBubble), findsOneWidget);
+      expect(find.text('photo.png'), findsNothing);
     });
 
     testWidgets('dragging files over chat shows upload overlay',
