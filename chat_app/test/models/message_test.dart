@@ -445,6 +445,27 @@ void main() {
       expect(message.imageGenProviderTaskId, 'task-1');
       expect(message.resolvedFileLabel, '[AI图片生成中]');
     });
+
+    test('done IMAGE_GENERATION messages are previewable images', () {
+      final message = Message.fromJson({
+        'id': 100,
+        'content': '画蓝色机器人',
+        'senderId': 7,
+        'senderName': 'Alice',
+        'chatRoomId': 42,
+        'messageType': 'IMAGE_GENERATION',
+        'messageStatus': 'SENT',
+        'imageGenPrompt': '画蓝色机器人',
+        'imageGenStatus': 'DONE',
+        'imageGenUrl': '/api/files/chat/image-generation-100.png',
+        'createdAt': '2026-06-01T09:00:00',
+      });
+
+      expect(message.hasPreviewImage, isTrue);
+      expect(
+          message.previewImageUrl, '/api/files/chat/image-generation-100.png');
+      expect(message.resolvedFileLabel, '[AI图片]');
+    });
   });
 
   group('MessageType', () {

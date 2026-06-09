@@ -2,7 +2,7 @@ part of '../chat_screen.dart';
 
 extension _ChatScreenAttachmentParts on _ChatScreenState {
   Future<void> _openAttachment(Message message) async {
-    if (message.isImageMessage) {
+    if (message.hasPreviewImage) {
       await _showImagePreview(message);
       return;
     }

@@ -49,9 +49,8 @@ void main() {
           expect(method, 'GET');
           final uri = Uri.parse(url);
           final path = uri.path;
-          final roomIdMatch =
-              RegExp(r'/chat-rooms/(\d+)').firstMatch(path) ??
-                  RegExp(r'/messages/chat-room/(\d+)').firstMatch(path);
+          final roomIdMatch = RegExp(r'/chat-rooms/(\d+)').firstMatch(path) ??
+              RegExp(r'/messages/chat-room/(\d+)').firstMatch(path);
           final roomId = roomIdMatch?.group(1);
 
           if (path.endsWith('/chat-rooms')) {
@@ -805,7 +804,9 @@ void main() {
             if (url.contains('/forward')) 'forwardedFromMessageId': 55,
           };
           if (url.contains('/rooms/42/pin/55')) {
-            return jsonResponse({'data': [data]});
+            return jsonResponse({
+              'data': [data]
+            });
           }
           return jsonResponse({'data': data});
         },
@@ -896,6 +897,44 @@ void main() {
       expect(downloaded.name, 'doc.pdf');
       expect(downloaded.mimeType, 'application/pdf');
       expect(downloaded.bytes, [1, 2, 3]);
+    });
+
+    test('downloadFile falls back to imageGenUrl for AI generated images',
+        () async {
+      String? capturedUrl;
+      final service = ChatDataService(
+        authenticatedRequest: (method, url, {headers, body}) async {
+          expect(method, 'GET');
+          capturedUrl = url;
+          return http.Response.bytes(
+            [9, 8, 7],
+            200,
+            headers: {'content-type': 'image/png'},
+          );
+        },
+      );
+
+      final downloaded = await service.downloadFile(Message(
+        id: '100',
+        content: '画蓝色机器人',
+        senderId: '7',
+        senderName: 'Sender',
+        chatRoomId: '42',
+        type: MessageType.imageGeneration,
+        status: MessageStatus.sent,
+        timestamp: DateTime.parse('2024-01-01T10:03:00'),
+        imageGenStatus: 'DONE',
+        imageGenUrl: '/api/files/chat/image-generation-100.png',
+        fileName: 'AI image 100.png',
+      ));
+
+      expect(
+        capturedUrl,
+        'https://gateway.chat.pm2550.com/api/files/chat/image-generation-100.png',
+      );
+      expect(downloaded.name, 'AI image 100.png');
+      expect(downloaded.mimeType, 'image/png');
+      expect(downloaded.bytes, [9, 8, 7]);
     });
 
     test('notification settings endpoints read and update room preference',

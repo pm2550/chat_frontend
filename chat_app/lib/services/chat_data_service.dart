@@ -981,11 +981,13 @@ class ChatDataService {
   Future<List<Message>> pinMessage(String chatRoomId, String messageId) async {
     final roomId = _parseRoomId(chatRoomId);
     final id = _parseRoomId(messageId);
-    final response = await _request('POST', ApiConstants.pinMessage(roomId, id));
+    final response =
+        await _request('POST', ApiConstants.pinMessage(roomId, id));
     return _extractMessages(_decodeResponse(response), chatRoomId);
   }
 
-  Future<List<Message>> unpinMessage(String chatRoomId, String messageId) async {
+  Future<List<Message>> unpinMessage(
+      String chatRoomId, String messageId) async {
     final roomId = _parseRoomId(chatRoomId);
     final id = _parseRoomId(messageId);
     final response =
@@ -1038,7 +1040,9 @@ class ChatDataService {
   }
 
   Future<DownloadedChatFile> downloadFile(Message message) async {
-    final fileUrl = message.fileUrl;
+    final fileUrl = message.fileUrl?.isNotEmpty == true
+        ? message.fileUrl
+        : message.imageGenUrl;
     if (fileUrl == null || fileUrl.isEmpty) {
       throw const ChatDataException('消息没有可下载的文件');
     }
@@ -1089,7 +1093,8 @@ class ChatDataService {
     return count is int ? count : int.tryParse(count.toString()) ?? 0;
   }
 
-  @Deprecated('Use normal chat messages with @bot mentions; kept for legacy clients.')
+  @Deprecated(
+      'Use normal chat messages with @bot mentions; kept for legacy clients.')
   Future<AgentTask> createAgentTask(
     String chatRoomId,
     String prompt, {
@@ -1123,7 +1128,8 @@ class ChatDataService {
     return AgentTask.fromJson(taskJson);
   }
 
-  @Deprecated('Use normal chat messages with @bot mentions; kept for legacy clients.')
+  @Deprecated(
+      'Use normal chat messages with @bot mentions; kept for legacy clients.')
   Future<List<AgentTask>> getAgentTasks(
     String chatRoomId, {
     int page = 0,

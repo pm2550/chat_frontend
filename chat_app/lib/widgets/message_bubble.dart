@@ -574,7 +574,7 @@ class MessageBubble extends StatelessWidget {
   }
 
   Widget _buildImageAttachment(BuildContext context) {
-    final fileUrl = message.fileUrl;
+    final fileUrl = message.previewImageUrl;
     if (fileUrl == null || fileUrl.isEmpty) {
       return _buildFileAttachment();
     }
@@ -582,7 +582,7 @@ class MessageBubble extends StatelessWidget {
   }
 
   Widget _buildImageGenerationMessage() {
-    final fileUrl = message.imageGenUrl ?? message.fileUrl;
+    final fileUrl = message.previewImageUrl;
     if (message.isImageGenerationDone &&
         fileUrl != null &&
         fileUrl.isNotEmpty) {
@@ -661,8 +661,10 @@ class MessageBubble extends StatelessWidget {
                   ),
                   const SizedBox(height: 3),
                   Text(
-                    message.imageGenPrompt ?? message.content,
-                    maxLines: 2,
+                    failed
+                        ? _imageGenerationFailureDetail
+                        : message.imageGenPrompt ?? message.content,
+                    maxLines: failed ? 3 : 2,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       color: _secondaryTextColor,
@@ -778,7 +780,7 @@ class MessageBubble extends StatelessWidget {
         ),
       ),
     );
-    if (onOpenAttachment == null || message.fileUrl == null) {
+    if (onOpenAttachment == null || message.previewImageUrl == null) {
       return preview;
     }
     return GestureDetector(
@@ -827,6 +829,27 @@ class MessageBubble extends StatelessWidget {
   Color get _textColor => _resolvedBubbleVisual.textColor;
 
   Color get _secondaryTextColor => _resolvedBubbleVisual.secondaryTextColor;
+
+  String get _imageGenerationFailureDetail {
+    final prompt = message.imageGenPrompt?.trim() ?? '';
+    final raw = message.content.trim();
+    final lower = raw.toLowerCase();
+    if (lower.contains('content moderation') ||
+        lower.contains('rejected by content moderation') ||
+        raw.contains('内容审核')) {
+      return '生成内容被模型审核拦截，积分已自动退回。请换一个更安全的描述重试。';
+    }
+    if (prompt.isNotEmpty && raw.startsWith(prompt)) {
+      final detail = raw.substring(prompt.length).trim();
+      if (detail.isNotEmpty) {
+        return detail;
+      }
+    }
+    if (raw.isNotEmpty && raw != prompt) {
+      return raw;
+    }
+    return '生成服务返回失败，积分会自动退回。';
+  }
 
   Widget _buildStickerMessage() {
     final fileUrl = message.fileUrl;

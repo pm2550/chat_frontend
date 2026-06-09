@@ -284,8 +284,8 @@ class Message {
           fallbackChatRoomId ??
           '',
       type: _parseMessageType(typeValue),
-      contentFormat: _parseContentFormat(
-          json['contentFormat'] ?? json['content_format']),
+      contentFormat:
+          _parseContentFormat(json['contentFormat'] ?? json['content_format']),
       status: MessageStatus.values.firstWhere(
         (e) => e.name.toUpperCase() == statusValue.toString().toUpperCase(),
         orElse: () => MessageStatus.sent,
@@ -537,6 +537,19 @@ class Message {
       isImageGenerationMessage && imageGenStatus?.toUpperCase() == 'DONE';
   bool get isImageGenerationFailed =>
       isImageGenerationMessage && imageGenStatus?.toUpperCase() == 'FAILED';
+  String? get previewImageUrl {
+    if (isImageMessage) {
+      return fileUrl?.isNotEmpty == true ? fileUrl : null;
+    }
+    if (isImageGenerationDone) {
+      if (fileUrl?.isNotEmpty == true) return fileUrl;
+      if (imageGenUrl?.isNotEmpty == true) return imageGenUrl;
+    }
+    return null;
+  }
+
+  bool get hasPreviewImage => previewImageUrl != null;
+
   bool get isFileMessage =>
       type == MessageType.file ||
       (fileUrl != null &&
