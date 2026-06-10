@@ -38,6 +38,41 @@ void main() {
       expect(rooms.first.type, ChatType.group);
     });
 
+    test('getChatRooms can request all joined rooms for contacts sections',
+        () async {
+      String? capturedUrl;
+      final service = ChatDataService(
+        authenticatedRequest: (method, url, {headers, body}) async {
+          expect(method, 'GET');
+          capturedUrl = url;
+          return jsonResponse({
+            'chatRooms': [
+              {
+                'id': 10,
+                'name': 'Hidden Group',
+                'roomType': 'GROUP',
+                'isPrivate': false,
+                'createdAt': '2024-01-01T10:00:00',
+              },
+            ],
+          });
+        },
+      );
+
+      final rooms = await service.getChatRooms(
+        includeDetails: false,
+        includeHidden: true,
+        includeBlocked: true,
+        type: ChatType.group,
+      );
+
+      final uri = Uri.parse(capturedUrl!);
+      expect(uri.queryParameters['includeHidden'], 'true');
+      expect(uri.queryParameters['includeBlocked'], 'true');
+      expect(uri.queryParameters['roomType'], 'GROUP');
+      expect(rooms.single.name, 'Hidden Group');
+    });
+
     test('getChatRooms enriches every room with bounded detail concurrency',
         () async {
       final recentRoomIds = <String>[];
@@ -181,6 +216,45 @@ void main() {
 
       expect(sentBody, {'preset': 'aurora'});
       expect(room.customBackgroundPreset, 'aurora');
+    });
+
+    test('display state methods call unified room endpoint', () async {
+      final calls = <String>[];
+      final bodies = <Object?>[];
+      final service = ChatDataService(
+        authenticatedRequest: (method, url, {headers, body}) async {
+          calls.add('$method $url');
+          bodies.add(body);
+          return jsonResponse({
+            'state': {
+              'roomId': 42,
+              'isBlocked': body is Map && body['action'] == 'BLOCK',
+              'hiddenAt': body is Map && body['action'] == 'REMOVE_FROM_LIST'
+                  ? '2024-01-01T10:00:00'
+                  : null,
+            },
+          });
+        },
+      );
+
+      await service.clearChatHistory('42');
+      await service.hideChatRoom('42');
+      final blocked = await service.updateChatRoomDisplayState(
+        '42',
+        action: 'BLOCK',
+      );
+
+      expect(calls, [
+        'PUT ${ApiConstants.chatRoomDisplayState(42)}',
+        'PUT ${ApiConstants.chatRoomDisplayState(42)}',
+        'PUT ${ApiConstants.chatRoomDisplayState(42)}',
+      ]);
+      expect(bodies, [
+        {'action': 'CLEAR'},
+        {'action': 'REMOVE_FROM_LIST'},
+        {'action': 'BLOCK'},
+      ]);
+      expect(blocked['isBlocked'], isTrue);
     });
 
     test('room background upload uses multipart file request', () async {

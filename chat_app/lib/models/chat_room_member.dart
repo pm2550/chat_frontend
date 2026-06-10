@@ -12,6 +12,9 @@ class ChatRoomMember {
     this.isMuted = false,
     this.isPinned = false,
     this.isAdmin = false,
+    this.isBlocked = false,
+    this.hiddenAt,
+    this.clearedBeforeMessageId,
     this.joinedAt,
     this.lastReadMessageId,
     this.unreadCount = 0,
@@ -27,6 +30,9 @@ class ChatRoomMember {
   final bool isMuted;
   final bool isPinned;
   final bool isAdmin;
+  final bool isBlocked;
+  final DateTime? hiddenAt;
+  final String? clearedBeforeMessageId;
   final DateTime? joinedAt;
   final String? lastReadMessageId;
   final int unreadCount;
@@ -72,6 +78,16 @@ class ChatRoomMember {
       isAdmin: json['isAdmin'] ??
           json['is_admin'] ??
           (roleText == 'ADMIN' || roleText == 'OWNER'),
+      isBlocked:
+          json['isBlocked'] ?? json['blocked'] ?? json['is_blocked'] ?? false,
+      hiddenAt: json['hiddenAt'] != null || json['hidden_at'] != null
+          ? DateTime.tryParse(
+              (json['hiddenAt'] ?? json['hidden_at']).toString(),
+            )
+          : null,
+      clearedBeforeMessageId:
+          (json['clearedBeforeMessageId'] ?? json['cleared_before_message_id'])
+              ?.toString(),
       joinedAt: json['joinedAt'] != null || json['joined_at'] != null
           ? DateTime.tryParse(
               (json['joinedAt'] ?? json['joined_at']).toString(),
@@ -93,6 +109,8 @@ class ChatRoomMember {
       memberTitle?.isNotEmpty == true ? memberTitle! : roleDescription ?? role;
 
   bool get canBeManaged => role.toUpperCase() != 'OWNER';
+
+  bool get isHidden => hiddenAt != null;
 
   /// F5: true real OWNER role (above ADMIN). Distinct from [isAdmin].
   bool get isOwner => role.toUpperCase() == 'OWNER';

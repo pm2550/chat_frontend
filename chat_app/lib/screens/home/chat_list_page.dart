@@ -16,6 +16,8 @@ import '../../services/websocket_service.dart';
 import '../../widgets/pm_brand.dart';
 import '../../widgets/pm_responsive.dart';
 
+enum _ChatRoomMenuAction { togglePin, clearHistory, hide, block }
+
 class ChatListPage extends StatefulWidget {
   const ChatListPage({
     super.key,
@@ -168,6 +170,10 @@ class _ChatListPageState extends State<ChatListPage>
 
   void _handleStatusChange(Map<String, dynamic> event) {
     if (!mounted) return;
+    if (event['type'] == 'room_display_state_changed') {
+      unawaited(_loadChats(showLoading: false));
+      return;
+    }
     if (event['type'] == 'room_updated') {
       final roomId = event['chatRoomId']?.toString();
       final chatRoomJson = event['chatRoom'];
@@ -372,6 +378,247 @@ class _ChatListPageState extends State<ChatListPage>
           ],
         ),
       ),
+    );
+  }
+
+  Future<void> _showDesktopChatMenu(Chat chat, Offset position) async {
+    final action = await showMenu<_ChatRoomMenuAction>(
+      context: context,
+      position: RelativeRect.fromLTRB(
+        position.dx,
+        position.dy,
+        position.dx,
+        position.dy,
+      ),
+      items: _chatMenuItems(chat),
+    );
+    if (action != null) {
+      await _handleChatMenuAction(chat, action);
+    }
+  }
+
+  void _showMobileChatMenu(Chat chat) {
+    showModalBottomSheet(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: Icon(
+                chat.isPinned ? Icons.push_pin_outlined : Icons.push_pin,
+              ),
+              title: Text(chat.isPinned ? '取消置顶' : '置顶'),
+              onTap: () {
+                Navigator.pop(sheetContext);
+                unawaited(_handleChatMenuAction(
+                  chat,
+                  _ChatRoomMenuAction.togglePin,
+                ));
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.cleaning_services_outlined),
+              title: const Text('清空聊天记录'),
+              onTap: () {
+                Navigator.pop(sheetContext);
+                unawaited(_handleChatMenuAction(
+                  chat,
+                  _ChatRoomMenuAction.clearHistory,
+                ));
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.visibility_off_outlined),
+              title: const Text('移出列表'),
+              onTap: () {
+                Navigator.pop(sheetContext);
+                unawaited(_handleChatMenuAction(
+                  chat,
+                  _ChatRoomMenuAction.hide,
+                ));
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.block, color: AppColors.error),
+              title: const Text(
+                '屏蔽',
+                style: TextStyle(color: AppColors.error),
+              ),
+              onTap: () {
+                Navigator.pop(sheetContext);
+                unawaited(_handleChatMenuAction(
+                  chat,
+                  _ChatRoomMenuAction.block,
+                ));
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  List<PopupMenuEntry<_ChatRoomMenuAction>> _chatMenuItems(Chat chat) {
+    return [
+      PopupMenuItem(
+        value: _ChatRoomMenuAction.togglePin,
+        child: _menuRow(
+          chat.isPinned ? Icons.push_pin_outlined : Icons.push_pin,
+          chat.isPinned ? '取消置顶' : '置顶',
+        ),
+      ),
+      const PopupMenuDivider(),
+      PopupMenuItem(
+        value: _ChatRoomMenuAction.clearHistory,
+        child: _menuRow(Icons.cleaning_services_outlined, '清空聊天记录'),
+      ),
+      PopupMenuItem(
+        value: _ChatRoomMenuAction.hide,
+        child: _menuRow(Icons.visibility_off_outlined, '移出列表'),
+      ),
+      PopupMenuItem(
+        value: _ChatRoomMenuAction.block,
+        child: _menuRow(Icons.block, '屏蔽', color: AppColors.error),
+      ),
+    ];
+  }
+
+  Widget _menuRow(IconData icon, String label, {Color? color}) {
+    return Row(
+      children: [
+        Icon(icon, size: 20, color: color ?? AppColors.textSecondary),
+        const SizedBox(width: 10),
+        Text(label, style: TextStyle(color: color ?? AppColors.textPrimary)),
+      ],
+    );
+  }
+
+  Future<void> _handleChatMenuAction(
+    Chat chat,
+    _ChatRoomMenuAction action,
+  ) async {
+    switch (action) {
+      case _ChatRoomMenuAction.togglePin:
+        await _toggleChatPinned(chat);
+      case _ChatRoomMenuAction.clearHistory:
+        final confirmed = await _confirmChatAction(
+          title: '清空聊天记录',
+          message: '只会清空你在「${chat.name}」里的本地可见历史，不影响其他成员。',
+          confirmLabel: '清空',
+        );
+        if (confirmed) {
+          await _runChatStateAction(
+            chat,
+            () => _chatService.clearChatHistory(chat.id),
+            successMessage: '已清空 ${chat.name} 的聊天记录',
+            removeFromList: false,
+          );
+        }
+      case _ChatRoomMenuAction.hide:
+        await _runChatStateAction(
+          chat,
+          () => _chatService.hideChatRoom(chat.id),
+          successMessage: '已从消息列表移出 ${chat.name}',
+          removeFromList: true,
+        );
+      case _ChatRoomMenuAction.block:
+        final confirmed = await _confirmChatAction(
+          title: '屏蔽会话',
+          message: '屏蔽后新消息不会回到消息列表，也不会计入未读。你仍可在联系人里找到它。',
+          confirmLabel: '屏蔽',
+          destructive: true,
+        );
+        if (confirmed) {
+          await _runChatStateAction(
+            chat,
+            () => _chatService.blockChatRoom(chat.id),
+            successMessage: '已屏蔽 ${chat.name}',
+            removeFromList: true,
+          );
+        }
+    }
+  }
+
+  Future<bool> _confirmChatAction({
+    required String title,
+    required String message,
+    required String confirmLabel,
+    bool destructive = false,
+  }) async {
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(title),
+        content: Text(message),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            style: destructive
+                ? FilledButton.styleFrom(backgroundColor: AppColors.error)
+                : null,
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: Text(confirmLabel),
+          ),
+        ],
+      ),
+    );
+    return result ?? false;
+  }
+
+  Future<void> _toggleChatPinned(Chat chat) async {
+    try {
+      await _chatService.updateNotificationSettings(
+        chat.id,
+        pinned: !chat.isPinned,
+      );
+      if (!mounted) return;
+      setState(() {
+        final index = _chats.indexWhere((item) => item.id == chat.id);
+        if (index != -1) {
+          _chats[index] = _chats[index].copyWith(isPinned: !chat.isPinned);
+          ChatDataService.patchCachedChatRoom(_chats[index]);
+          _sortChatsInPlace();
+        }
+      });
+      _showSnackBar(chat.isPinned ? '已取消置顶' : '已置顶');
+    } catch (e) {
+      _showSnackBar(e.toString());
+    }
+  }
+
+  Future<void> _runChatStateAction(
+    Chat chat,
+    Future<void> Function() action, {
+    required String successMessage,
+    required bool removeFromList,
+  }) async {
+    try {
+      await action();
+      if (!mounted) return;
+      if (removeFromList) {
+        setState(() {
+          _chats.removeWhere((item) => item.id == chat.id);
+          _mentionHits.removeWhere((hit) => hit.chat.id == chat.id);
+        });
+        _syncDesktopUnreadBadge();
+      } else {
+        unawaited(_loadChats(showLoading: false));
+      }
+      _showSnackBar(successMessage);
+    } catch (e) {
+      _showSnackBar(e.toString());
+    }
+  }
+
+  void _showSnackBar(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message)),
     );
   }
 
@@ -896,156 +1143,176 @@ class _ChatListPageState extends State<ChatListPage>
   }
 
   Widget _buildChatItem(Chat chat) {
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 5),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.96),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(
-          color: chat.isPinned ? AppColors.accentGold : AppColors.borderLight,
+    return GestureDetector(
+      onLongPress: () => _showMobileChatMenu(chat),
+      onSecondaryTapDown: (details) =>
+          unawaited(_showDesktopChatMenu(chat, details.globalPosition)),
+      child: Container(
+        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 5),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.96),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: chat.isPinned ? AppColors.accentGold : AppColors.borderLight,
+          ),
+          boxShadow: const [AppColors.cardShadow],
         ),
-        boxShadow: const [AppColors.cardShadow],
-      ),
-      child: ListTile(
-        onTap: () async {
-          await Navigator.pushNamed(
-            context,
-            '/chat/${chat.id}',
-            arguments: chat,
-          );
-          if (mounted) {
-            unawaited(_loadChats(showLoading: false));
-          }
-        },
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        leading: Stack(
-          children: [
-            _buildChatAvatar(chat),
-            if (chat.type == ChatType.private &&
-                chat.participants.isNotEmpty &&
-                chat.participants.first.onlineStatus == OnlineStatus.online)
-              Positioned(
-                right: 2,
-                bottom: 2,
-                child: Container(
-                  width: 12,
-                  height: 12,
-                  decoration: BoxDecoration(
-                    color: AppColors.online,
-                    shape: BoxShape.circle,
-                    border: Border.all(color: Colors.white, width: 2),
+        child: ListTile(
+          onTap: () async {
+            await Navigator.pushNamed(
+              context,
+              '/chat/${chat.id}',
+              arguments: chat,
+            );
+            if (mounted) {
+              unawaited(_loadChats(showLoading: false));
+            }
+          },
+          contentPadding:
+              const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          leading: Stack(
+            children: [
+              _buildChatAvatar(chat),
+              if (chat.type == ChatType.private &&
+                  chat.participants.isNotEmpty &&
+                  chat.participants.first.onlineStatus == OnlineStatus.online)
+                Positioned(
+                  right: 2,
+                  bottom: 2,
+                  child: Container(
+                    width: 12,
+                    height: 12,
+                    decoration: BoxDecoration(
+                      color: AppColors.online,
+                      shape: BoxShape.circle,
+                      border: Border.all(color: Colors.white, width: 2),
+                    ),
                   ),
                 ),
-              ),
-            if (chat.isPinned)
-              Positioned(
-                left: 0,
-                top: 0,
-                child: Container(
-                  padding: const EdgeInsets.all(2),
-                  decoration: const BoxDecoration(
-                    color: AppColors.warning,
-                    shape: BoxShape.circle,
+              if (chat.isPinned)
+                Positioned(
+                  left: 0,
+                  top: 0,
+                  child: Container(
+                    padding: const EdgeInsets.all(2),
+                    decoration: const BoxDecoration(
+                      color: AppColors.warning,
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.push_pin,
+                      size: 12,
+                      color: Colors.white,
+                    ),
                   ),
-                  child: const Icon(
-                    Icons.push_pin,
-                    size: 12,
-                    color: Colors.white,
+                ),
+            ],
+          ),
+          title: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  chat.name,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 16,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              if (chat.lastMessage != null)
+                Text(
+                  timeago.format(chat.lastMessage!.timestamp, locale: 'zh'),
+                  style: const TextStyle(
+                    color: AppColors.textSecondary,
+                    fontSize: 12,
                   ),
                 ),
-              ),
-          ],
-        ),
-        title: Row(
-          children: [
-            Expanded(
-              child: Text(
-                chat.name,
-                style: const TextStyle(
-                  fontWeight: FontWeight.w600,
-                  fontSize: 16,
-                ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-            if (chat.lastMessage != null)
-              Text(
-                timeago.format(chat.lastMessage!.timestamp, locale: 'zh'),
-                style: const TextStyle(
-                  color: AppColors.textSecondary,
-                  fontSize: 12,
+            ],
+          ),
+          subtitle: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  chat.lastMessage?.resolvedFileLabel ?? '暂无消息',
+                  style: TextStyle(
+                    color: chat.unreadCount > 0
+                        ? AppColors.textPrimary
+                        : AppColors.textSecondary,
+                    fontSize: 14,
+                    fontWeight: chat.unreadCount > 0
+                        ? FontWeight.w500
+                        : FontWeight.normal,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
               ),
-          ],
-        ),
-        subtitle: Row(
-          children: [
-            Expanded(
-              child: Text(
-                chat.lastMessage?.resolvedFileLabel ?? '暂无消息',
-                style: TextStyle(
-                  color: chat.unreadCount > 0
-                      ? AppColors.textPrimary
-                      : AppColors.textSecondary,
-                  fontSize: 14,
-                  fontWeight: chat.unreadCount > 0
-                      ? FontWeight.w500
-                      : FontWeight.normal,
-                ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-            if (chat.unreadCount > 0) ...[
-              const SizedBox(width: 8),
-              if (_hasUnreadMention(chat)) ...[
+              if (chat.unreadCount > 0) ...[
+                const SizedBox(width: 8),
+                if (_hasUnreadMention(chat)) ...[
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: AppColors.primary.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(
+                        color: AppColors.primary.withValues(alpha: 0.35),
+                      ),
+                    ),
+                    child: const Text(
+                      '@',
+                      style: TextStyle(
+                        color: AppColors.primary,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                ],
                 Container(
                   padding:
-                      const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                   decoration: BoxDecoration(
-                    color: AppColors.primary.withValues(alpha: 0.12),
+                    color: AppColors.error,
                     borderRadius: BorderRadius.circular(10),
-                    border: Border.all(
-                      color: AppColors.primary.withValues(alpha: 0.35),
-                    ),
                   ),
-                  child: const Text(
-                    '@',
-                    style: TextStyle(
-                      color: AppColors.primary,
+                  child: Text(
+                    chat.unreadCount > 99 ? '99+' : chat.unreadCount.toString(),
+                    style: const TextStyle(
+                      color: Colors.white,
                       fontSize: 12,
-                      fontWeight: FontWeight.w900,
+                      fontWeight: FontWeight.bold,
                     ),
                   ),
                 ),
-                const SizedBox(width: 6),
               ],
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                decoration: BoxDecoration(
-                  color: AppColors.error,
-                  borderRadius: BorderRadius.circular(10),
+            ],
+          ),
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (chat.isMuted)
+                const Icon(
+                  Icons.volume_off,
+                  size: 16,
+                  color: AppColors.textSecondary,
                 ),
-                child: Text(
-                  chat.unreadCount > 99 ? '99+' : chat.unreadCount.toString(),
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
-                  ),
+              const SizedBox(width: 6),
+              Tooltip(
+                message: '会话操作',
+                child: IconButton(
+                  icon: const Icon(Icons.more_horiz),
+                  color: AppColors.textSecondary,
+                  onPressed: () => _showMobileChatMenu(chat),
                 ),
               ),
             ],
-          ],
+          ),
         ),
-        trailing: chat.isMuted
-            ? const Icon(
-                Icons.volume_off,
-                size: 16,
-                color: AppColors.textSecondary,
-              )
-            : null,
       ),
     );
   }

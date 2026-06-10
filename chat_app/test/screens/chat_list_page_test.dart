@@ -345,6 +345,70 @@ void main() {
       await tester.pump(const Duration(milliseconds: 100));
       tester.takeException();
     });
+
+    testWidgets('long press menu clears chat history after confirmation',
+        (tester) async {
+      final service = FakeChatListService(chats: [
+        Chat(
+          id: '1',
+          name: '清空会话',
+          type: ChatType.group,
+          createdAt: DateTime.parse('2024-01-01T10:00:00'),
+        ),
+      ]);
+
+      await tester.pumpWidget(buildTestWidget(service));
+      await tester.pump();
+
+      await tester.longPress(find.text('清空会话'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('清空聊天记录'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, '清空'));
+      await tester.pumpAndSettle();
+
+      expect(service.clearedRoomIds, ['1']);
+      expect(find.text('清空会话'), findsOneWidget);
+    });
+
+    testWidgets('long press menu removes and blocks chats from message list',
+        (tester) async {
+      final service = FakeChatListService(chats: [
+        Chat(
+          id: '1',
+          name: '移出会话',
+          type: ChatType.group,
+          createdAt: DateTime.parse('2024-01-01T10:00:00'),
+        ),
+        Chat(
+          id: '2',
+          name: '屏蔽会话',
+          type: ChatType.group,
+          createdAt: DateTime.parse('2024-01-01T10:00:00'),
+        ),
+      ]);
+
+      await tester.pumpWidget(buildTestWidget(service));
+      await tester.pump();
+
+      await tester.longPress(find.text('移出会话'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('移出列表'));
+      await tester.pumpAndSettle();
+
+      expect(service.hiddenRoomIds, ['1']);
+      expect(find.text('移出会话'), findsNothing);
+
+      await tester.longPress(find.text('屏蔽会话'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(ListTile, '屏蔽'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, '屏蔽'));
+      await tester.pumpAndSettle();
+
+      expect(service.blockedRoomIds, ['2']);
+      expect(find.text('屏蔽会话'), findsNothing);
+    });
   });
 }
 
@@ -359,6 +423,10 @@ class FakeChatListService extends ChatDataService {
   final Map<String, List<Message>> mentionedMessages;
   final Object? error;
   final List<String> loadedMentionRoomIds = [];
+  final List<String> clearedRoomIds = [];
+  final List<String> hiddenRoomIds = [];
+  final List<String> blockedRoomIds = [];
+  final List<String> pinnedRoomIds = [];
 
   static Future<dynamic> _unusedRequest(
     String method,
@@ -375,6 +443,9 @@ class FakeChatListService extends ChatDataService {
     int size = 30,
     bool includeDetails = true,
     int detailLimit = 8,
+    bool includeHidden = false,
+    bool includeBlocked = false,
+    ChatType? type,
   }) async {
     final err = error;
     if (err != null) {
@@ -399,6 +470,33 @@ class FakeChatListService extends ChatDataService {
       hasNext: false,
       hasPrevious: false,
     );
+  }
+
+  @override
+  Future<void> clearChatHistory(String chatRoomId) async {
+    clearedRoomIds.add(chatRoomId);
+  }
+
+  @override
+  Future<void> hideChatRoom(String chatRoomId) async {
+    hiddenRoomIds.add(chatRoomId);
+  }
+
+  @override
+  Future<void> blockChatRoom(String chatRoomId) async {
+    blockedRoomIds.add(chatRoomId);
+  }
+
+  @override
+  Future<Map<String, dynamic>> updateNotificationSettings(
+    String chatRoomId, {
+    bool? muted,
+    bool? pinned,
+  }) async {
+    if (pinned == true) {
+      pinnedRoomIds.add(chatRoomId);
+    }
+    return {'pinned': pinned ?? false, 'muted': muted ?? false};
   }
 }
 

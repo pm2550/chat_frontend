@@ -110,12 +110,14 @@ class ChatDataService {
   static int? _cachedChatRoomsPage;
   static int? _cachedChatRoomsSize;
 
-  static void clearChatRoomsCacheForTesting() {
+  static void clearChatRoomsCache() {
     _cachedChatRooms = null;
     _cachedChatRoomsAt = null;
     _cachedChatRoomsPage = null;
     _cachedChatRoomsSize = null;
   }
+
+  static void clearChatRoomsCacheForTesting() => clearChatRoomsCache();
 
   static void patchCachedChatRoom(Chat chat) {
     final cached = _cachedChatRooms;
@@ -133,11 +135,17 @@ class ChatDataService {
     int size = 30,
     bool includeDetails = true,
     int detailLimit = 8,
+    bool includeHidden = false,
+    bool includeBlocked = false,
+    ChatType? type,
   }) async {
     final useSharedCache = _canUseSharedChatRoomsCache(
       includeDetails: includeDetails,
       page: page,
       size: size,
+      includeHidden: includeHidden,
+      includeBlocked: includeBlocked,
+      type: type,
     );
     if (useSharedCache) {
       final cached = _freshCachedChatRooms(page: page, size: size);
@@ -152,6 +160,9 @@ class ChatDataService {
         'size': size.toString(),
         'sortBy': 'updatedAt',
         'sortDir': 'desc',
+        if (includeHidden) 'includeHidden': 'true',
+        if (includeBlocked) 'includeBlocked': 'true',
+        if (type != null) 'roomType': type.name.toUpperCase(),
       },
     );
     final response = await _request('GET', uri.toString());
@@ -181,10 +192,16 @@ class ChatDataService {
     required bool includeDetails,
     required int page,
     required int size,
+    required bool includeHidden,
+    required bool includeBlocked,
+    required ChatType? type,
   }) {
     return includeDetails &&
         page >= 0 &&
         size > 0 &&
+        !includeHidden &&
+        !includeBlocked &&
+        type == null &&
         _authenticatedRequest == null &&
         _multipartRequest == null &&
         _multipartFilesRequest == null;
@@ -412,6 +429,41 @@ class ChatDataService {
       },
     );
     return _decodeResponse(response);
+  }
+
+  Future<Map<String, dynamic>> updateChatRoomDisplayState(
+    String chatRoomId, {
+    required String action,
+  }) async {
+    final roomId = _parseRoomId(chatRoomId);
+    final response = await _request(
+      'PUT',
+      ApiConstants.chatRoomDisplayState(roomId),
+      body: {'action': action},
+    );
+    clearChatRoomsCache();
+    final data = _decodeResponse(response);
+    final state = data['state'];
+    return state is Map<String, dynamic> ? state : data;
+  }
+
+  Future<void> hideChatRoom(String chatRoomId) async {
+    await updateChatRoomDisplayState(
+      chatRoomId,
+      action: 'REMOVE_FROM_LIST',
+    );
+  }
+
+  Future<void> blockChatRoom(String chatRoomId) async {
+    await updateChatRoomDisplayState(chatRoomId, action: 'BLOCK');
+  }
+
+  Future<void> unblockChatRoom(String chatRoomId) async {
+    await updateChatRoomDisplayState(chatRoomId, action: 'UNBLOCK');
+  }
+
+  Future<void> restoreChatRoom(String chatRoomId) async {
+    await updateChatRoomDisplayState(chatRoomId, action: 'RESTORE');
   }
 
   Future<void> kickChatRoomMember(String chatRoomId, String userId) async {
@@ -1078,8 +1130,7 @@ class ChatDataService {
   }
 
   Future<void> clearChatHistory(String chatRoomId) async {
-    final roomId = _parseRoomId(chatRoomId);
-    await _request('DELETE', ApiConstants.clearChatHistory(roomId));
+    await updateChatRoomDisplayState(chatRoomId, action: 'CLEAR');
   }
 
   Future<int> getUnreadCount(String chatRoomId) async {
@@ -1184,10 +1235,20 @@ class ChatDataService {
 
     bool isPinned = chat.isPinned;
     bool isMuted = chat.isMuted;
+    DateTime? hiddenAt = chat.hiddenAt;
+    bool isBlocked = chat.isBlocked;
+    String? clearedBeforeMessageId = chat.clearedBeforeMessageId;
     try {
       final settings = await getNotificationSettings(chat.id);
       isPinned = _parseBool(settings['pinned']);
       isMuted = _parseBool(settings['muted']);
+      hiddenAt = _parseDateTime(settings['hiddenAt'] ?? settings['hidden_at']);
+      isBlocked = _parseBool(
+        settings['isBlocked'] ?? settings['blocked'] ?? settings['is_blocked'],
+      );
+      clearedBeforeMessageId = (settings['clearedBeforeMessageId'] ??
+              settings['cleared_before_message_id'])
+          ?.toString();
     } catch (_) {
       // Per-room preferences are decorative for list loading.
     }
@@ -1198,6 +1259,9 @@ class ChatDataService {
       participants: participants,
       isPinned: isPinned,
       isMuted: isMuted,
+      hiddenAt: hiddenAt,
+      isBlocked: isBlocked,
+      clearedBeforeMessageId: clearedBeforeMessageId,
     );
   }
 
@@ -1496,5 +1560,10 @@ class ChatDataService {
     if (value == null) return false;
     if (value is bool) return value;
     return value.toString().toLowerCase() == 'true';
+  }
+
+  DateTime? _parseDateTime(dynamic value) {
+    if (value == null) return null;
+    return DateTime.tryParse(value.toString());
   }
 }

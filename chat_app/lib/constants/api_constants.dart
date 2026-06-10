@@ -100,6 +100,8 @@ class ApiConstants {
       '$apiBaseUrl/chat-rooms/$roomId/leave';
   static String chatRoomNotificationSettings(int roomId) =>
       '$apiBaseUrl/chat-rooms/$roomId/notification-settings';
+  static String chatRoomDisplayState(int roomId) =>
+      '$apiBaseUrl/chat-rooms/$roomId/display-state';
   static String chatRoomBackgroundPreset(int roomId) =>
       '$apiBaseUrl/chat-rooms/$roomId/background-preset';
   static String chatRoomBackgroundUpload(int roomId) =>

@@ -17,6 +17,9 @@ void main() {
         'createdAt': '2024-01-01T00:00:00.000Z',
         'updatedAt': '2024-06-01T00:00:00.000Z',
         'unreadCount': 5,
+        'isBlocked': true,
+        'hiddenAt': '2024-06-01T01:00:00.000Z',
+        'clearedBeforeMessageId': 88,
       };
 
       final chat = Chat.fromJson(json);
@@ -29,6 +32,9 @@ void main() {
       expect(chat.isPrivate, false);
       expect(chat.maxMembers, 200);
       expect(chat.unreadCount, 5);
+      expect(chat.isBlocked, true);
+      expect(chat.isHidden, true);
+      expect(chat.clearedBeforeMessageId, '88');
     });
 
     test('fromJson handles snake_case and room_type', () {
@@ -88,6 +94,7 @@ void main() {
       expect(json['isPrivate'], false);
       expect(json['maxMembers'], 100);
       expect(json['unreadCount'], 7);
+      expect(json['isBlocked'], false);
     });
 
     test('copyWith creates modified copy', () {
@@ -106,6 +113,8 @@ void main() {
         unreadCount: 0,
         isPinned: true,
         isMuted: true,
+        isBlocked: true,
+        clearedBeforeMessageId: '99',
       );
 
       expect(modified.id, chat.id);
@@ -113,6 +122,8 @@ void main() {
       expect(modified.unreadCount, 0);
       expect(modified.isPinned, true);
       expect(modified.isMuted, true);
+      expect(modified.isBlocked, true);
+      expect(modified.clearedBeforeMessageId, '99');
       expect(modified.type, chat.type);
     });
 

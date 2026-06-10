@@ -15,6 +15,9 @@ class Chat {
   final int unreadCount;
   final bool isPinned;
   final bool isMuted;
+  final DateTime? hiddenAt;
+  final bool isBlocked;
+  final String? clearedBeforeMessageId;
   final DateTime createdAt;
   final DateTime? updatedAt;
   final Map<String, dynamic>? metadata;
@@ -41,6 +44,9 @@ class Chat {
     this.unreadCount = 0,
     this.isPinned = false,
     this.isMuted = false,
+    this.hiddenAt,
+    this.isBlocked = false,
+    this.clearedBeforeMessageId,
     required this.createdAt,
     this.updatedAt,
     this.metadata,
@@ -106,6 +112,17 @@ class Chat {
           ? Message.fromJson(json['lastMessage'] as Map<String, dynamic>)
           : null,
       unreadCount: json['unreadCount'] ?? json['unread_count'] ?? 0,
+      isPinned: json['isPinned'] ?? json['is_pinned'] ?? false,
+      isMuted: json['isMuted'] ?? json['muted'] ?? json['is_muted'] ?? false,
+      hiddenAt: json['hiddenAt'] != null || json['hidden_at'] != null
+          ? DateTime.tryParse(
+              (json['hiddenAt'] ?? json['hidden_at']).toString())
+          : null,
+      isBlocked:
+          json['isBlocked'] ?? json['blocked'] ?? json['is_blocked'] ?? false,
+      clearedBeforeMessageId:
+          (json['clearedBeforeMessageId'] ?? json['cleared_before_message_id'])
+              ?.toString(),
     );
   }
 
@@ -132,6 +149,11 @@ class Chat {
       'updatedAt': updatedAt?.toIso8601String(),
       'lastMessage': lastMessage?.toJson(),
       'unreadCount': unreadCount,
+      'isPinned': isPinned,
+      'isMuted': isMuted,
+      'hiddenAt': hiddenAt?.toIso8601String(),
+      'isBlocked': isBlocked,
+      'clearedBeforeMessageId': clearedBeforeMessageId,
     };
   }
 
@@ -159,6 +181,9 @@ class Chat {
     int? unreadCount,
     bool? isPinned,
     bool? isMuted,
+    DateTime? hiddenAt,
+    bool? isBlocked,
+    String? clearedBeforeMessageId,
   }) {
     return Chat(
       id: id ?? this.id,
@@ -187,6 +212,10 @@ class Chat {
       unreadCount: unreadCount ?? this.unreadCount,
       isPinned: isPinned ?? this.isPinned,
       isMuted: isMuted ?? this.isMuted,
+      hiddenAt: hiddenAt ?? this.hiddenAt,
+      isBlocked: isBlocked ?? this.isBlocked,
+      clearedBeforeMessageId:
+          clearedBeforeMessageId ?? this.clearedBeforeMessageId,
     );
   }
 
@@ -244,6 +273,8 @@ class Chat {
 
   // 是否有未读消息
   bool get hasUnreadMessages => unreadCount > 0;
+
+  bool get isHidden => hiddenAt != null;
 
   @override
   bool operator ==(Object other) {
