@@ -1,13 +1,17 @@
 import 'package:chat_app/models/chat.dart';
 import 'package:chat_app/models/user.dart';
 import 'package:chat_app/screens/home/contacts_page.dart';
+import 'package:chat_app/services/chat_data_service.dart';
 import 'package:chat_app/services/contact_data_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 
 void main() {
-  Widget buildTestWidget(ContactDataService service) {
+  Widget buildTestWidget(
+    ContactDataService service, {
+    ChatDataService? chatService,
+  }) {
     return MaterialApp(
       onGenerateRoute: (settings) {
         if ((settings.name ?? '').startsWith('/chat')) {
@@ -18,7 +22,10 @@ void main() {
         }
         return null;
       },
-      home: ContactsPage(contactService: service),
+      home: ContactsPage(
+        contactService: service,
+        chatService: chatService ?? FakeChatDirectoryService(),
+      ),
     );
   }
 
@@ -56,6 +63,49 @@ void main() {
       await tester.pump();
 
       expect(find.text('暂无联系人'), findsOneWidget);
+    });
+
+    testWidgets(
+        'renders joined group and private chats including blocked rooms',
+        (tester) async {
+      final service = FakeContactService();
+      final chatService = FakeChatDirectoryService(
+        groupChats: [
+          Chat(
+            id: '10',
+            name: 'Project Group',
+            type: ChatType.group,
+            isPrivate: false,
+            createdAt: DateTime.parse('2024-01-01T10:00:00'),
+          ),
+        ],
+        privateChats: [
+          Chat(
+            id: '11',
+            name: 'Blocked DM',
+            type: ChatType.private,
+            isBlocked: true,
+            createdAt: DateTime.parse('2024-01-01T10:00:00'),
+          ),
+        ],
+      );
+
+      await tester.pumpWidget(buildTestWidget(
+        service,
+        chatService: chatService,
+      ));
+      await tester.pump();
+
+      expect(find.text('我的群聊'), findsOneWidget);
+      expect(find.text('Project Group'), findsOneWidget);
+      expect(find.text('私聊'), findsWidgets);
+      expect(find.text('Blocked DM'), findsOneWidget);
+      expect(find.text('已屏蔽'), findsOneWidget);
+
+      await tester.tap(find.text('解除屏蔽'));
+      await tester.pumpAndSettle();
+
+      expect(chatService.unblockedRoomIds, ['11']);
     });
 
     testWidgets('renders retry state when service fails', (tester) async {
@@ -292,5 +342,42 @@ class FakeContactService extends ContactDataService {
   Future<void> removeFriend(String userId) async {
     removedUserIds.add(userId);
     friends = friends.where((user) => user.id != userId).toList();
+  }
+}
+
+class FakeChatDirectoryService extends ChatDataService {
+  FakeChatDirectoryService({
+    this.groupChats = const [],
+    this.privateChats = const [],
+  }) : super(authenticatedRequest: FakeContactService._unusedRequest);
+
+  final List<Chat> groupChats;
+  final List<Chat> privateChats;
+  final List<String> unblockedRoomIds = [];
+
+  @override
+  Future<List<Chat>> getChatRooms({
+    int page = 0,
+    int size = 30,
+    bool includeDetails = true,
+    int detailLimit = 8,
+    bool includeHidden = false,
+    bool includeBlocked = false,
+    ChatType? type,
+  }) async {
+    expect(includeHidden, isTrue);
+    expect(includeBlocked, isTrue);
+    if (type == ChatType.group) {
+      return groupChats;
+    }
+    if (type == ChatType.private) {
+      return privateChats;
+    }
+    return const [];
+  }
+
+  @override
+  Future<void> unblockChatRoom(String chatRoomId) async {
+    unblockedRoomIds.add(chatRoomId);
   }
 }

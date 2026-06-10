@@ -5,15 +5,17 @@ import '../../constants/app_colors.dart';
 import '../../models/call_state.dart';
 import '../../models/chat.dart';
 import '../../models/user.dart';
+import '../../services/chat_data_service.dart';
 import '../../services/contact_data_service.dart';
 import '../../widgets/pm_brand.dart';
 import '../../widgets/pm_responsive.dart';
 import '../chat/chat_screen.dart';
 
 class ContactsPage extends StatefulWidget {
-  const ContactsPage({super.key, this.contactService});
+  const ContactsPage({super.key, this.contactService, this.chatService});
 
   final ContactDataService? contactService;
+  final ChatDataService? chatService;
 
   @override
   State<ContactsPage> createState() => _ContactsPageState();
@@ -25,18 +27,23 @@ class _ContactsPageState extends State<ContactsPage>
   final TextEditingController _addSearchController = TextEditingController();
   final FocusNode _searchFocusNode = FocusNode();
   late final ContactDataService _contactService;
+  late final ChatDataService _chatService;
 
   String _searchQuery = '';
   List<User> _contacts = [];
   List<FriendshipRequest> _receivedRequests = [];
+  List<Chat> _groupChats = [];
+  List<Chat> _privateChats = [];
   bool _isLoading = true;
   String? _errorMessage;
   String? _openingChatUserId;
+  String? _unblockingRoomId;
 
   @override
   void initState() {
     super.initState();
     _contactService = widget.contactService ?? ContactDataService();
+    _chatService = widget.chatService ?? ChatDataService();
     _loadContacts();
   }
 
@@ -49,13 +56,30 @@ class _ContactsPageState extends State<ContactsPage>
     }
 
     try {
-      final contacts = await _contactService.getFriends();
-      final receivedRequests =
-          await _contactService.getReceivedFriendRequests();
+      final results = await Future.wait<dynamic>([
+        _contactService.getFriends(),
+        _contactService.getReceivedFriendRequests(),
+        _chatService.getChatRooms(
+          includeHidden: true,
+          includeBlocked: true,
+          type: ChatType.group,
+        ),
+        _chatService.getChatRooms(
+          includeHidden: true,
+          includeBlocked: true,
+          type: ChatType.private,
+        ),
+      ]);
+      final contacts = results[0] as List<User>;
+      final receivedRequests = results[1] as List<FriendshipRequest>;
+      final groupChats = results[2] as List<Chat>;
+      final privateChats = results[3] as List<Chat>;
       if (!mounted) return;
       setState(() {
         _contacts = contacts;
         _receivedRequests = receivedRequests;
+        _groupChats = groupChats;
+        _privateChats = privateChats;
         _isLoading = false;
       });
     } catch (e) {
@@ -78,6 +102,22 @@ class _ContactsPageState extends State<ContactsPage>
           contact.email.toLowerCase().contains(keyword) ||
           (contact.phone?.contains(_searchQuery) ?? false);
     }).toList();
+  }
+
+  List<Chat> get _filteredGroupChats => _filterChats(_groupChats);
+
+  List<Chat> get _filteredPrivateChats => _filterChats(_privateChats);
+
+  List<Chat> _filterChats(List<Chat> chats) {
+    if (_searchQuery.isEmpty) {
+      return chats;
+    }
+    final keyword = _searchQuery.toLowerCase();
+    return chats
+        .where((chat) =>
+            chat.name.toLowerCase().contains(keyword) ||
+            (chat.description?.toLowerCase().contains(keyword) ?? false))
+        .toList();
   }
 
   @override
@@ -129,6 +169,10 @@ class _ContactsPageState extends State<ContactsPage>
 
   Widget _buildDesktopScaffold() {
     final contacts = _filteredContacts;
+    final groupChats = _filteredGroupChats;
+    final privateChats = _filteredPrivateChats;
+    final hasDirectoryItems =
+        contacts.isNotEmpty || groupChats.isNotEmpty || privateChats.isNotEmpty;
     return Scaffold(
       body: PMChatPattern(
         dense: true,
@@ -183,7 +227,7 @@ class _ContactsPageState extends State<ContactsPage>
                                         ? _buildErrorState()
                                         : RefreshIndicator(
                                             onRefresh: _loadContacts,
-                                            child: contacts.isEmpty
+                                            child: !hasDirectoryItems
                                                 ? ListView(
                                                     children: [
                                                       SizedBox(
@@ -198,23 +242,72 @@ class _ContactsPageState extends State<ContactsPage>
                                                         const EdgeInsets.all(
                                                             12),
                                                     children: [
-                                                      const Padding(
-                                                        padding:
-                                                            EdgeInsets.fromLTRB(
-                                                          8,
-                                                          4,
-                                                          8,
-                                                          12,
+                                                      if (groupChats
+                                                          .isNotEmpty) ...[
+                                                        const Padding(
+                                                          padding: EdgeInsets
+                                                              .fromLTRB(
+                                                            8,
+                                                            4,
+                                                            8,
+                                                            12,
+                                                          ),
+                                                          child:
+                                                              PMSectionHeader(
+                                                            title: '我的群聊',
+                                                            subtitle:
+                                                                '已加入群聊，含移出或屏蔽会话',
+                                                          ),
                                                         ),
-                                                        child: PMSectionHeader(
-                                                          title: '联系人列表',
-                                                          subtitle:
-                                                              '点击联系人可发起私聊、语音或视频邀请',
+                                                        ...groupChats.map(
+                                                          _buildRoomItem,
                                                         ),
-                                                      ),
-                                                      ...contacts.map(
-                                                        _buildContactItem,
-                                                      ),
+                                                        const SizedBox(
+                                                            height: 12),
+                                                      ],
+                                                      if (privateChats
+                                                          .isNotEmpty) ...[
+                                                        const Padding(
+                                                          padding: EdgeInsets
+                                                              .fromLTRB(
+                                                            8,
+                                                            4,
+                                                            8,
+                                                            12,
+                                                          ),
+                                                          child:
+                                                              PMSectionHeader(
+                                                            title: '私聊',
+                                                            subtitle:
+                                                                '全部已加入私聊，含移出或屏蔽会话',
+                                                          ),
+                                                        ),
+                                                        ...privateChats.map(
+                                                          _buildRoomItem,
+                                                        ),
+                                                        const SizedBox(
+                                                            height: 12),
+                                                      ],
+                                                      if (contacts.isNotEmpty)
+                                                        const Padding(
+                                                          padding: EdgeInsets
+                                                              .fromLTRB(
+                                                            8,
+                                                            4,
+                                                            8,
+                                                            12,
+                                                          ),
+                                                          child:
+                                                              PMSectionHeader(
+                                                            title: '联系人列表',
+                                                            subtitle:
+                                                                '点击联系人可发起私聊、语音或视频邀请',
+                                                          ),
+                                                        ),
+                                                      if (contacts.isNotEmpty)
+                                                        ...contacts.map(
+                                                          _buildContactItem,
+                                                        ),
                                                     ],
                                                   ),
                                           ),
@@ -443,9 +536,13 @@ class _ContactsPageState extends State<ContactsPage>
 
   Widget _buildContactList() {
     final contacts = _filteredContacts;
+    final groupChats = _filteredGroupChats;
+    final privateChats = _filteredPrivateChats;
     final showQuickActions = _searchQuery.isEmpty;
+    final hasDirectoryItems =
+        contacts.isNotEmpty || groupChats.isNotEmpty || privateChats.isNotEmpty;
 
-    if (contacts.isEmpty && _receivedRequests.isEmpty && !showQuickActions) {
+    if (!hasDirectoryItems && _receivedRequests.isEmpty && !showQuickActions) {
       return ListView(
         children: [
           SizedBox(
@@ -489,11 +586,21 @@ class _ContactsPageState extends State<ContactsPage>
           ..._receivedRequests.map(_buildRequestItem),
           const SizedBox(height: 8),
         ],
+        if (groupChats.isNotEmpty) ...[
+          _buildSectionTitle('我的群聊'),
+          ...groupChats.map(_buildRoomItem),
+          const SizedBox(height: 12),
+        ],
+        if (privateChats.isNotEmpty) ...[
+          _buildSectionTitle('私聊'),
+          ...privateChats.map(_buildRoomItem),
+          const SizedBox(height: 12),
+        ],
         if (contacts.isNotEmpty) ...[
           _buildSectionTitle('联系人'),
           ...contacts.map(_buildContactItem),
           const SizedBox(height: 16),
-        ] else
+        ] else if (!hasDirectoryItems)
           SizedBox(
             height: MediaQuery.of(context).size.height * 0.42,
             child: _buildEmptyState(),
@@ -687,6 +794,138 @@ class _ContactsPageState extends State<ContactsPage>
               ),
             ),
     );
+  }
+
+  Widget _buildRoomItem(Chat chat) {
+    final isUnblocking = _unblockingRoomId == chat.id;
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: chat.isBlocked
+              ? AppColors.error.withValues(alpha: 0.35)
+              : AppColors.borderLight,
+        ),
+        boxShadow: const [AppColors.cardShadow],
+      ),
+      child: ListTile(
+        onTap: () => _openChatRoom(chat),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        leading: _buildRoomAvatar(chat),
+        title: Row(
+          children: [
+            Expanded(
+              child: Text(
+                chat.name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontWeight: FontWeight.w700,
+                  fontSize: 16,
+                ),
+              ),
+            ),
+            if (chat.isBlocked) ...[
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(
+                  color: AppColors.error.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Text(
+                  '已屏蔽',
+                  style: TextStyle(
+                    color: AppColors.error,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
+        subtitle: Text(
+          chat.lastMessage?.resolvedFileLabel ??
+              (chat.type == ChatType.group ? '群聊' : '私聊'),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(
+            color: AppColors.textSecondary,
+            fontSize: 13,
+          ),
+        ),
+        trailing: chat.isBlocked
+            ? TextButton(
+                onPressed:
+                    isUnblocking ? null : () => _unblockRoomFromContacts(chat),
+                child: isUnblocking
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Text('解除屏蔽'),
+              )
+            : const Icon(Icons.chevron_right, color: AppColors.textSecondary),
+      ),
+    );
+  }
+
+  Widget _buildRoomAvatar(Chat chat) {
+    if (chat.avatarUrl != null) {
+      return CircleAvatar(
+        radius: 26,
+        backgroundColor: AppColors.pixelBlue,
+        backgroundImage:
+            NetworkImage(ApiConstants.resolveFileUrl(chat.avatarUrl!)),
+      );
+    }
+    return Container(
+      width: 52,
+      height: 52,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        gradient: chat.type == ChatType.group
+            ? AppColors.primaryGradient
+            : AppColors.accentGradient,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Icon(
+        chat.type == ChatType.group ? Icons.groups_2 : Icons.person,
+        color: Colors.white,
+      ),
+    );
+  }
+
+  Future<void> _openChatRoom(Chat chat) async {
+    await Navigator.pushNamed(context, '/chat/${chat.id}', arguments: chat);
+    if (mounted) {
+      await _loadContacts();
+    }
+  }
+
+  Future<void> _unblockRoomFromContacts(Chat chat) async {
+    if (_unblockingRoomId != null) return;
+    setState(() {
+      _unblockingRoomId = chat.id;
+    });
+    try {
+      await _chatService.unblockChatRoom(chat.id);
+      if (!mounted) return;
+      _showSnackBar('已解除屏蔽 ${chat.name}');
+      await _loadContacts();
+    } catch (e) {
+      _showSnackBar(e.toString());
+    } finally {
+      if (mounted) {
+        setState(() {
+          _unblockingRoomId = null;
+        });
+      }
+    }
   }
 
   Widget _buildUserCard({
