@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:chat_app/models/chat.dart';
+import 'package:chat_app/models/contact_group.dart';
 import 'package:chat_app/services/contact_data_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -181,6 +182,93 @@ void main() {
         () => service.sendFriendRequest('1'),
         throwsA(isA<ContactDataException>()),
       );
+    });
+
+    test('contact group APIs parse list and send mutations', () async {
+      final calls = <String>[];
+      final service = ContactDataService(
+        authenticatedRequest: (method, url, {headers, body}) async {
+          final path = Uri.parse(url).path;
+          calls.add('$method $path');
+          switch ('$method $path') {
+            case 'GET /api/v1/contact-groups':
+              return jsonResponse({
+                'groups': [
+                  {'id': 7, 'name': '核心', 'sortOrder': 0},
+                ],
+                'assignments': [
+                  {'groupId': 7, 'targetType': 'FRIEND', 'targetId': 2},
+                ],
+              });
+            case 'POST /api/v1/contact-groups':
+              expect(body, {'name': '新组'});
+              return jsonResponse({
+                'group': {'id': 8, 'name': '新组', 'sortOrder': 1},
+              });
+            case 'PUT /api/v1/contact-groups/8':
+              expect(body, {'name': '改名', 'sortOrder': 2});
+              return jsonResponse({
+                'group': {'id': 8, 'name': '改名', 'sortOrder': 2},
+              });
+            case 'POST /api/v1/contact-groups/reorder':
+              expect(body, {
+                'groupIds': [8, 7]
+              });
+              return jsonResponse({
+                'groups': [
+                  {'id': 8, 'name': '改名', 'sortOrder': 0},
+                  {'id': 7, 'name': '核心', 'sortOrder': 1},
+                ],
+              });
+            case 'PUT /api/v1/contact-groups/items':
+              expect(body, {
+                'targetType': 'ROOM',
+                'targetId': 42,
+                'groupId': 8,
+              });
+              return jsonResponse({
+                'assignment': {
+                  'groupId': 8,
+                  'targetType': 'ROOM',
+                  'targetId': 42,
+                },
+              });
+            case 'DELETE /api/v1/contact-groups/8':
+              return jsonResponse({'message': 'ok'});
+          }
+          fail('Unexpected call $method $path');
+        },
+      );
+
+      final bundle = await service.getContactGroups();
+      final created = await service.createContactGroup(' 新组 ');
+      final updated = await service.updateContactGroup(
+        '8',
+        name: '改名',
+        sortOrder: 2,
+      );
+      final reordered = await service.reorderContactGroups(['8', '7']);
+      final assignment = await service.assignContactGroupItem(
+        targetType: ContactGroupTargetType.room,
+        targetId: '42',
+        groupId: '8',
+      );
+      await service.deleteContactGroup('8');
+
+      expect(bundle.groups.single.name, '核心');
+      expect(bundle.assignments.single.targetKey, 'FRIEND:2');
+      expect(created.id, '8');
+      expect(updated.name, '改名');
+      expect(reordered.map((group) => group.id), ['8', '7']);
+      expect(assignment?.targetKey, 'ROOM:42');
+      expect(calls, [
+        'GET /api/v1/contact-groups',
+        'POST /api/v1/contact-groups',
+        'PUT /api/v1/contact-groups/8',
+        'POST /api/v1/contact-groups/reorder',
+        'PUT /api/v1/contact-groups/items',
+        'DELETE /api/v1/contact-groups/8',
+      ]);
     });
   });
 }

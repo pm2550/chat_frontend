@@ -1,4 +1,5 @@
 import 'package:chat_app/models/chat.dart';
+import 'package:chat_app/models/contact_group.dart';
 import 'package:chat_app/models/user.dart';
 import 'package:chat_app/screens/home/contacts_page.dart';
 import 'package:chat_app/services/chat_data_service.dart';
@@ -107,6 +108,13 @@ void main() {
       expect(find.text('Blocked DM'), findsOneWidget);
       expect(find.text('已屏蔽'), findsOneWidget);
 
+      await tester.scrollUntilVisible(
+        find.text('解除屏蔽'),
+        80,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.drag(find.byType(Scrollable).first, const Offset(0, -140));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('解除屏蔽'));
       await tester.pumpAndSettle();
 
@@ -176,6 +184,69 @@ void main() {
 
       expect(find.text('我的群聊'), findsOneWidget);
       expect(find.text('Project Group'), findsNothing);
+    });
+
+    testWidgets('renders grouped contacts and moves an item to a group',
+        (tester) async {
+      final service = FakeContactService(
+        friends: [
+          testUser('1', 'Alice', email: 'alice@example.com'),
+          testUser('2', 'Bob', email: 'bob@example.com'),
+        ],
+        groupBundle: const ContactGroupBundle(
+          groups: [
+            ContactGroup(id: '7', name: '核心', sortOrder: 0),
+          ],
+          assignments: [
+            ContactGroupAssignment(
+              groupId: '7',
+              targetType: ContactGroupTargetType.friend,
+              targetId: '1',
+            ),
+          ],
+        ),
+      );
+
+      await tester.pumpWidget(buildTestWidget(service));
+      await tester.pumpAndSettle();
+
+      expect(find.text('核心'), findsOneWidget);
+      expect(find.text('Alice'), findsOneWidget);
+      expect(find.text('未分组'), findsOneWidget);
+      expect(find.text('Bob'), findsOneWidget);
+
+      await tester.longPress(find.text('Bob'));
+      await tester.pumpAndSettle();
+      expect(find.text('移动到分组'), findsOneWidget);
+
+      await tester.tap(find.text('核心').last);
+      await tester.pumpAndSettle();
+
+      expect(service.assignmentCalls, ['FRIEND:2:7']);
+      expect(find.text('Bob'), findsOneWidget);
+    });
+
+    testWidgets('opens group management and creates a group', (tester) async {
+      final service = FakeContactService();
+
+      await tester.pumpWidget(buildTestWidget(service));
+      await tester.pump();
+
+      await tester.tap(find.byIcon(Icons.more_vert));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('管理分组'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('分组管理'), findsOneWidget);
+      expect(find.text('暂无自定义分组'), findsOneWidget);
+
+      await tester.tap(find.widgetWithText(TextButton, '新建'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextFormField).last, '项目组');
+      await tester.tap(find.widgetWithText(FilledButton, '保存'));
+      await tester.pumpAndSettle();
+
+      expect(service.createdGroupNames, ['项目组']);
     });
 
     testWidgets('renders retry state when service fails', (tester) async {
@@ -314,15 +385,18 @@ class FakeContactService extends ContactDataService {
   FakeContactService({
     List<User>? friends,
     List<FriendshipRequest>? receivedRequests,
+    ContactGroupBundle? groupBundle,
     this.searchResults = const [],
     this.createdChat,
     this.error,
   })  : friends = friends ?? [],
         receivedRequests = receivedRequests ?? [],
+        groupBundle = groupBundle ?? const ContactGroupBundle(),
         super(authenticatedRequest: _unusedRequest);
 
   List<User> friends;
   List<FriendshipRequest> receivedRequests;
+  ContactGroupBundle groupBundle;
   final List<User> searchResults;
   final Chat? createdChat;
   final Object? error;
@@ -332,6 +406,10 @@ class FakeContactService extends ContactDataService {
   final List<String> privateChatUserIds = [];
   final List<String> searchKeywords = [];
   final List<String> removedUserIds = [];
+  final List<String> createdGroupNames = [];
+  final List<String> deletedGroupIds = [];
+  final List<List<String>> reorderCalls = [];
+  final List<String> assignmentCalls = [];
 
   static Future<http.Response> _unusedRequest(
     String method,
@@ -358,6 +436,15 @@ class FakeContactService extends ContactDataService {
       throw err;
     }
     return receivedRequests;
+  }
+
+  @override
+  Future<ContactGroupBundle> getContactGroups() async {
+    final err = error;
+    if (err != null) {
+      throw err;
+    }
+    return groupBundle;
   }
 
   @override
@@ -412,6 +499,101 @@ class FakeContactService extends ContactDataService {
   Future<void> removeFriend(String userId) async {
     removedUserIds.add(userId);
     friends = friends.where((user) => user.id != userId).toList();
+  }
+
+  @override
+  Future<ContactGroup> createContactGroup(String name) async {
+    createdGroupNames.add(name);
+    final group = ContactGroup(
+      id: 'created-${createdGroupNames.length}',
+      name: name,
+      sortOrder: groupBundle.groups.length,
+    );
+    groupBundle = ContactGroupBundle(
+      groups: [...groupBundle.groups, group],
+      assignments: groupBundle.assignments,
+    );
+    return group;
+  }
+
+  @override
+  Future<ContactGroup> updateContactGroup(
+    String groupId, {
+    required String name,
+    int? sortOrder,
+  }) async {
+    final group = ContactGroup(
+      id: groupId,
+      name: name,
+      sortOrder: sortOrder ?? 0,
+    );
+    groupBundle = ContactGroupBundle(
+      groups: [
+        for (final existing in groupBundle.groups)
+          existing.id == groupId ? group : existing,
+      ],
+      assignments: groupBundle.assignments,
+    );
+    return group;
+  }
+
+  @override
+  Future<void> deleteContactGroup(String groupId) async {
+    deletedGroupIds.add(groupId);
+    groupBundle = ContactGroupBundle(
+      groups: groupBundle.groups.where((group) => group.id != groupId).toList(),
+      assignments: groupBundle.assignments
+          .where((assignment) => assignment.groupId != groupId)
+          .toList(),
+    );
+  }
+
+  @override
+  Future<List<ContactGroup>> reorderContactGroups(List<String> groupIds) async {
+    reorderCalls.add(groupIds);
+    final byId = {for (final group in groupBundle.groups) group.id: group};
+    final reordered = <ContactGroup>[
+      for (var i = 0; i < groupIds.length; i++)
+        ContactGroup(
+          id: groupIds[i],
+          name: byId[groupIds[i]]?.name ?? groupIds[i],
+          sortOrder: i,
+        ),
+    ];
+    groupBundle = ContactGroupBundle(
+      groups: reordered,
+      assignments: groupBundle.assignments,
+    );
+    return reordered;
+  }
+
+  @override
+  Future<ContactGroupAssignment?> assignContactGroupItem({
+    required ContactGroupTargetType targetType,
+    required String targetId,
+    String? groupId,
+  }) async {
+    assignmentCalls
+        .add('${targetType.wireName}:$targetId:${groupId ?? 'null'}');
+    final retained = groupBundle.assignments
+        .where((assignment) =>
+            assignment.targetKey !=
+            ContactGroupTargetKey.build(targetType, targetId))
+        .toList();
+    ContactGroupAssignment? next;
+    if (groupId != null) {
+      next = ContactGroupAssignment(
+        groupId: groupId,
+        targetType: targetType,
+        targetId: targetId,
+      );
+      retained.add(next);
+    }
+    groupBundle = ContactGroupBundle(
+      groups: groupBundle.groups,
+      assignments: retained,
+    );
+    return next;
   }
 }
 

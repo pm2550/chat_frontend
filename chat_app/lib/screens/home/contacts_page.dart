@@ -5,6 +5,7 @@ import '../../constants/api_constants.dart';
 import '../../constants/app_colors.dart';
 import '../../models/call_state.dart';
 import '../../models/chat.dart';
+import '../../models/contact_group.dart';
 import '../../models/user.dart';
 import '../../services/chat_data_service.dart';
 import '../../services/contact_data_service.dart';
@@ -28,6 +29,7 @@ class _ContactsPageState extends State<ContactsPage>
   static const String _sectionPrivate = 'private';
   static const String _sectionContacts = 'contacts';
   static const String _sectionPrefPrefix = 'pmchat.contacts.section.collapsed.';
+  static const String _groupPrefPrefix = 'pmchat.contacts.group.collapsed.';
 
   final TextEditingController _searchController = TextEditingController();
   final TextEditingController _addSearchController = TextEditingController();
@@ -40,15 +42,19 @@ class _ContactsPageState extends State<ContactsPage>
   List<FriendshipRequest> _receivedRequests = [];
   List<Chat> _groupChats = [];
   List<Chat> _privateChats = [];
+  List<ContactGroup> _contactGroups = [];
+  Map<String, ContactGroupAssignment> _groupAssignmentsByTarget = {};
   bool _isLoading = true;
   String? _errorMessage;
   String? _openingChatUserId;
   String? _unblockingRoomId;
+  String? _movingTargetKey;
   final Map<String, bool> _sectionCollapsed = {
     _sectionGroups: false,
     _sectionPrivate: false,
     _sectionContacts: false,
   };
+  Map<String, bool> _groupCollapsed = {};
 
   @override
   void initState() {
@@ -70,6 +76,24 @@ class _ContactsPageState extends State<ContactsPage>
     });
   }
 
+  Future<Map<String, bool>> _loadGroupCollapseStates(
+    List<ContactGroup> groups,
+  ) async {
+    final prefs = await SharedPreferences.getInstance();
+    final states = <String, bool>{};
+    for (final group in groups) {
+      states[_groupCollapseKey(group.id)] =
+          prefs.getBool('$_groupPrefPrefix${_groupCollapseKey(group.id)}') ??
+              false;
+    }
+    for (final section in [_sectionGroups, _sectionPrivate, _sectionContacts]) {
+      states[_ungroupedCollapseKey(section)] =
+          prefs.getBool('$_groupPrefPrefix${_ungroupedCollapseKey(section)}') ??
+              false;
+    }
+    return states;
+  }
+
   bool _isSectionCollapsed(String section) =>
       _sectionCollapsed[section] ?? false;
 
@@ -81,6 +105,21 @@ class _ContactsPageState extends State<ContactsPage>
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('$_sectionPrefPrefix$section', next);
   }
+
+  bool _isGroupBlockCollapsed(String key) => _groupCollapsed[key] ?? false;
+
+  Future<void> _toggleGroupBlockCollapsed(String key) async {
+    final next = !_isGroupBlockCollapsed(key);
+    setState(() {
+      _groupCollapsed = {..._groupCollapsed, key: next};
+    });
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('$_groupPrefPrefix$key', next);
+  }
+
+  String _groupCollapseKey(String groupId) => 'group:$groupId';
+
+  String _ungroupedCollapseKey(String section) => 'ungrouped:$section';
 
   Future<void> _loadContacts() async {
     if (mounted) {
@@ -104,17 +143,27 @@ class _ContactsPageState extends State<ContactsPage>
           includeBlocked: true,
           type: ChatType.private,
         ),
+        _contactService.getContactGroups(),
       ]);
       final contacts = results[0] as List<User>;
       final receivedRequests = results[1] as List<FriendshipRequest>;
       final groupChats = results[2] as List<Chat>;
       final privateChats = results[3] as List<Chat>;
+      final contactGroups = results[4] as ContactGroupBundle;
+      final groupCollapsed =
+          await _loadGroupCollapseStates(contactGroups.groups);
       if (!mounted) return;
       setState(() {
         _contacts = contacts;
         _receivedRequests = receivedRequests;
         _groupChats = groupChats;
         _privateChats = privateChats;
+        _contactGroups = contactGroups.groups;
+        _groupAssignmentsByTarget = {
+          for (final assignment in contactGroups.assignments)
+            assignment.targetKey: assignment,
+        };
+        _groupCollapsed = groupCollapsed;
         _isLoading = false;
       });
     } catch (e) {
@@ -232,6 +281,12 @@ class _ContactsPageState extends State<ContactsPage>
                       label: '添加联系人',
                       onTap: _showAddContactSheet,
                     ),
+                    const SizedBox(width: 10),
+                    _buildDesktopActionButton(
+                      icon: Icons.folder_open,
+                      label: '管理分组',
+                      onTap: _showGroupManagementSheet,
+                    ),
                   ],
                 ),
                 const SizedBox(height: 22),
@@ -290,8 +345,9 @@ class _ContactsPageState extends State<ContactsPage>
                                                         ),
                                                         if (!_isSectionCollapsed(
                                                             _sectionGroups))
-                                                          ...groupChats.map(
-                                                            _buildRoomItem,
+                                                          ..._buildGroupedRoomWidgets(
+                                                            _sectionGroups,
+                                                            groupChats,
                                                           ),
                                                         const SizedBox(
                                                             height: 12),
@@ -309,8 +365,9 @@ class _ContactsPageState extends State<ContactsPage>
                                                         ),
                                                         if (!_isSectionCollapsed(
                                                             _sectionPrivate))
-                                                          ...privateChats.map(
-                                                            _buildRoomItem,
+                                                          ..._buildGroupedRoomWidgets(
+                                                            _sectionPrivate,
+                                                            privateChats,
                                                           ),
                                                         const SizedBox(
                                                             height: 12),
@@ -328,8 +385,9 @@ class _ContactsPageState extends State<ContactsPage>
                                                       if (contacts.isNotEmpty &&
                                                           !_isSectionCollapsed(
                                                               _sectionContacts))
-                                                        ...contacts.map(
-                                                          _buildContactItem,
+                                                        ..._buildGroupedContactWidgets(
+                                                          _sectionContacts,
+                                                          contacts,
                                                         ),
                                                     ],
                                                   ),
@@ -365,6 +423,13 @@ class _ContactsPageState extends State<ContactsPage>
                                     '扫码 / 粘贴添加',
                                     '通过用户 ID、用户名或邮箱添加',
                                     _showScanAddDialog,
+                                  ),
+                                  const SizedBox(height: 10),
+                                  _buildDesktopQuickAction(
+                                    Icons.folder_open,
+                                    '管理分组',
+                                    '新建、改名、排序和删除自定义分组',
+                                    _showGroupManagementSheet,
                                   ),
                                 ],
                               ),
@@ -673,7 +738,7 @@ class _ContactsPageState extends State<ContactsPage>
             count: groupChats.length,
           ),
           if (!_isSectionCollapsed(_sectionGroups))
-            ...groupChats.map(_buildRoomItem),
+            ..._buildGroupedRoomWidgets(_sectionGroups, groupChats),
           const SizedBox(height: 12),
         ],
         if (privateChats.isNotEmpty) ...[
@@ -683,7 +748,7 @@ class _ContactsPageState extends State<ContactsPage>
             count: privateChats.length,
           ),
           if (!_isSectionCollapsed(_sectionPrivate))
-            ...privateChats.map(_buildRoomItem),
+            ..._buildGroupedRoomWidgets(_sectionPrivate, privateChats),
           const SizedBox(height: 12),
         ],
         if (contacts.isNotEmpty) ...[
@@ -693,7 +758,7 @@ class _ContactsPageState extends State<ContactsPage>
             count: contacts.length,
           ),
           if (!_isSectionCollapsed(_sectionContacts))
-            ...contacts.map(_buildContactItem),
+            ..._buildGroupedContactWidgets(_sectionContacts, contacts),
           const SizedBox(height: 16),
         ] else if (!hasDirectoryItems)
           SizedBox(
@@ -872,6 +937,128 @@ class _ContactsPageState extends State<ContactsPage>
     );
   }
 
+  List<Widget> _buildGroupedRoomWidgets(String section, List<Chat> chats) {
+    final blocks = _groupItems<Chat>(
+      section: section,
+      items: chats,
+      targetKeyFor: (chat) => ContactGroupTargetKey.build(
+        ContactGroupTargetType.room,
+        chat.id,
+      ),
+    );
+    return [
+      for (final block in blocks) ...[
+        _buildGroupBlockHeader(block),
+        if (!_isGroupBlockCollapsed(block.collapseKey))
+          ...block.items.map(_buildRoomItem),
+      ],
+    ];
+  }
+
+  List<Widget> _buildGroupedContactWidgets(
+      String section, List<User> contacts) {
+    final blocks = _groupItems<User>(
+      section: section,
+      items: contacts,
+      targetKeyFor: (user) => ContactGroupTargetKey.build(
+        ContactGroupTargetType.friend,
+        user.id,
+      ),
+    );
+    return [
+      for (final block in blocks) ...[
+        _buildGroupBlockHeader(block),
+        if (!_isGroupBlockCollapsed(block.collapseKey))
+          ...block.items.map(_buildContactItem),
+      ],
+    ];
+  }
+
+  List<_ContactGroupBlock<T>> _groupItems<T>({
+    required String section,
+    required List<T> items,
+    required String Function(T item) targetKeyFor,
+  }) {
+    final knownGroupIds = _contactGroups.map((group) => group.id).toSet();
+    final grouped = <String, List<T>>{
+      for (final group in _contactGroups) group.id: <T>[],
+    };
+    final ungrouped = <T>[];
+
+    for (final item in items) {
+      final assignment = _groupAssignmentsByTarget[targetKeyFor(item)];
+      final groupId = assignment?.groupId;
+      if (groupId != null && knownGroupIds.contains(groupId)) {
+        grouped[groupId]!.add(item);
+      } else {
+        ungrouped.add(item);
+      }
+    }
+
+    return [
+      for (final group in _contactGroups)
+        if ((grouped[group.id] ?? <T>[]).isNotEmpty)
+          _ContactGroupBlock<T>(
+            title: group.name,
+            collapseKey: _groupCollapseKey(group.id),
+            items: grouped[group.id]!,
+          ),
+      if (ungrouped.isNotEmpty)
+        _ContactGroupBlock<T>(
+          title: '未分组',
+          collapseKey: _ungroupedCollapseKey(section),
+          items: ungrouped,
+          isUngrouped: true,
+        ),
+    ];
+  }
+
+  Widget _buildGroupBlockHeader<T>(_ContactGroupBlock<T> block) {
+    final collapsed = _isGroupBlockCollapsed(block.collapseKey);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(18, 6, 18, 4),
+      child: InkWell(
+        onTap: () => _toggleGroupBlockCollapsed(block.collapseKey),
+        borderRadius: BorderRadius.circular(8),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 7),
+          child: Row(
+            children: [
+              Icon(
+                block.isUngrouped ? Icons.inbox_outlined : Icons.folder_open,
+                size: 17,
+                color: AppColors.textSecondary,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  block.title,
+                  style: const TextStyle(
+                    color: AppColors.textPrimary,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+              _buildCountPill(block.items.length),
+              const SizedBox(width: 6),
+              AnimatedRotation(
+                turns: collapsed ? 0 : 0.25,
+                duration: const Duration(milliseconds: 180),
+                curve: Curves.easeOutCubic,
+                child: const Icon(
+                  Icons.chevron_right,
+                  size: 18,
+                  color: AppColors.textSecondary,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildRequestItem(FriendshipRequest request) {
     final user = request.user;
     return _buildUserCard(
@@ -900,6 +1087,16 @@ class _ContactsPageState extends State<ContactsPage>
     return _buildUserCard(
       user: contact,
       onTap: () => _showContactOptions(contact),
+      onLongPress: () => _showMoveToGroupSheet(
+        targetType: ContactGroupTargetType.friend,
+        targetId: contact.id,
+        title: _displayName(contact),
+      ),
+      onSecondaryTapDown: (_) => _showMoveToGroupSheet(
+        targetType: ContactGroupTargetType.friend,
+        targetId: contact.id,
+        title: _displayName(contact),
+      ),
       subtitle: contact.email,
       secondarySubtitle: contact.phone,
       trailing: isOpening
@@ -926,78 +1123,93 @@ class _ContactsPageState extends State<ContactsPage>
 
   Widget _buildRoomItem(Chat chat) {
     final isUnblocking = _unblockingRoomId == chat.id;
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(
-          color: chat.isBlocked
-              ? AppColors.error.withValues(alpha: 0.35)
-              : AppColors.borderLight,
-        ),
-        boxShadow: const [AppColors.cardShadow],
+    return GestureDetector(
+      onLongPress: () => _showMoveToGroupSheet(
+        targetType: ContactGroupTargetType.room,
+        targetId: chat.id,
+        title: chat.name,
       ),
-      child: ListTile(
-        onTap: () => _openChatRoom(chat),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        leading: _buildRoomAvatar(chat),
-        title: Row(
-          children: [
-            Expanded(
-              child: Text(
-                chat.name,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  fontWeight: FontWeight.w700,
-                  fontSize: 16,
-                ),
-              ),
-            ),
-            if (chat.isBlocked) ...[
-              const SizedBox(width: 8),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                decoration: BoxDecoration(
-                  color: AppColors.error.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: const Text(
-                  '已屏蔽',
-                  style: TextStyle(
-                    color: AppColors.error,
-                    fontSize: 12,
+      onSecondaryTapDown: (_) => _showMoveToGroupSheet(
+        targetType: ContactGroupTargetType.room,
+        targetId: chat.id,
+        title: chat.name,
+      ),
+      child: Container(
+        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: chat.isBlocked
+                ? AppColors.error.withValues(alpha: 0.35)
+                : AppColors.borderLight,
+          ),
+          boxShadow: const [AppColors.cardShadow],
+        ),
+        child: ListTile(
+          onTap: () => _openChatRoom(chat),
+          contentPadding:
+              const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          leading: _buildRoomAvatar(chat),
+          title: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  chat.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
                     fontWeight: FontWeight.w700,
+                    fontSize: 16,
                   ),
                 ),
               ),
+              if (chat.isBlocked) ...[
+                const SizedBox(width: 8),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: AppColors.error.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Text(
+                    '已屏蔽',
+                    style: TextStyle(
+                      color: AppColors.error,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ],
             ],
-          ],
-        ),
-        subtitle: Text(
-          chat.lastMessage?.resolvedFileLabel ??
-              (chat.type == ChatType.group ? '群聊' : '私聊'),
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: const TextStyle(
-            color: AppColors.textSecondary,
-            fontSize: 13,
           ),
+          subtitle: Text(
+            chat.lastMessage?.resolvedFileLabel ??
+                (chat.type == ChatType.group ? '群聊' : '私聊'),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: AppColors.textSecondary,
+              fontSize: 13,
+            ),
+          ),
+          trailing: chat.isBlocked
+              ? TextButton(
+                  onPressed: isUnblocking
+                      ? null
+                      : () => _unblockRoomFromContacts(chat),
+                  child: isUnblocking
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Text('解除屏蔽'),
+                )
+              : const Icon(Icons.chevron_right, color: AppColors.textSecondary),
         ),
-        trailing: chat.isBlocked
-            ? TextButton(
-                onPressed:
-                    isUnblocking ? null : () => _unblockRoomFromContacts(chat),
-                child: isUnblocking
-                    ? const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Text('解除屏蔽'),
-              )
-            : const Icon(Icons.chevron_right, color: AppColors.textSecondary),
       ),
     );
   }
@@ -1056,67 +1268,502 @@ class _ContactsPageState extends State<ContactsPage>
     }
   }
 
+  void _showMoveToGroupSheet({
+    required ContactGroupTargetType targetType,
+    required String targetId,
+    required String title,
+  }) {
+    final targetKey = ContactGroupTargetKey.build(targetType, targetId);
+    final currentGroupId = _groupAssignmentsByTarget[targetKey]?.groupId;
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) {
+        return SafeArea(
+          child: Container(
+            constraints: BoxConstraints(
+              maxHeight: MediaQuery.of(sheetContext).size.height * 0.78,
+            ),
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.only(
+                topLeft: Radius.circular(20),
+                topRight: Radius.circular(20),
+              ),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 40,
+                  height: 4,
+                  margin: const EdgeInsets.only(top: 12),
+                  decoration: BoxDecoration(
+                    color: Colors.grey[300],
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 16, 12, 8),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              '移动到分组',
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              title,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: AppColors.textSecondary,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      TextButton.icon(
+                        onPressed: () {
+                          Navigator.pop(sheetContext);
+                          _showEditContactGroupSheet();
+                        },
+                        icon: const Icon(Icons.add, size: 18),
+                        label: const Text('新建'),
+                      ),
+                    ],
+                  ),
+                ),
+                Flexible(
+                  child: ListView(
+                    shrinkWrap: true,
+                    children: [
+                      _buildMoveGroupOption(
+                        label: '未分组',
+                        selected: currentGroupId == null,
+                        loading: _movingTargetKey == targetKey,
+                        onTap: () async {
+                          Navigator.pop(sheetContext);
+                          await _assignTargetToGroup(
+                            targetType: targetType,
+                            targetId: targetId,
+                            groupId: null,
+                          );
+                        },
+                      ),
+                      for (final group in _contactGroups)
+                        _buildMoveGroupOption(
+                          label: group.name,
+                          selected: currentGroupId == group.id,
+                          loading: _movingTargetKey == targetKey,
+                          onTap: () async {
+                            Navigator.pop(sheetContext);
+                            await _assignTargetToGroup(
+                              targetType: targetType,
+                              targetId: targetId,
+                              groupId: group.id,
+                            );
+                          },
+                        ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildMoveGroupOption({
+    required String label,
+    required bool selected,
+    required bool loading,
+    required VoidCallback onTap,
+  }) {
+    return ListTile(
+      leading: Icon(
+        selected ? Icons.radio_button_checked : Icons.radio_button_unchecked,
+        color: selected ? AppColors.primary : AppColors.textSecondary,
+      ),
+      title: Text(label),
+      trailing: loading
+          ? const SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
+          : null,
+      onTap: loading ? null : onTap,
+    );
+  }
+
+  Future<void> _assignTargetToGroup({
+    required ContactGroupTargetType targetType,
+    required String targetId,
+    required String? groupId,
+  }) async {
+    final targetKey = ContactGroupTargetKey.build(targetType, targetId);
+    if (_movingTargetKey != null) return;
+    setState(() {
+      _movingTargetKey = targetKey;
+    });
+    try {
+      await _contactService.assignContactGroupItem(
+        targetType: targetType,
+        targetId: targetId,
+        groupId: groupId,
+      );
+      _showSnackBar(groupId == null ? '已移到未分组' : '已移动到分组');
+      await _loadContacts();
+    } catch (e) {
+      _showSnackBar(e.toString());
+    } finally {
+      if (mounted) {
+        setState(() {
+          _movingTargetKey = null;
+        });
+      }
+    }
+  }
+
+  void _showGroupManagementSheet() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) {
+        return SafeArea(
+          child: Container(
+            constraints: BoxConstraints(
+              maxHeight: MediaQuery.of(sheetContext).size.height * 0.82,
+            ),
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.only(
+                topLeft: Radius.circular(20),
+                topRight: Radius.circular(20),
+              ),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 40,
+                  height: 4,
+                  margin: const EdgeInsets.only(top: 12),
+                  decoration: BoxDecoration(
+                    color: Colors.grey[300],
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 16, 12, 8),
+                  child: Row(
+                    children: [
+                      const Expanded(
+                        child: Text(
+                          '分组管理',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ),
+                      TextButton.icon(
+                        onPressed: () {
+                          Navigator.pop(sheetContext);
+                          _showEditContactGroupSheet();
+                        },
+                        icon: const Icon(Icons.add, size: 18),
+                        label: const Text('新建'),
+                      ),
+                    ],
+                  ),
+                ),
+                const Divider(height: 1, color: AppColors.borderLight),
+                Flexible(
+                  child: _contactGroups.isEmpty
+                      ? const Padding(
+                          padding: EdgeInsets.all(28),
+                          child: Text(
+                            '暂无自定义分组',
+                            style: TextStyle(color: AppColors.textSecondary),
+                          ),
+                        )
+                      : ListView.builder(
+                          shrinkWrap: true,
+                          itemCount: _contactGroups.length,
+                          itemBuilder: (context, index) {
+                            final group = _contactGroups[index];
+                            return ListTile(
+                              leading: const Icon(Icons.folder_open),
+                              title: Text(group.name),
+                              subtitle: Text('排序 ${group.sortOrder}'),
+                              trailing: Wrap(
+                                spacing: 2,
+                                children: [
+                                  IconButton(
+                                    tooltip: '上移',
+                                    onPressed: index == 0
+                                        ? null
+                                        : () {
+                                            Navigator.pop(sheetContext);
+                                            _moveContactGroup(index, -1);
+                                          },
+                                    icon: const Icon(Icons.arrow_upward),
+                                  ),
+                                  IconButton(
+                                    tooltip: '下移',
+                                    onPressed:
+                                        index == _contactGroups.length - 1
+                                            ? null
+                                            : () {
+                                                Navigator.pop(sheetContext);
+                                                _moveContactGroup(index, 1);
+                                              },
+                                    icon: const Icon(Icons.arrow_downward),
+                                  ),
+                                  IconButton(
+                                    tooltip: '改名',
+                                    onPressed: () {
+                                      Navigator.pop(sheetContext);
+                                      _showEditContactGroupSheet(group: group);
+                                    },
+                                    icon: const Icon(Icons.edit),
+                                  ),
+                                  IconButton(
+                                    tooltip: '删除',
+                                    onPressed: () {
+                                      Navigator.pop(sheetContext);
+                                      _confirmDeleteContactGroup(group);
+                                    },
+                                    icon: const Icon(
+                                      Icons.delete_outline,
+                                      color: AppColors.error,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            );
+                          },
+                        ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _showEditContactGroupSheet({ContactGroup? group}) async {
+    var draftName = group?.name ?? '';
+    final name = await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) {
+        return SafeArea(
+          child: Container(
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.only(
+                topLeft: Radius.circular(20),
+                topRight: Radius.circular(20),
+              ),
+            ),
+            padding: EdgeInsets.only(
+              left: 20,
+              right: 20,
+              top: 16,
+              bottom: MediaQuery.of(sheetContext).viewInsets.bottom + 20,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        group == null ? '新建分组' : '重命名分组',
+                        style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: () => Navigator.pop(sheetContext),
+                      icon: const Icon(Icons.close),
+                    ),
+                  ],
+                ),
+                TextFormField(
+                  initialValue: draftName,
+                  autofocus: true,
+                  decoration: const InputDecoration(labelText: '分组名称'),
+                  onChanged: (value) => draftName = value,
+                  onFieldSubmitted: (value) =>
+                      Navigator.pop(sheetContext, value.trim()),
+                ),
+                const SizedBox(height: 14),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton(
+                    onPressed: () =>
+                        Navigator.pop(sheetContext, draftName.trim()),
+                    child: const Text('保存'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+    if (name == null || name.isEmpty) return;
+
+    try {
+      if (group == null) {
+        await _contactService.createContactGroup(name);
+        _showSnackBar('分组已创建');
+      } else {
+        await _contactService.updateContactGroup(
+          group.id,
+          name: name,
+          sortOrder: group.sortOrder,
+        );
+        _showSnackBar('分组已更新');
+      }
+      await _loadContacts();
+    } catch (e) {
+      _showSnackBar(e.toString());
+    }
+  }
+
+  Future<void> _confirmDeleteContactGroup(ContactGroup group) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('删除分组'),
+        content: Text('删除「${group.name}」后，里面的联系人和会话会回到未分组。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('删除'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    try {
+      await _contactService.deleteContactGroup(group.id);
+      _showSnackBar('分组已删除，条目已回到未分组');
+      await _loadContacts();
+    } catch (e) {
+      _showSnackBar(e.toString());
+    }
+  }
+
+  Future<void> _moveContactGroup(int index, int delta) async {
+    final targetIndex = index + delta;
+    if (targetIndex < 0 || targetIndex >= _contactGroups.length) return;
+    final ids = _contactGroups.map((group) => group.id).toList();
+    final moving = ids.removeAt(index);
+    ids.insert(targetIndex, moving);
+    try {
+      await _contactService.reorderContactGroups(ids);
+      _showSnackBar('分组排序已更新');
+      await _loadContacts();
+    } catch (e) {
+      _showSnackBar(e.toString());
+    }
+  }
+
   Widget _buildUserCard({
     required User user,
     String? subtitle,
     String? secondarySubtitle,
     Widget? trailing,
     VoidCallback? onTap,
+    VoidCallback? onLongPress,
+    GestureTapDownCallback? onSecondaryTapDown,
   }) {
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: ListTile(
-        onTap: onTap,
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        leading: _buildAvatar(user, radius: 28),
-        title: Text(
-          _displayName(user),
-          style: const TextStyle(
-            fontWeight: FontWeight.w600,
-            fontSize: 16,
-          ),
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-        ),
-        subtitle: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            if (subtitle != null && subtitle.isNotEmpty)
-              Text(
-                subtitle,
-                style: const TextStyle(
-                  color: AppColors.textSecondary,
-                  fontSize: 14,
-                ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-            if (secondarySubtitle != null && secondarySubtitle.isNotEmpty) ...[
-              const SizedBox(height: 2),
-              Text(
-                secondarySubtitle,
-                style: const TextStyle(
-                  color: AppColors.textSecondary,
-                  fontSize: 12,
-                ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ],
+    return GestureDetector(
+      onLongPress: onLongPress,
+      onSecondaryTapDown: onSecondaryTapDown,
+      child: Container(
+        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.05),
+              blurRadius: 10,
+              offset: const Offset(0, 2),
+            ),
           ],
         ),
-        trailing: trailing,
+        child: ListTile(
+          onTap: onTap,
+          contentPadding:
+              const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          leading: _buildAvatar(user, radius: 28),
+          title: Text(
+            _displayName(user),
+            style: const TextStyle(
+              fontWeight: FontWeight.w600,
+              fontSize: 16,
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          subtitle: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (subtitle != null && subtitle.isNotEmpty)
+                Text(
+                  subtitle,
+                  style: const TextStyle(
+                    color: AppColors.textSecondary,
+                    fontSize: 14,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              if (secondarySubtitle != null &&
+                  secondarySubtitle.isNotEmpty) ...[
+                const SizedBox(height: 2),
+                Text(
+                  secondarySubtitle,
+                  style: const TextStyle(
+                    color: AppColors.textSecondary,
+                    fontSize: 12,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ],
+          ),
+          trailing: trailing,
+        ),
       ),
     );
   }
@@ -1622,6 +2269,14 @@ class _ContactsPageState extends State<ContactsPage>
                 _showCreateGroupSheet();
               },
             ),
+            ListTile(
+              leading: const Icon(Icons.folder_open),
+              title: const Text('管理分组'),
+              onTap: () {
+                Navigator.pop(context);
+                _showGroupManagementSheet();
+              },
+            ),
           ],
         ),
       ),
@@ -1893,4 +2548,18 @@ class _ContactsPageState extends State<ContactsPage>
     _searchFocusNode.dispose();
     super.dispose();
   }
+}
+
+class _ContactGroupBlock<T> {
+  const _ContactGroupBlock({
+    required this.title,
+    required this.collapseKey,
+    required this.items,
+    this.isUngrouped = false,
+  });
+
+  final String title;
+  final String collapseKey;
+  final List<T> items;
+  final bool isUngrouped;
 }

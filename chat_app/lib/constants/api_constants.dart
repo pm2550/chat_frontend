@@ -198,6 +198,12 @@ class ApiConstants {
   static String searchFriends(String keyword) =>
       '$friends/search?keyword=$keyword';
 
+  // Contact grouping endpoints
+  static const String contactGroups = '$apiBaseUrl/contact-groups';
+  static String contactGroup(int groupId) => '$contactGroups/$groupId';
+  static const String contactGroupItems = '$contactGroups/items';
+  static const String contactGroupReorder = '$contactGroups/reorder';
+
   // Key exchange (E2EE)
   static const String uploadKeys = '$apiBaseUrl/keys/upload';
   static String getKeyBundle(int userId) => '$apiBaseUrl/keys/bundle/$userId';

@@ -4,6 +4,7 @@ import 'package:http/http.dart' as http;
 
 import '../constants/api_constants.dart';
 import '../models/chat.dart';
+import '../models/contact_group.dart';
 import '../models/user.dart';
 import 'auth_service.dart';
 
@@ -173,6 +174,81 @@ class ContactDataService {
     _decodeResponse(response);
   }
 
+  Future<ContactGroupBundle> getContactGroups() async {
+    final response = await _request('GET', ApiConstants.contactGroups);
+    return ContactGroupBundle.fromJson(_decodeResponse(response));
+  }
+
+  Future<ContactGroup> createContactGroup(String name) async {
+    final response = await _request(
+      'POST',
+      ApiConstants.contactGroups,
+      body: {'name': name.trim()},
+    );
+    final data = _decodeResponse(response);
+    return ContactGroup.fromJson(_asStringMap(data['group'] ?? data['data']));
+  }
+
+  Future<ContactGroup> updateContactGroup(
+    String groupId, {
+    required String name,
+    int? sortOrder,
+  }) async {
+    final response = await _request(
+      'PUT',
+      ApiConstants.contactGroup(_parseUserId(groupId)),
+      body: {
+        'name': name.trim(),
+        if (sortOrder != null) 'sortOrder': sortOrder,
+      },
+    );
+    final data = _decodeResponse(response);
+    return ContactGroup.fromJson(_asStringMap(data['group'] ?? data['data']));
+  }
+
+  Future<void> deleteContactGroup(String groupId) async {
+    final response = await _request(
+      'DELETE',
+      ApiConstants.contactGroup(_parseUserId(groupId)),
+    );
+    _decodeResponse(response);
+  }
+
+  Future<List<ContactGroup>> reorderContactGroups(List<String> groupIds) async {
+    final response = await _request(
+      'POST',
+      ApiConstants.contactGroupReorder,
+      body: {'groupIds': groupIds.map(_parseUserId).toList()},
+    );
+    final data = _decodeResponse(response);
+    return _extractList(data, keys: const ['groups', 'data'])
+        .whereType<Map<String, dynamic>>()
+        .map(ContactGroup.fromJson)
+        .toList();
+  }
+
+  Future<ContactGroupAssignment?> assignContactGroupItem({
+    required ContactGroupTargetType targetType,
+    required String targetId,
+    String? groupId,
+  }) async {
+    final response = await _request(
+      'PUT',
+      ApiConstants.contactGroupItems,
+      body: {
+        'targetType': targetType.wireName,
+        'targetId': _parseUserId(targetId),
+        if (groupId != null) 'groupId': _parseUserId(groupId),
+      },
+    );
+    final data = _decodeResponse(response);
+    final assignment = data['assignment'] ?? data['data'];
+    if (assignment == null) {
+      return null;
+    }
+    return ContactGroupAssignment.fromJson(_asStringMap(assignment));
+  }
+
   Future<Chat> createPrivateChat(String userId) async {
     final response = await _request(
       'POST',
@@ -281,5 +357,15 @@ class ContactDataService {
       throw ContactDataException('无效用户ID: $userId');
     }
     return parsed;
+  }
+
+  Map<String, dynamic> _asStringMap(dynamic value) {
+    if (value is Map<String, dynamic>) {
+      return value;
+    }
+    if (value is Map) {
+      return value.map((key, value) => MapEntry(key.toString(), value));
+    }
+    return const {};
   }
 }
