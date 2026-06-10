@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../constants/api_constants.dart';
 import '../../constants/app_colors.dart';
@@ -23,6 +24,11 @@ class ContactsPage extends StatefulWidget {
 
 class _ContactsPageState extends State<ContactsPage>
     with AutomaticKeepAliveClientMixin<ContactsPage> {
+  static const String _sectionGroups = 'groups';
+  static const String _sectionPrivate = 'private';
+  static const String _sectionContacts = 'contacts';
+  static const String _sectionPrefPrefix = 'pmchat.contacts.section.collapsed.';
+
   final TextEditingController _searchController = TextEditingController();
   final TextEditingController _addSearchController = TextEditingController();
   final FocusNode _searchFocusNode = FocusNode();
@@ -38,13 +44,42 @@ class _ContactsPageState extends State<ContactsPage>
   String? _errorMessage;
   String? _openingChatUserId;
   String? _unblockingRoomId;
+  final Map<String, bool> _sectionCollapsed = {
+    _sectionGroups: false,
+    _sectionPrivate: false,
+    _sectionContacts: false,
+  };
 
   @override
   void initState() {
     super.initState();
     _contactService = widget.contactService ?? ContactDataService();
     _chatService = widget.chatService ?? ChatDataService();
+    _loadCollapsedSections();
     _loadContacts();
+  }
+
+  Future<void> _loadCollapsedSections() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (!mounted) return;
+    setState(() {
+      for (final section in _sectionCollapsed.keys) {
+        _sectionCollapsed[section] =
+            prefs.getBool('$_sectionPrefPrefix$section') ?? false;
+      }
+    });
+  }
+
+  bool _isSectionCollapsed(String section) =>
+      _sectionCollapsed[section] ?? false;
+
+  Future<void> _toggleSectionCollapsed(String section) async {
+    final next = !_isSectionCollapsed(section);
+    setState(() {
+      _sectionCollapsed[section] = next;
+    });
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('$_sectionPrefPrefix$section', next);
   }
 
   Future<void> _loadContacts() async {
@@ -244,67 +279,55 @@ class _ContactsPageState extends State<ContactsPage>
                                                     children: [
                                                       if (groupChats
                                                           .isNotEmpty) ...[
-                                                        const Padding(
-                                                          padding: EdgeInsets
-                                                              .fromLTRB(
-                                                            8,
-                                                            4,
-                                                            8,
-                                                            12,
-                                                          ),
-                                                          child:
-                                                              PMSectionHeader(
-                                                            title: '我的群聊',
-                                                            subtitle:
-                                                                '已加入群聊，含移出或屏蔽会话',
-                                                          ),
+                                                        _buildDesktopSectionHeader(
+                                                          section:
+                                                              _sectionGroups,
+                                                          title: '我的群聊',
+                                                          subtitle:
+                                                              '已加入群聊，含移出或屏蔽会话',
+                                                          count:
+                                                              groupChats.length,
                                                         ),
-                                                        ...groupChats.map(
-                                                          _buildRoomItem,
-                                                        ),
+                                                        if (!_isSectionCollapsed(
+                                                            _sectionGroups))
+                                                          ...groupChats.map(
+                                                            _buildRoomItem,
+                                                          ),
                                                         const SizedBox(
                                                             height: 12),
                                                       ],
                                                       if (privateChats
                                                           .isNotEmpty) ...[
-                                                        const Padding(
-                                                          padding: EdgeInsets
-                                                              .fromLTRB(
-                                                            8,
-                                                            4,
-                                                            8,
-                                                            12,
-                                                          ),
-                                                          child:
-                                                              PMSectionHeader(
-                                                            title: '私聊',
-                                                            subtitle:
-                                                                '全部已加入私聊，含移出或屏蔽会话',
-                                                          ),
+                                                        _buildDesktopSectionHeader(
+                                                          section:
+                                                              _sectionPrivate,
+                                                          title: '私聊',
+                                                          subtitle:
+                                                              '全部已加入私聊，含移出或屏蔽会话',
+                                                          count: privateChats
+                                                              .length,
                                                         ),
-                                                        ...privateChats.map(
-                                                          _buildRoomItem,
-                                                        ),
+                                                        if (!_isSectionCollapsed(
+                                                            _sectionPrivate))
+                                                          ...privateChats.map(
+                                                            _buildRoomItem,
+                                                          ),
                                                         const SizedBox(
                                                             height: 12),
                                                       ],
                                                       if (contacts.isNotEmpty)
-                                                        const Padding(
-                                                          padding: EdgeInsets
-                                                              .fromLTRB(
-                                                            8,
-                                                            4,
-                                                            8,
-                                                            12,
-                                                          ),
-                                                          child:
-                                                              PMSectionHeader(
-                                                            title: '联系人列表',
-                                                            subtitle:
-                                                                '点击联系人可发起私聊、语音或视频邀请',
-                                                          ),
+                                                        _buildDesktopSectionHeader(
+                                                          section:
+                                                              _sectionContacts,
+                                                          title: '联系人列表',
+                                                          subtitle:
+                                                              '点击联系人可发起私聊、语音或视频邀请',
+                                                          count:
+                                                              contacts.length,
                                                         ),
-                                                      if (contacts.isNotEmpty)
+                                                      if (contacts.isNotEmpty &&
+                                                          !_isSectionCollapsed(
+                                                              _sectionContacts))
                                                         ...contacts.map(
                                                           _buildContactItem,
                                                         ),
@@ -407,6 +430,63 @@ class _ContactsPageState extends State<ContactsPage>
         side: const BorderSide(color: AppColors.border),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+      ),
+    );
+  }
+
+  Widget _buildDesktopSectionHeader({
+    required String section,
+    required String title,
+    required String subtitle,
+    required int count,
+  }) {
+    final collapsed = _isSectionCollapsed(section);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(8, 4, 8, 12),
+      child: InkWell(
+        onTap: () => _toggleSectionCollapsed(section),
+        borderRadius: BorderRadius.circular(8),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+          child: PMSectionHeader(
+            title: title,
+            subtitle: subtitle,
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _buildCountPill(count),
+                const SizedBox(width: 8),
+                AnimatedRotation(
+                  turns: collapsed ? 0 : 0.25,
+                  duration: const Duration(milliseconds: 180),
+                  curve: Curves.easeOutCubic,
+                  child: const Icon(
+                    Icons.chevron_right,
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCountPill(int count) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: AppColors.pixelBlue,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        '$count',
+        style: const TextStyle(
+          color: AppColors.primary,
+          fontSize: 12,
+          fontWeight: FontWeight.w800,
+        ),
       ),
     );
   }
@@ -587,18 +667,33 @@ class _ContactsPageState extends State<ContactsPage>
           const SizedBox(height: 8),
         ],
         if (groupChats.isNotEmpty) ...[
-          _buildSectionTitle('我的群聊'),
-          ...groupChats.map(_buildRoomItem),
+          _buildSectionTitle(
+            '我的群聊',
+            section: _sectionGroups,
+            count: groupChats.length,
+          ),
+          if (!_isSectionCollapsed(_sectionGroups))
+            ...groupChats.map(_buildRoomItem),
           const SizedBox(height: 12),
         ],
         if (privateChats.isNotEmpty) ...[
-          _buildSectionTitle('私聊'),
-          ...privateChats.map(_buildRoomItem),
+          _buildSectionTitle(
+            '私聊',
+            section: _sectionPrivate,
+            count: privateChats.length,
+          ),
+          if (!_isSectionCollapsed(_sectionPrivate))
+            ...privateChats.map(_buildRoomItem),
           const SizedBox(height: 12),
         ],
         if (contacts.isNotEmpty) ...[
-          _buildSectionTitle('联系人'),
-          ...contacts.map(_buildContactItem),
+          _buildSectionTitle(
+            '联系人',
+            section: _sectionContacts,
+            count: contacts.length,
+          ),
+          if (!_isSectionCollapsed(_sectionContacts))
+            ...contacts.map(_buildContactItem),
           const SizedBox(height: 16),
         ] else if (!hasDirectoryItems)
           SizedBox(
@@ -654,15 +749,48 @@ class _ContactsPageState extends State<ContactsPage>
     );
   }
 
-  Widget _buildSectionTitle(String title) {
+  Widget _buildSectionTitle(
+    String title, {
+    String? section,
+    int? count,
+  }) {
+    final collapsed = section != null && _isSectionCollapsed(section);
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
-      child: Text(
-        title,
-        style: const TextStyle(
-          color: AppColors.textSecondary,
-          fontSize: 13,
-          fontWeight: FontWeight.w600,
+      child: InkWell(
+        onTap: section == null ? null : () => _toggleSectionCollapsed(section),
+        borderRadius: BorderRadius.circular(8),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 6),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  title,
+                  style: const TextStyle(
+                    color: AppColors.textSecondary,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              if (count != null) ...[
+                _buildCountPill(count),
+                const SizedBox(width: 6),
+              ],
+              if (section != null)
+                AnimatedRotation(
+                  turns: collapsed ? 0 : 0.25,
+                  duration: const Duration(milliseconds: 180),
+                  curve: Curves.easeOutCubic,
+                  child: const Icon(
+                    Icons.chevron_right,
+                    size: 20,
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+            ],
+          ),
         ),
       ),
     );

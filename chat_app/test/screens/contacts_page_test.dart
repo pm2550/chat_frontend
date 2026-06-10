@@ -6,6 +6,7 @@ import 'package:chat_app/services/contact_data_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   Widget buildTestWidget(
@@ -30,6 +31,10 @@ void main() {
   }
 
   group('ContactsPage', () {
+    setUp(() {
+      SharedPreferences.setMockInitialValues({});
+    });
+
     testWidgets('renders friends and received requests from service',
         (tester) async {
       final requester = testUser('2', 'Requester');
@@ -106,6 +111,71 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(chatService.unblockedRoomIds, ['11']);
+    });
+
+    testWidgets('collapses a top-level contact section and persists it',
+        (tester) async {
+      final service = FakeContactService();
+      final chatService = FakeChatDirectoryService(
+        groupChats: [
+          Chat(
+            id: '10',
+            name: 'Project Group',
+            type: ChatType.group,
+            isPrivate: false,
+            createdAt: DateTime.parse('2024-01-01T10:00:00'),
+          ),
+        ],
+      );
+
+      await tester.pumpWidget(buildTestWidget(
+        service,
+        chatService: chatService,
+      ));
+      await tester.pump();
+
+      expect(find.text('我的群聊'), findsOneWidget);
+      expect(find.text('Project Group'), findsOneWidget);
+
+      await tester.tap(find.text('我的群聊'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('我的群聊'), findsOneWidget);
+      expect(find.text('Project Group'), findsNothing);
+
+      final prefs = await SharedPreferences.getInstance();
+      expect(
+        prefs.getBool('pmchat.contacts.section.collapsed.groups'),
+        isTrue,
+      );
+    });
+
+    testWidgets('restores persisted top-level section collapse state',
+        (tester) async {
+      SharedPreferences.setMockInitialValues({
+        'pmchat.contacts.section.collapsed.groups': true,
+      });
+      final service = FakeContactService();
+      final chatService = FakeChatDirectoryService(
+        groupChats: [
+          Chat(
+            id: '10',
+            name: 'Project Group',
+            type: ChatType.group,
+            isPrivate: false,
+            createdAt: DateTime.parse('2024-01-01T10:00:00'),
+          ),
+        ],
+      );
+
+      await tester.pumpWidget(buildTestWidget(
+        service,
+        chatService: chatService,
+      ));
+      await tester.pumpAndSettle();
+
+      expect(find.text('我的群聊'), findsOneWidget);
+      expect(find.text('Project Group'), findsNothing);
     });
 
     testWidgets('renders retry state when service fails', (tester) async {
