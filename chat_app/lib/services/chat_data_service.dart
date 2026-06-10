@@ -119,6 +119,22 @@ class ChatDataService {
 
   static void clearChatRoomsCacheForTesting() => clearChatRoomsCache();
 
+  static List<Chat>? cachedChatRoomsSnapshot({
+    int page = 0,
+    int size = 30,
+  }) {
+    final cached = _cachedChatRooms;
+    final cachedAt = _cachedChatRoomsAt;
+    if (cached == null ||
+        cachedAt == null ||
+        _cachedChatRoomsPage != page ||
+        _cachedChatRoomsSize != size ||
+        DateTime.now().difference(cachedAt) >= _chatRoomsCacheTtl) {
+      return null;
+    }
+    return List<Chat>.from(cached);
+  }
+
   static void patchCachedChatRoom(Chat chat) {
     final cached = _cachedChatRooms;
     if (cached == null) return;
@@ -148,7 +164,7 @@ class ChatDataService {
       type: type,
     );
     if (useSharedCache) {
-      final cached = _freshCachedChatRooms(page: page, size: size);
+      final cached = cachedChatRoomsSnapshot(page: page, size: size);
       if (cached != null) {
         return cached;
       }
@@ -205,22 +221,6 @@ class ChatDataService {
         _authenticatedRequest == null &&
         _multipartRequest == null &&
         _multipartFilesRequest == null;
-  }
-
-  List<Chat>? _freshCachedChatRooms({
-    required int page,
-    required int size,
-  }) {
-    final cached = _cachedChatRooms;
-    final cachedAt = _cachedChatRoomsAt;
-    if (cached == null ||
-        cachedAt == null ||
-        _cachedChatRoomsPage != page ||
-        _cachedChatRoomsSize != size ||
-        DateTime.now().difference(cachedAt) >= _chatRoomsCacheTtl) {
-      return null;
-    }
-    return List<Chat>.from(cached);
   }
 
   void _cacheChatRooms(

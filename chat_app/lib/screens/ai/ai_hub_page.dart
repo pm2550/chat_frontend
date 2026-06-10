@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../constants/app_colors.dart';
 import '../../design/design.dart';
@@ -27,12 +28,49 @@ class AiHubPage extends StatefulWidget {
   final BotService? botService;
   final ChatDataService? chatDataService;
 
+  static Future<void> warmCache() => _AiHubPageState.warmCache();
+
   @override
   State<AiHubPage> createState() => _AiHubPageState();
 }
 
+class _AiHubSnapshot {
+  const _AiHubSnapshot({
+    required this.bots,
+    required this.rooms,
+    required this.selectedImageRoomId,
+  });
+
+  final List<BotConfig> bots;
+  final List<Chat> rooms;
+  final String? selectedImageRoomId;
+}
+
 class _AiHubPageState extends State<AiHubPage>
     with AutomaticKeepAliveClientMixin<AiHubPage> {
+  static const Duration _snapshotTtl = Duration(minutes: 2);
+  static _AiHubSnapshot? _cachedSnapshot;
+  static DateTime? _cachedSnapshotAt;
+
+  static Future<void> warmCache() async {
+    try {
+      final results = await Future.wait([
+        BotService().getMyBots(),
+        ChatDataService().getChatRooms(includeDetails: false),
+      ]);
+      final bots = results[0] as List<BotConfig>;
+      final rooms = results[1] as List<Chat>;
+      _cachedSnapshot = _AiHubSnapshot(
+        bots: List<BotConfig>.from(bots),
+        rooms: List<Chat>.from(rooms),
+        selectedImageRoomId: _resolveImageRoomFrom(rooms)?.id,
+      );
+      _cachedSnapshotAt = DateTime.now();
+    } catch (_) {
+      // Best-effort preloading must never block the home shell.
+    }
+  }
+
   late final BotService _botService;
   late final ChatDataService _chatDataService;
   late int _selectedIndex;
@@ -61,15 +99,45 @@ class _AiHubPageState extends State<AiHubPage>
     _botService = widget.botService ?? BotService();
     _chatDataService = widget.chatDataService ?? ChatDataService();
     _selectedIndex = _indexForSection(widget.initialSection);
-    _load();
+    _restoreSnapshotIfFresh();
+    _load(showLoading: _bots.isEmpty && _rooms.isEmpty);
   }
 
   @override
   void didUpdateWidget(covariant AiHubPage oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.initialSection != widget.initialSection) {
-      _selectedIndex = _indexForSection(widget.initialSection);
+      setState(() {
+        _selectedIndex = _indexForSection(widget.initialSection);
+      });
     }
+  }
+
+  bool get _canUseSnapshot =>
+      widget.botService == null && widget.chatDataService == null;
+
+  void _restoreSnapshotIfFresh() {
+    if (!_canUseSnapshot) return;
+    final snapshot = _cachedSnapshot;
+    final snapshotAt = _cachedSnapshotAt;
+    if (snapshot == null ||
+        snapshotAt == null ||
+        DateTime.now().difference(snapshotAt) >= _snapshotTtl) {
+      return;
+    }
+    _bots = List<BotConfig>.from(snapshot.bots);
+    _rooms = List<Chat>.from(snapshot.rooms);
+    Chat? restoredImageRoom;
+    if (snapshot.selectedImageRoomId != null) {
+      for (final room in _rooms) {
+        if (room.id == snapshot.selectedImageRoomId) {
+          restoredImageRoom = room;
+          break;
+        }
+      }
+    }
+    _selectedImageRoom = restoredImageRoom ?? _resolveSelectedImageRoom(_rooms);
+    _loading = false;
   }
 
   int _indexForSection(String section) {
@@ -77,11 +145,26 @@ class _AiHubPageState extends State<AiHubPage>
     return index < 0 ? 0 : index;
   }
 
-  Future<void> _load() async {
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
+  static Chat? _resolveImageRoomFrom(List<Chat> rooms) {
+    for (final room in rooms) {
+      if (room.type == ChatType.private || room.type == ChatType.group) {
+        return room;
+      }
+    }
+    return rooms.isEmpty ? null : rooms.first;
+  }
+
+  Future<void> _load({bool showLoading = true}) async {
+    if (showLoading && _bots.isEmpty && _rooms.isEmpty) {
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
+    } else if (showLoading) {
+      setState(() {
+        _error = null;
+      });
+    }
     try {
       final results = await Future.wait([
         _botService.getMyBots(),
@@ -90,14 +173,26 @@ class _AiHubPageState extends State<AiHubPage>
       if (!mounted) return;
       final bots = results[0] as List<BotConfig>;
       final rooms = results[1] as List<Chat>;
+      final selectedImageRoom = _resolveSelectedImageRoom(rooms);
+      if (_canUseSnapshot) {
+        _cachedSnapshot = _AiHubSnapshot(
+          bots: List<BotConfig>.from(bots),
+          rooms: List<Chat>.from(rooms),
+          selectedImageRoomId: selectedImageRoom?.id,
+        );
+        _cachedSnapshotAt = DateTime.now();
+      }
       setState(() {
         _bots = bots;
         _rooms = rooms;
-        _selectedImageRoom = _resolveSelectedImageRoom(rooms);
+        _selectedImageRoom = selectedImageRoom;
         _loading = false;
       });
     } catch (error) {
       if (!mounted) return;
+      if (!showLoading && (_bots.isNotEmpty || _rooms.isNotEmpty)) {
+        return;
+      }
       setState(() {
         _error = error.toString();
         _loading = false;
@@ -217,8 +312,9 @@ class _AiHubPageState extends State<AiHubPage>
                   ),
                 ),
                 child: Row(
-                  mainAxisAlignment:
-                      compact ? MainAxisAlignment.start : MainAxisAlignment.center,
+                  mainAxisAlignment: compact
+                      ? MainAxisAlignment.start
+                      : MainAxisAlignment.center,
                   children: [
                     Icon(
                       section.icon,
@@ -259,7 +355,9 @@ class _AiHubPageState extends State<AiHubPage>
           });
 
           return compact
-              ? Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: children)
+              ? Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: children)
               : Row(children: children);
         },
       ),
@@ -268,7 +366,10 @@ class _AiHubPageState extends State<AiHubPage>
 
   void _selectSection(int index) {
     setState(() => _selectedIndex = index);
-    Navigator.of(context).pushNamed('/home/ai/${_sections[index].routeKey}');
+    SystemNavigator.routeInformationUpdated(
+      uri: Uri.parse('/home/ai/${_sections[index].routeKey}'),
+      replace: true,
+    );
   }
 
   Widget _buildBotsTab() {
@@ -919,7 +1020,6 @@ class _AiHubPageState extends State<AiHubPage>
       );
     }
   }
-
 }
 
 class _ImageGenerationJob {

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../constants/app_brand.dart';
@@ -6,6 +8,7 @@ import '../../design/pm_symbol_icon.dart';
 import '../../widgets/pm_brand.dart';
 import '../../widgets/pm_responsive.dart';
 import '../../services/auth_service.dart';
+import '../../services/chat_data_service.dart';
 import 'chat_list_page.dart';
 import 'contacts_page.dart';
 import 'profile_page.dart';
@@ -35,6 +38,24 @@ class _HomeScreenState extends State<HomeScreen> {
   final PageStorageBucket _pageStorageBucket = PageStorageBucket();
   late final List<Widget?> _pageCache =
       List<Widget?>.filled(_tabs.length, null);
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_warmHomeCaches());
+  }
+
+  Future<void> _warmHomeCaches() async {
+    try {
+      await Future.wait<void>([
+        ChatDataService().getChatRooms().then((_) {}),
+        ContactsPage.warmDirectoryCache(),
+        AiHubPage.warmCache(),
+      ]);
+    } catch (_) {
+      // Cache warming is a latency optimization; visible pages still load normally.
+    }
+  }
 
   static const List<_HomeTabSpec> _tabs = [
     _HomeTabSpec(

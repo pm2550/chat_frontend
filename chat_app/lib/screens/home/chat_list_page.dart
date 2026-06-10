@@ -62,14 +62,25 @@ class _ChatListPageState extends State<ChatListPage>
     _realtimeService = widget.realtimeService ?? WebSocketService();
     _notificationService =
         widget.notificationService ?? DesktopNotificationService();
+    final cachedChats = widget.chatService == null
+        ? ChatDataService.cachedChatRoomsSnapshot()
+        : null;
+    if (cachedChats != null) {
+      _chats = cachedChats;
+      _isLoading = false;
+    }
     _loadChats();
     _connectRealtime();
   }
 
   Future<void> _loadChats({bool showLoading = true}) async {
-    if (mounted && showLoading) {
+    if (mounted && showLoading && _chats.isEmpty) {
       setState(() {
         _isLoading = true;
+        _errorMessage = null;
+      });
+    } else if (mounted && showLoading) {
+      setState(() {
         _errorMessage = null;
       });
     }

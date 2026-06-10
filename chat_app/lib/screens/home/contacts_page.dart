@@ -19,8 +19,31 @@ class ContactsPage extends StatefulWidget {
   final ContactDataService? contactService;
   final ChatDataService? chatService;
 
+  static Future<void> warmDirectoryCache() =>
+      _ContactsPageState.warmDirectoryCache();
+
   @override
   State<ContactsPage> createState() => _ContactsPageState();
+}
+
+class _ContactsSnapshot {
+  const _ContactsSnapshot({
+    required this.contacts,
+    required this.receivedRequests,
+    required this.groupChats,
+    required this.privateChats,
+    required this.contactGroups,
+    required this.groupAssignmentsByTarget,
+    required this.groupCollapsed,
+  });
+
+  final List<User> contacts;
+  final List<FriendshipRequest> receivedRequests;
+  final List<Chat> groupChats;
+  final List<Chat> privateChats;
+  final List<ContactGroup> contactGroups;
+  final Map<String, ContactGroupAssignment> groupAssignmentsByTarget;
+  final Map<String, bool> groupCollapsed;
 }
 
 class _ContactsPageState extends State<ContactsPage>
@@ -30,6 +53,64 @@ class _ContactsPageState extends State<ContactsPage>
   static const String _sectionContacts = 'contacts';
   static const String _sectionPrefPrefix = 'pmchat.contacts.section.collapsed.';
   static const String _groupPrefPrefix = 'pmchat.contacts.group.collapsed.';
+  static const Duration _snapshotTtl = Duration(minutes: 2);
+  static _ContactsSnapshot? _cachedSnapshot;
+  static DateTime? _cachedSnapshotAt;
+
+  static Future<void> warmDirectoryCache() async {
+    try {
+      final snapshot = await _fetchSnapshot(
+        contactService: ContactDataService(),
+        chatService: ChatDataService(),
+      );
+      _cachedSnapshot = snapshot;
+      _cachedSnapshotAt = DateTime.now();
+    } catch (_) {
+      // Best-effort preloading must never block the home shell.
+    }
+  }
+
+  static Future<_ContactsSnapshot> _fetchSnapshot({
+    required ContactDataService contactService,
+    required ChatDataService chatService,
+  }) async {
+    final results = await Future.wait<dynamic>([
+      contactService.getFriends(),
+      contactService.getReceivedFriendRequests(),
+      chatService.getChatRooms(
+        includeHidden: true,
+        includeBlocked: true,
+        type: ChatType.group,
+      ),
+      chatService.getChatRooms(
+        includeHidden: true,
+        includeBlocked: true,
+        type: ChatType.private,
+      ),
+      contactService.getContactGroups(),
+    ]);
+    final contacts = results[0] as List<User>;
+    final receivedRequests = results[1] as List<FriendshipRequest>;
+    final groupChats = results[2] as List<Chat>;
+    final privateChats = results[3] as List<Chat>;
+    final contactGroups = results[4] as ContactGroupBundle;
+    final groupCollapsed =
+        await _loadGroupCollapseStatesForGroups(contactGroups.groups);
+    final assignmentsByTarget = {
+      for (final assignment in contactGroups.assignments)
+        assignment.targetKey: assignment,
+    };
+    return _ContactsSnapshot(
+      contacts: List<User>.from(contacts),
+      receivedRequests: List<FriendshipRequest>.from(receivedRequests),
+      groupChats: List<Chat>.from(groupChats),
+      privateChats: List<Chat>.from(privateChats),
+      contactGroups: List<ContactGroup>.from(contactGroups.groups),
+      groupAssignmentsByTarget:
+          Map<String, ContactGroupAssignment>.from(assignmentsByTarget),
+      groupCollapsed: Map<String, bool>.from(groupCollapsed),
+    );
+  }
 
   final TextEditingController _searchController = TextEditingController();
   final TextEditingController _addSearchController = TextEditingController();
@@ -61,8 +142,32 @@ class _ContactsPageState extends State<ContactsPage>
     super.initState();
     _contactService = widget.contactService ?? ContactDataService();
     _chatService = widget.chatService ?? ChatDataService();
+    _restoreSnapshotIfFresh();
     _loadCollapsedSections();
-    _loadContacts();
+    _loadContacts(showLoading: _contacts.isEmpty);
+  }
+
+  bool get _canUseSnapshot =>
+      widget.contactService == null && widget.chatService == null;
+
+  void _restoreSnapshotIfFresh() {
+    if (!_canUseSnapshot) return;
+    final snapshot = _cachedSnapshot;
+    final snapshotAt = _cachedSnapshotAt;
+    if (snapshot == null ||
+        snapshotAt == null ||
+        DateTime.now().difference(snapshotAt) >= _snapshotTtl) {
+      return;
+    }
+    _contacts = List<User>.from(snapshot.contacts);
+    _receivedRequests = List<FriendshipRequest>.from(snapshot.receivedRequests);
+    _groupChats = List<Chat>.from(snapshot.groupChats);
+    _privateChats = List<Chat>.from(snapshot.privateChats);
+    _contactGroups = List<ContactGroup>.from(snapshot.contactGroups);
+    _groupAssignmentsByTarget = Map<String, ContactGroupAssignment>.from(
+        snapshot.groupAssignmentsByTarget);
+    _groupCollapsed = Map<String, bool>.from(snapshot.groupCollapsed);
+    _isLoading = false;
   }
 
   Future<void> _loadCollapsedSections() async {
@@ -76,20 +181,20 @@ class _ContactsPageState extends State<ContactsPage>
     });
   }
 
-  Future<Map<String, bool>> _loadGroupCollapseStates(
+  static Future<Map<String, bool>> _loadGroupCollapseStatesForGroups(
     List<ContactGroup> groups,
   ) async {
     final prefs = await SharedPreferences.getInstance();
     final states = <String, bool>{};
     for (final group in groups) {
-      states[_groupCollapseKey(group.id)] =
-          prefs.getBool('$_groupPrefPrefix${_groupCollapseKey(group.id)}') ??
+      states[_groupCollapseKeyFor(group.id)] =
+          prefs.getBool('$_groupPrefPrefix${_groupCollapseKeyFor(group.id)}') ??
               false;
     }
     for (final section in [_sectionGroups, _sectionPrivate, _sectionContacts]) {
-      states[_ungroupedCollapseKey(section)] =
-          prefs.getBool('$_groupPrefPrefix${_ungroupedCollapseKey(section)}') ??
-              false;
+      states[_ungroupedCollapseKeyFor(section)] = prefs.getBool(
+              '$_groupPrefPrefix${_ungroupedCollapseKeyFor(section)}') ??
+          false;
     }
     return states;
   }
@@ -117,57 +222,53 @@ class _ContactsPageState extends State<ContactsPage>
     await prefs.setBool('$_groupPrefPrefix$key', next);
   }
 
-  String _groupCollapseKey(String groupId) => 'group:$groupId';
+  String _groupCollapseKey(String groupId) => _groupCollapseKeyFor(groupId);
 
-  String _ungroupedCollapseKey(String section) => 'ungrouped:$section';
+  static String _groupCollapseKeyFor(String groupId) => 'group:$groupId';
 
-  Future<void> _loadContacts() async {
-    if (mounted) {
+  String _ungroupedCollapseKey(String section) =>
+      _ungroupedCollapseKeyFor(section);
+
+  static String _ungroupedCollapseKeyFor(String section) =>
+      'ungrouped:$section';
+
+  Future<void> _loadContacts({bool showLoading = true}) async {
+    if (mounted && showLoading && _contacts.isEmpty) {
       setState(() {
         _isLoading = true;
+        _errorMessage = null;
+      });
+    } else if (mounted && showLoading) {
+      setState(() {
         _errorMessage = null;
       });
     }
 
     try {
-      final results = await Future.wait<dynamic>([
-        _contactService.getFriends(),
-        _contactService.getReceivedFriendRequests(),
-        _chatService.getChatRooms(
-          includeHidden: true,
-          includeBlocked: true,
-          type: ChatType.group,
-        ),
-        _chatService.getChatRooms(
-          includeHidden: true,
-          includeBlocked: true,
-          type: ChatType.private,
-        ),
-        _contactService.getContactGroups(),
-      ]);
-      final contacts = results[0] as List<User>;
-      final receivedRequests = results[1] as List<FriendshipRequest>;
-      final groupChats = results[2] as List<Chat>;
-      final privateChats = results[3] as List<Chat>;
-      final contactGroups = results[4] as ContactGroupBundle;
-      final groupCollapsed =
-          await _loadGroupCollapseStates(contactGroups.groups);
+      final snapshot = await _fetchSnapshot(
+        contactService: _contactService,
+        chatService: _chatService,
+      );
+      if (_canUseSnapshot) {
+        _cachedSnapshot = snapshot;
+        _cachedSnapshotAt = DateTime.now();
+      }
       if (!mounted) return;
       setState(() {
-        _contacts = contacts;
-        _receivedRequests = receivedRequests;
-        _groupChats = groupChats;
-        _privateChats = privateChats;
-        _contactGroups = contactGroups.groups;
-        _groupAssignmentsByTarget = {
-          for (final assignment in contactGroups.assignments)
-            assignment.targetKey: assignment,
-        };
-        _groupCollapsed = groupCollapsed;
+        _contacts = snapshot.contacts;
+        _receivedRequests = snapshot.receivedRequests;
+        _groupChats = snapshot.groupChats;
+        _privateChats = snapshot.privateChats;
+        _contactGroups = snapshot.contactGroups;
+        _groupAssignmentsByTarget = snapshot.groupAssignmentsByTarget;
+        _groupCollapsed = snapshot.groupCollapsed;
         _isLoading = false;
       });
     } catch (e) {
       if (!mounted) return;
+      if (!showLoading && _contacts.isNotEmpty) {
+        return;
+      }
       setState(() {
         _errorMessage = e.toString();
         _isLoading = false;
