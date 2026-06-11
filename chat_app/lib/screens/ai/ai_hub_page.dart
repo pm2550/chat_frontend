@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 import '../../constants/app_colors.dart';
 import '../../design/design.dart';
@@ -22,11 +21,13 @@ class AiHubPage extends StatefulWidget {
     this.initialSection = 'bots',
     this.botService,
     this.chatDataService,
+    this.onSectionChanged,
   });
 
   final String initialSection;
   final BotService? botService;
   final ChatDataService? chatDataService;
+  final ValueChanged<String>? onSectionChanged;
 
   static Future<void> warmCache() => _AiHubPageState.warmCache();
 
@@ -365,11 +366,9 @@ class _AiHubPageState extends State<AiHubPage>
   }
 
   void _selectSection(int index) {
+    if (index == _selectedIndex) return;
     setState(() => _selectedIndex = index);
-    SystemNavigator.routeInformationUpdated(
-      uri: Uri.parse('/home/ai/${_sections[index].routeKey}'),
-      replace: true,
-    );
+    widget.onSectionChanged?.call(_sections[index].routeKey);
   }
 
   Widget _buildBotsTab() {

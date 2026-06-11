@@ -33,7 +33,7 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   int _currentIndex = 0;
   String _aiSection = 'bots';
-  String? _cachedAiSection;
+  bool _aiPageVisited = false;
   final AuthService _authService = AuthService();
   final PageStorageBucket _pageStorageBucket = PageStorageBucket();
   late final List<Widget?> _pageCache =
@@ -204,8 +204,9 @@ class _HomeScreenState extends State<HomeScreen> {
       child: IndexedStack(
         index: _currentIndex,
         children: List.generate(_tabs.length, (index) {
-          final shouldBuild =
-              index == _currentIndex || _pageCache[index] != null;
+          final wasBuilt =
+              index == 3 ? _aiPageVisited : _pageCache[index] != null;
+          final shouldBuild = index == _currentIndex || wasBuilt;
           return TickerMode(
             enabled: index == _currentIndex,
             child: shouldBuild ? _pageAt(index) : const SizedBox.shrink(),
@@ -264,10 +265,9 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _pageAt(int index) {
-    if (index == 3 &&
-        (_pageCache[index] == null || _cachedAiSection != _aiSection)) {
-      _cachedAiSection = _aiSection;
-      return _pageCache[index] = _createPage(index);
+    if (index == 3) {
+      _aiPageVisited = true;
+      return _createPage(index);
     }
     return _pageCache[index] ??= _createPage(index);
   }
@@ -285,6 +285,7 @@ class _HomeScreenState extends State<HomeScreen> {
       3 => AiHubPage(
           key: const PageStorageKey<String>('home-ai'),
           initialSection: _aiSection,
+          onSectionChanged: _setAiSection,
         ),
       4 => const ProfilePage(key: PageStorageKey<String>('home-me')),
       _ => const SizedBox.shrink(),
@@ -299,7 +300,12 @@ class _HomeScreenState extends State<HomeScreen> {
         _aiSection = 'bots';
       }
     });
-    _syncRoute(_tabs[index].route);
+    _syncRoute(index == 3 ? '/home/ai/$_aiSection' : _tabs[index].route);
+  }
+
+  void _setAiSection(String section) {
+    if (_aiSection == section) return;
+    setState(() => _aiSection = section);
   }
 
   void _syncRoute(String route) {
