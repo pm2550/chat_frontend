@@ -53,7 +53,8 @@ jobs:
           java-version: "21"
 
       - name: Stamp package version
-        run: perl -0pi -e 's/^version:\s*.*$/version: '"$VERSION_NAME+$VERSION_CODE"'/m' pubspec.yaml
+        run: |
+          perl -0pi -e "s/^version:\s*.*\$/version: ${VERSION_NAME}+${VERSION_CODE}/m" pubspec.yaml
 
       - name: Install Linux desktop dependencies
         run: |
@@ -240,7 +241,8 @@ jobs:
           cache: true
 
       - name: Stamp package version
-        run: perl -0pi -e 's/^version:\s*.*$/version: '"$VERSION_NAME+$VERSION_CODE"'/m' pubspec.yaml
+        run: |
+          perl -0pi -e "s/^version:\s*.*\$/version: ${VERSION_NAME}+${VERSION_CODE}/m" pubspec.yaml
 
       - name: Build macOS
         run: |
