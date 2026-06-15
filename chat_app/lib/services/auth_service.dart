@@ -360,7 +360,9 @@ class AuthService extends ChangeNotifier {
       throw Exception('请先登录');
     }
     final saltParams = await _fetchClientSaltParams(username);
-    final body = <String, dynamic>{...await _newPasswordBundle(newPassword)};
+    final body = <String, dynamic>{
+      ...await _newPasswordChangeBundle(newPassword)
+    };
     if (saltParams.isClientArgon2) {
       body['oldClientHash'] = await _passwordHasher.hashWithSalt(
         password: oldPassword,
@@ -378,6 +380,15 @@ class AuthService extends ChangeNotifier {
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw Exception(_extractError(response.body));
     }
+  }
+
+  Future<Map<String, String>> _newPasswordChangeBundle(String password) async {
+    final hashed = await _passwordHasher.hashNewPassword(password);
+    return {
+      'newClientHash': hashed.clientHash,
+      'newClientSalt': hashed.clientSalt,
+      'newArgon2Params': hashed.argon2Params,
+    };
   }
 
   /// Make authenticated API request with auto token refresh
