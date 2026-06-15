@@ -2,6 +2,12 @@
 cmake_minimum_required(VERSION 3.14)
 project(chat_app LANGUAGES CXX)
 
+# GitHub's Windows runners now ship CMake versions that reject transitive
+# plugin projects declaring compatibility below 3.5. Firebase's generated
+# C++ SDK still contains that older declaration, so set the documented minimum
+# policy version before Flutter adds plugin subdirectories.
+set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
+
 # The name of the executable created for the application. Change this to change
 # the on-disk name of your application.
 set(BINARY_NAME "chat_app")
