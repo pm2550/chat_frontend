@@ -290,6 +290,15 @@
       }
 
       function fetchBuildStamp() {
+        return Promise.all([
+          fetchAssetBuildStamp(),
+          fetchBuildStampFile()
+        ]).then(function (stamps) {
+          return stamps[0] || cachedAssetBuildStamp() || stamps[1] || fallbackBuildStamp;
+        });
+      }
+
+      function fetchBuildStampFile() {
         return fetch('/.last_build_id?ts=' + Date.now(), {
           cache: 'no-store',
           credentials: 'same-origin'
@@ -300,8 +309,49 @@
           })
           .then(normalizeBuildStamp)
           .catch(function () {
-            return fallbackBuildStamp;
+            return '';
           });
+      }
+
+      function fetchAssetBuildStamp() {
+        return fetch('/main.dart.js?stamp=' + Date.now(), {
+          method: 'HEAD',
+          cache: 'no-store',
+          credentials: 'same-origin'
+        })
+          .then(function (response) {
+            if (!response.ok) throw new Error('main asset stamp unavailable');
+            var stampParts = [
+              response.headers.get('etag') || '',
+              response.headers.get('last-modified') || '',
+              response.headers.get('content-length') || ''
+            ].filter(Boolean);
+            return stampParts.length ? normalizeBuildStamp(stampParts.join('-')) : '';
+          })
+          .then(function (stamp) {
+            if (stamp) rememberAssetBuildStamp(stamp);
+            return stamp;
+          })
+          .catch(function () {
+            return '';
+          });
+      }
+
+      function cachedAssetBuildStamp() {
+        try {
+          var cached = localStorage.getItem('pmchat-last-asset-build-stamp');
+          return cached ? normalizeBuildStamp(cached) : '';
+        } catch (error) {
+          return '';
+        }
+      }
+
+      function rememberAssetBuildStamp(stamp) {
+        try {
+          localStorage.setItem('pmchat-last-asset-build-stamp', stamp);
+        } catch (error) {
+          // Storage can be unavailable in private/locked-down browsers.
+        }
       }
 
       function pmchatWorkerUrl(buildStamp) {

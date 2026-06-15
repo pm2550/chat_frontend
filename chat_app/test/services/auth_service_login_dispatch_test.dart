@@ -147,9 +147,11 @@ void main() {
     );
 
     expect(await service.login('alice', 'login-pw'), isTrue);
+    expect(service.passwordUpgradePending, isTrue);
     await service.changePassword(oldPassword: 'old-pw', newPassword: 'new-pw');
 
     expect(seenChangeBodies, hasLength(1));
+    expect(service.passwordUpgradePending, isFalse);
   });
 
   test('changePassword sends oldClientHash for client-hash accounts', () async {

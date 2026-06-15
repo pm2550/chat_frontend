@@ -380,6 +380,8 @@ class AuthService extends ChangeNotifier {
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw Exception(_extractError(response.body));
     }
+    _passwordUpgradeRequired = false;
+    notifyListeners();
   }
 
   Future<Map<String, String>> _newPasswordChangeBundle(String password) async {
