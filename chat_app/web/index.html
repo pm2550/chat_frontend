@@ -192,7 +192,9 @@
   </script>
   <script>
     (function () {
-      var cacheResetVersion = 'pm-chat-shell-cache-20260615-2';
+      var fallbackBuildStamp = 'pmchat-rescue-20260615-p0';
+      var recoveryGeneration = '20260615-p0';
+      var currentBuildStamp = fallbackBuildStamp;
 
       function dismissBoot() {
         var boot = document.getElementById('pm-boot');
@@ -242,7 +244,7 @@
       function loadFlutter() {
         var restoreServiceWorkerLookup = disableFlutterDeprecatedServiceWorker();
         var script = document.createElement('script');
-        script.src = 'flutter_bootstrap.js?v=' + cacheResetVersion;
+        script.src = 'flutter_bootstrap.js?v=' + encodeURIComponent(currentBuildStamp);
         script.async = true;
         script.addEventListener('load', function () {
           setTimeout(restoreServiceWorkerLookup, 0);
@@ -272,9 +274,155 @@
       function registerPmchatPushWorker() {
         if (!('serviceWorker' in navigator)) return Promise.resolve();
         return navigator.serviceWorker
-          .register('pmchat_service_worker.js?v=' + cacheResetVersion, { scope: '/' })
+          .register(pmchatWorkerUrl(currentBuildStamp), {
+            scope: '/',
+            updateViaCache: 'none'
+          })
           .catch(function (error) {
             console.warn('Failed to register PM chat push worker:', error);
+          });
+      }
+
+      function normalizeBuildStamp(value) {
+        if (typeof value !== 'string') return fallbackBuildStamp;
+        var normalized = value.trim().replace(/[^A-Za-z0-9._-]/g, '-');
+        return normalized || fallbackBuildStamp;
+      }
+
+      function fetchBuildStamp() {
+        return fetch('/.last_build_id?ts=' + Date.now(), {
+          cache: 'no-store',
+          credentials: 'same-origin'
+        })
+          .then(function (response) {
+            if (!response.ok) throw new Error('build stamp unavailable');
+            return response.text();
+          })
+          .then(normalizeBuildStamp)
+          .catch(function () {
+            return fallbackBuildStamp;
+          });
+      }
+
+      function pmchatWorkerUrl(buildStamp) {
+        return 'pmchat_service_worker.js?build=' +
+          encodeURIComponent(buildStamp) +
+          '&rescue=' + encodeURIComponent(recoveryGeneration);
+      }
+
+      function pmchatShellCacheName(buildStamp) {
+        return 'pmchat-shell-' + buildStamp;
+      }
+
+      function isCurrentPmchatWorker(scriptUrl, buildStamp) {
+        return scriptUrl.indexOf('pmchat_service_worker.js') !== -1 &&
+          scriptUrl.indexOf('build=' + encodeURIComponent(buildStamp)) !== -1;
+      }
+
+      function clearLegacyCaches(buildStamp, forceAll) {
+        if (!('caches' in window)) return Promise.resolve();
+        var currentShell = pmchatShellCacheName(buildStamp);
+        return caches.keys()
+          .then(function (keys) {
+            return Promise.all(keys
+              .filter(function (key) {
+                if (forceAll) return true;
+                if (key.indexOf('pmchat-shell-') === 0) return key !== currentShell;
+                return key.indexOf('flutter-app-cache') === 0 ||
+                  key.indexOf('flutter-temp-cache') === 0 ||
+                  key.indexOf('flutter-app-manifest') === 0;
+              })
+              .map(function (key) {
+                return caches.delete(key);
+              }));
+          })
+          .catch(function () {});
+      }
+
+      function waitForPmchatController(buildStamp) {
+        if (!('serviceWorker' in navigator)) return Promise.resolve(false);
+        if (navigator.serviceWorker.controller &&
+            isCurrentPmchatWorker(navigator.serviceWorker.controller.scriptURL || '', buildStamp)) {
+          return Promise.resolve(true);
+        }
+        return new Promise(function (resolve) {
+          var settled = false;
+          var timer = setTimeout(function () {
+            if (!settled) {
+              settled = true;
+              resolve(false);
+            }
+          }, 5000);
+          navigator.serviceWorker.addEventListener('controllerchange', function () {
+            if (settled) return;
+            clearTimeout(timer);
+            settled = true;
+            resolve(!!navigator.serviceWorker.controller);
+          }, { once: true });
+        });
+      }
+
+      function recoveryUrl(buildStamp) {
+        var url = new URL(window.location.href);
+        url.searchParams.set('pmchat_recovered', buildStamp);
+        return url.toString();
+      }
+
+      function reloadOnceForRecovery(buildStamp) {
+        try {
+          var key = 'pmchat-recovery-reload-' + buildStamp;
+          var count = Number(sessionStorage.getItem(key) || '0');
+          if (count >= 2) return { reloading: false, exhausted: true };
+          sessionStorage.setItem(key, String(count + 1));
+        } catch (error) {
+          // sessionStorage can be unavailable in private contexts; still try one reload.
+        }
+        window.location.replace(recoveryUrl(buildStamp));
+        return { reloading: true };
+      }
+
+      function preparePmchatServiceWorker(buildStamp) {
+        if (!('serviceWorker' in navigator)) {
+          return clearLegacyCaches(buildStamp, false)
+            .then(function () { return { reloading: false }; });
+        }
+        var hadStaleWorker = false;
+        return navigator.serviceWorker.getRegistrations()
+          .then(function (registrations) {
+            return Promise.all(registrations.map(function (registration) {
+              var scriptUrl = workerScriptUrl(registration);
+              if (isCurrentPmchatWorker(scriptUrl, buildStamp)) {
+                return registration.update().catch(function () {});
+              }
+              hadStaleWorker = true;
+              return registration.unregister().catch(function () {});
+            }));
+          })
+          .then(function () {
+            return clearLegacyCaches(buildStamp, hadStaleWorker);
+          })
+          .then(function () {
+            return navigator.serviceWorker.register(pmchatWorkerUrl(buildStamp), {
+              scope: '/',
+              updateViaCache: 'none'
+            });
+          })
+          .then(function () {
+            return navigator.serviceWorker.ready.catch(function () {});
+          })
+          .then(function () {
+            return waitForPmchatController(buildStamp);
+          })
+          .then(function (isControlledByCurrentWorker) {
+            if (hadStaleWorker || !isControlledByCurrentWorker) {
+              return reloadOnceForRecovery(buildStamp);
+            }
+            return { reloading: false };
+          })
+          .catch(function (error) {
+            console.warn('PM chat service worker recovery failed:', error);
+            return clearLegacyCaches(buildStamp, true)
+              .then(function () { return { reloading: false }; });
           });
       }
 
@@ -381,46 +529,15 @@
         return window.pmchatWebPush.unsubscribe();
       };
 
-      var cleanupTasks = [];
-
-      if ('serviceWorker' in navigator) {
-        cleanupTasks.push(
-          navigator.serviceWorker.getRegistrations()
-            .then(function (registrations) {
-              return Promise.all(registrations.map(function (registration) {
-                var scriptUrl = workerScriptUrl(registration);
-                if (scriptUrl.indexOf('pmchat_service_worker.js') !== -1) {
-                  return registration.update().catch(function () {});
-                }
-                return registration.unregister();
-              }));
-            })
-            .catch(function () {})
-        );
-      }
-
-      if ('caches' in window) {
-        cleanupTasks.push(
-          caches.keys()
-            .then(function (keys) {
-              return Promise.all(keys
-                .filter(function (key) {
-                  if (key.indexOf('pmchat-shell-') === 0) return false;
-                  return key.indexOf('flutter-app-cache') === 0 ||
-                    key.indexOf('flutter-temp-cache') === 0 ||
-                    key.indexOf('flutter-app-manifest') === 0;
-                })
-                .map(function (key) {
-                  return caches.delete(key);
-                }));
-            })
-            .catch(function () {})
-        );
-      }
-
-      Promise.all(cleanupTasks).then(function () {
-        registerPmchatPushWorker().then(loadFlutter, loadFlutter);
-      }, loadFlutter);
+      fetchBuildStamp()
+        .then(function (buildStamp) {
+          currentBuildStamp = buildStamp;
+          return preparePmchatServiceWorker(buildStamp);
+        })
+        .then(function (result) {
+          if (result && result.reloading) return;
+          loadFlutter();
+        }, loadFlutter);
     })();
   </script>
 </body>
