@@ -326,6 +326,10 @@ class ApiConstants {
   // Device token (push notifications)
   static const String registerDevice = '$apiBaseUrl/device-tokens/register';
   static const String unregisterDevice = '$apiBaseUrl/device-tokens/unregister';
+  static const String webPushVapidPublicKey =
+      '$apiBaseUrl/push/web/vapid-public-key';
+  static const String webPushSubscribe = '$apiBaseUrl/push/web/subscribe';
+  static const String webPushUnsubscribe = '$apiBaseUrl/push/web/unsubscribe';
 
   // App version / OTA update
   static const String appVersionCheck = '$apiBaseUrl/app/version';

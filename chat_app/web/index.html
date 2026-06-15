@@ -192,7 +192,7 @@
   </script>
   <script>
     (function () {
-      var cacheResetVersion = 'pm-chat-mobile-input-20260530-1';
+      var cacheResetVersion = 'pm-chat-web-push-20260615-1';
 
       function dismissBoot() {
         var boot = document.getElementById('pm-boot');
@@ -246,6 +246,123 @@
         document.body.appendChild(script);
       }
 
+      function workerScriptUrl(registration) {
+        var worker = registration.active || registration.waiting || registration.installing;
+        return worker && worker.scriptURL ? worker.scriptURL : '';
+      }
+
+      function registerPmchatPushWorker() {
+        if (!('serviceWorker' in navigator)) return Promise.resolve();
+        return navigator.serviceWorker
+          .register('pmchat_service_worker.js?v=' + cacheResetVersion, { scope: '/' })
+          .catch(function (error) {
+            console.warn('Failed to register PM chat push worker:', error);
+          });
+      }
+
+      function urlBase64ToUint8Array(base64String) {
+        var padding = '='.repeat((4 - base64String.length % 4) % 4);
+        var base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+        var rawData = atob(base64);
+        var outputArray = new Uint8Array(rawData.length);
+        for (var i = 0; i < rawData.length; ++i) {
+          outputArray[i] = rawData.charCodeAt(i);
+        }
+        return outputArray;
+      }
+
+      function isStandalonePwa() {
+        return window.matchMedia('(display-mode: standalone)').matches ||
+          window.navigator.standalone === true;
+      }
+
+      function subscriptionPayload(subscription) {
+        if (!subscription) return null;
+        var json = subscription.toJSON ? subscription.toJSON() : {};
+        return {
+          ok: true,
+          endpoint: json.endpoint || subscription.endpoint,
+          keys: json.keys || {},
+          userAgent: navigator.userAgent || '',
+          standalone: isStandalonePwa(),
+          permission: 'Notification' in window ? Notification.permission : 'unsupported'
+        };
+      }
+
+      window.pmchatWebPush = {
+        isSupported: function () {
+          return 'serviceWorker' in navigator &&
+            'PushManager' in window &&
+            'Notification' in window;
+        },
+        isStandalone: isStandalonePwa,
+        permission: function () {
+          return 'Notification' in window ? Notification.permission : 'unsupported';
+        },
+        subscribe: function (vapidPublicKey) {
+          if (!this.isSupported()) {
+            return Promise.resolve({ ok: false, reason: 'unsupported' });
+          }
+          return registerPmchatPushWorker()
+            .then(function () { return Notification.requestPermission(); })
+            .then(function (permission) {
+              if (permission !== 'granted') {
+                return { ok: false, reason: 'permission_denied', permission: permission };
+              }
+              return navigator.serviceWorker.ready;
+            })
+            .then(function (registrationOrResult) {
+              if (!registrationOrResult || registrationOrResult.ok === false) {
+                return registrationOrResult || { ok: false, reason: 'service_worker_unavailable' };
+              }
+              return registrationOrResult.pushManager.getSubscription()
+                .then(function (existing) {
+                  if (existing) return existing;
+                  return registrationOrResult.pushManager.subscribe({
+                    userVisibleOnly: true,
+                    applicationServerKey: urlBase64ToUint8Array(vapidPublicKey)
+                  });
+                })
+                .then(subscriptionPayload);
+            })
+            .catch(function (error) {
+              return { ok: false, reason: error && error.message ? error.message : 'subscribe_failed' };
+            });
+        },
+        unsubscribe: function () {
+          if (!this.isSupported()) {
+            return Promise.resolve({ ok: false, reason: 'unsupported' });
+          }
+          return navigator.serviceWorker.ready
+            .then(function (registration) { return registration.pushManager.getSubscription(); })
+            .then(function (subscription) {
+              if (!subscription) return { ok: true, endpoint: null };
+              var payload = subscriptionPayload(subscription);
+              return subscription.unsubscribe().then(function () {
+                return payload || { ok: true, endpoint: null };
+              });
+            })
+            .catch(function (error) {
+              return { ok: false, reason: error && error.message ? error.message : 'unsubscribe_failed' };
+            });
+        }
+      };
+      window.pmchatWebPushIsSupported = function () {
+        return window.pmchatWebPush.isSupported();
+      };
+      window.pmchatWebPushIsStandalone = function () {
+        return window.pmchatWebPush.isStandalone();
+      };
+      window.pmchatWebPushPermission = function () {
+        return window.pmchatWebPush.permission();
+      };
+      window.pmchatWebPushSubscribe = function (vapidPublicKey) {
+        return window.pmchatWebPush.subscribe(vapidPublicKey);
+      };
+      window.pmchatWebPushUnsubscribe = function () {
+        return window.pmchatWebPush.unsubscribe();
+      };
+
       var cleanupTasks = [];
 
       if ('serviceWorker' in navigator) {
@@ -253,6 +370,10 @@
           navigator.serviceWorker.getRegistrations()
             .then(function (registrations) {
               return Promise.all(registrations.map(function (registration) {
+                var scriptUrl = workerScriptUrl(registration);
+                if (scriptUrl.indexOf('pmchat_service_worker.js') !== -1) {
+                  return registration.update().catch(function () {});
+                }
                 return registration.unregister();
               }));
             })
@@ -272,7 +393,9 @@
         );
       }
 
-      Promise.all(cleanupTasks).then(loadFlutter, loadFlutter);
+      Promise.all(cleanupTasks).then(function () {
+        registerPmchatPushWorker().then(loadFlutter, loadFlutter);
+      }, loadFlutter);
     })();
   </script>
 </body>

@@ -6,6 +6,7 @@ import '../../services/auth_service.dart';
 import '../../services/bot_service.dart';
 import '../../services/encryption_service.dart';
 import '../../services/user_profile_service.dart';
+import '../../services/web_push_service.dart';
 import '../../widgets/pm_brand.dart';
 import '../../widgets/pm_responsive.dart';
 import '../profile/profile_edit_screen.dart';
@@ -926,10 +927,13 @@ class NotificationSettingsScreen extends StatefulWidget {
     super.key,
     required this.initialSettings,
     UserProfileService? profileService,
-  }) : _profileService = profileService;
+    WebPushService? webPushService,
+  })  : _profileService = profileService,
+        _webPushService = webPushService;
 
   final UserAppSettings initialSettings;
   final UserProfileService? _profileService;
+  final WebPushService? _webPushService;
 
   @override
   State<NotificationSettingsScreen> createState() =>
@@ -939,14 +943,19 @@ class NotificationSettingsScreen extends StatefulWidget {
 class _NotificationSettingsScreenState
     extends State<NotificationSettingsScreen> {
   late final UserProfileService _profileService;
+  late final WebPushService _webPushService;
   late UserAppSettings _settings;
   bool _isSaving = false;
+  bool _isWebPushBusy = false;
+  WebPushStatus? _webPushStatus;
 
   @override
   void initState() {
     super.initState();
     _profileService = widget._profileService ?? UserProfileService();
+    _webPushService = widget._webPushService ?? WebPushService();
     _settings = widget.initialSettings;
+    _loadWebPushStatus();
   }
 
   Future<void> _save(UserAppSettings settings) async {
@@ -971,12 +980,58 @@ class _NotificationSettingsScreenState
     }
   }
 
+  Future<void> _loadWebPushStatus() async {
+    try {
+      final status = await _webPushService.getStatus();
+      if (!mounted) return;
+      setState(() => _webPushStatus = status);
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _webPushStatus = WebPushStatus(
+          supported: false,
+          standalone: false,
+          permission: 'error',
+          configured: false,
+          message: '后台推送状态读取失败: $error',
+        );
+      });
+    }
+  }
+
+  Future<void> _toggleWebPush(bool enabled) async {
+    setState(() => _isWebPushBusy = true);
+    try {
+      final result = enabled
+          ? await _webPushService.enable()
+          : await _webPushService.disable();
+      if (!mounted) return;
+      setState(() {
+        _webPushStatus = result.status;
+        _isWebPushBusy = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(result.message),
+          backgroundColor: result.success ? null : Colors.orange,
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _isWebPushBusy = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('后台推送操作失败: $error'), backgroundColor: Colors.red),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('通知设置')),
       body: ListView(
         children: [
+          _buildWebPushTile(),
           SwitchListTile(
             title: const Text('消息通知'),
             subtitle: const Text('接收离线推送和会话提醒'),
@@ -1003,6 +1058,26 @@ class _NotificationSettingsScreenState
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildWebPushTile() {
+    final status = _webPushStatus;
+    final enabled = status?.enabled ?? false;
+    final canTap = status?.canRequest == true && !_isWebPushBusy;
+    final subtitle = status?.message ?? '正在检查当前浏览器是否支持 PWA 后台推送...';
+    return SwitchListTile(
+      title: const Text('PWA 后台推送'),
+      subtitle: Text(subtitle),
+      value: enabled,
+      onChanged: canTap ? _toggleWebPush : null,
+      secondary: _isWebPushBusy
+          ? const SizedBox(
+              width: 24,
+              height: 24,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
+          : const Icon(Icons.install_mobile_outlined),
     );
   }
 }
