@@ -192,7 +192,7 @@
   </script>
   <script>
     (function () {
-      var cacheResetVersion = 'pm-chat-web-push-20260615-1';
+      var cacheResetVersion = 'pm-chat-shell-cache-20260615-2';
 
       function dismissBoot() {
         var boot = document.getElementById('pm-boot');
@@ -240,10 +240,28 @@
       }
 
       function loadFlutter() {
+        var restoreServiceWorkerLookup = disableFlutterDeprecatedServiceWorker();
         var script = document.createElement('script');
         script.src = 'flutter_bootstrap.js?v=' + cacheResetVersion;
         script.async = true;
+        script.addEventListener('load', function () {
+          setTimeout(restoreServiceWorkerLookup, 0);
+        });
+        script.addEventListener('error', restoreServiceWorkerLookup);
         document.body.appendChild(script);
+      }
+
+      function disableFlutterDeprecatedServiceWorker() {
+        if (!('serviceWorker' in navigator) || !navigator.serviceWorker.getRegistration) {
+          return function () {};
+        }
+        var originalGetRegistration = navigator.serviceWorker.getRegistration.bind(navigator.serviceWorker);
+        navigator.serviceWorker.getRegistration = function () {
+          return Promise.resolve(null);
+        };
+        return function () {
+          navigator.serviceWorker.getRegistration = originalGetRegistration;
+        };
       }
 
       function workerScriptUrl(registration) {
@@ -385,9 +403,16 @@
         cleanupTasks.push(
           caches.keys()
             .then(function (keys) {
-              return Promise.all(keys.map(function (key) {
-                return caches.delete(key);
-              }));
+              return Promise.all(keys
+                .filter(function (key) {
+                  if (key.indexOf('pmchat-shell-') === 0) return false;
+                  return key.indexOf('flutter-app-cache') === 0 ||
+                    key.indexOf('flutter-temp-cache') === 0 ||
+                    key.indexOf('flutter-app-manifest') === 0;
+                })
+                .map(function (key) {
+                  return caches.delete(key);
+                }));
             })
             .catch(function () {})
         );
