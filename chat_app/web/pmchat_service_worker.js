@@ -1,32 +1,84 @@
 'use strict';
-// pmchat_service_worker.js — 安全版/自愈版 (源码, 取代之前的激进预缓存)
-// 历史教训: 之前这里做 cacheFirst 预缓存 app shell, 缓存键不随构建版本变 -> 缓存的旧
-//   main.dart.js 与网络拿的新 flutter_bootstrap.js 版本错位 -> Flutter boot 卡死(全网转圈)。
-// 现状策略: SW 只做 Web Push, 不拦截 fetch(一律走网络); 静态大文件的缓存交给 nginx 的
-//   immutable 响应头 + 浏览器自身 HTTP 缓存(已生效), 不再用 SW 预缓存(太脆、会版本错位)。
-// activate 时清掉任何残留的 pmchat-shell-* 旧缓存 + 自动重载现有页面, 让历史坏版客户端零操作自愈。
 
-self.addEventListener('install', () => {
-  self.skipWaiting();
+const WORKER_URL = new URL(self.location.href);
+const LEGACY_RESCUE_MODE = !WORKER_URL.searchParams.has('build');
+const BUILD_STAMP = sanitizeBuildStamp(WORKER_URL.searchParams.get('build') || 'dev');
+const CACHE_PREFIX = 'pmchat-shell-';
+const CACHE_NAME = CACHE_PREFIX + BUILD_STAMP;
+const PRECACHE_URLS = [
+  '/',
+  '/index.html',
+  '/.last_build_id',
+  '/flutter.js',
+  '/flutter_bootstrap.js',
+  '/main.dart.js',
+  '/manifest.json',
+  '/version.json',
+  '/canvaskit/canvaskit.js',
+  '/canvaskit/canvaskit.wasm',
+  '/canvaskit/chromium/canvaskit.js',
+  '/canvaskit/chromium/canvaskit.wasm',
+  '/assets/AssetManifest.bin.json',
+  '/assets/AssetManifest.bin',
+  '/assets/FontManifest.json',
+  '/assets/NOTICES',
+  '/assets/fonts/MaterialIcons-Regular.otf',
+  '/icons/Icon-192.png',
+  '/icons/Icon-512.png',
+  '/icons/Icon-maskable-192.png',
+  '/icons/Icon-maskable-512.png',
+];
+const MUTABLE_PATHS = new Set([
+  '/',
+  '/index.html',
+  '/.last_build_id',
+  '/flutter_bootstrap.js',
+  '/manifest.json',
+  '/version.json',
+]);
+const IMMUTABLE_EXTENSIONS = /\.(?:js|css|wasm|woff2?|png|jpg|jpeg|svg|ico|otf|ttf)$/i;
+
+self.addEventListener('install', (event) => {
+  const installWork = LEGACY_RESCUE_MODE ? Promise.resolve() : precacheAppShell();
+  event.waitUntil(installWork.then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', (event) => {
-  event.waitUntil(
-    caches.keys()
-      .then((names) => Promise.all(names.map((name) => caches.delete(name))))
-      .then(() => self.clients.claim())
-      .then(() => self.clients.matchAll({ type: 'window', includeUncontrolled: true }))
-      .then((clients) => {
-        clients.forEach((client) => {
-          if ('navigate' in client && client.url) {
-            client.navigate(client.url).catch(() => {});
-          }
-        });
-      })
-  );
+  const activateWork = LEGACY_RESCUE_MODE
+    ? clearAllCaches().then(() => self.clients.claim()).then(rescueLegacyClients)
+    : clearOldShellCaches().then(() => self.clients.claim());
+  event.waitUntil(activateWork);
 });
 
-// 故意不注册 'fetch' 处理器 —— 所有请求直接走网络/浏览器默认缓存。
+self.addEventListener('fetch', (event) => {
+  const request = event.request;
+  if (request.method !== 'GET') return;
+
+  const url = new URL(request.url);
+  if (url.origin !== self.location.origin) return;
+  if (url.pathname.startsWith('/api/')) return;
+
+  if (LEGACY_RESCUE_MODE) {
+    if (request.mode === 'navigate') {
+      event.respondWith(fetch(new Request(request.url, { cache: 'reload' })));
+    }
+    return;
+  }
+
+  if (request.mode === 'navigate') {
+    event.respondWith(networkFirst(request, '/index.html'));
+    return;
+  }
+
+  if (MUTABLE_PATHS.has(url.pathname)) {
+    event.respondWith(networkFirst(request, url.pathname));
+    return;
+  }
+
+  if (isImmutableAsset(url.pathname)) {
+    event.respondWith(cacheFirst(request, url.pathname));
+  }
+});
 
 self.addEventListener('push', (event) => {
   const payload = safePayload(event.data);
@@ -71,6 +123,10 @@ self.addEventListener('notificationclick', (event) => {
   );
 });
 
+function sanitizeBuildStamp(value) {
+  return String(value || 'dev').trim().replace(/[^A-Za-z0-9._-]/g, '-') || 'dev';
+}
+
 function safePayload(data) {
   if (!data) return {};
   try {
@@ -85,4 +141,90 @@ function notificationTag(data) {
     return 'pm-chat-room-' + data.chatRoomId;
   }
   return 'pm-chat-message';
+}
+
+function isImmutableAsset(pathname) {
+  return pathname.startsWith('/assets/') ||
+    pathname.startsWith('/canvaskit/') ||
+    pathname.startsWith('/fonts/') ||
+    pathname.startsWith('/icons/') ||
+    pathname === '/flutter.js' ||
+    pathname === '/main.dart.js' ||
+    IMMUTABLE_EXTENSIONS.test(pathname);
+}
+
+function precacheAppShell() {
+  return caches.open(CACHE_NAME).then((cache) => {
+    return Promise.allSettled(PRECACHE_URLS.map((url) => {
+      return cache.add(new Request(url, { cache: 'reload' }));
+    }));
+  });
+}
+
+function clearAllCaches() {
+  return caches.keys().then((keys) => {
+    return Promise.all(keys.map((key) => caches.delete(key)));
+  });
+}
+
+function clearOldShellCaches() {
+  return caches.keys()
+    .then((keys) => Promise.all(keys
+      .filter((key) => {
+        if (key.startsWith(CACHE_PREFIX)) return key !== CACHE_NAME;
+        return key.indexOf('flutter-app-cache') === 0 ||
+          key.indexOf('flutter-temp-cache') === 0 ||
+          key.indexOf('flutter-app-manifest') === 0;
+      })
+      .map((key) => caches.delete(key))));
+}
+
+function rescueLegacyClients() {
+  return self.clients.matchAll({ type: 'window', includeUncontrolled: true })
+    .then((clientList) => {
+      return Promise.all(clientList.map((client) => {
+        if (!client.url || new URL(client.url).origin !== self.location.origin) {
+          return undefined;
+        }
+        if (!('navigate' in client)) return undefined;
+        const url = new URL(client.url);
+        url.searchParams.set('pmchat_legacy_sw_rescued', Date.now().toString(36));
+        return client.navigate(url.href).catch(() => undefined);
+      }));
+    })
+    .then(() => self.registration.unregister().catch(() => false));
+}
+
+function networkFirst(request, cacheKey) {
+  return caches.open(CACHE_NAME).then((cache) => {
+    return fetch(request)
+      .then((response) => {
+        if (response && response.ok) {
+          cache.put(cacheKey, response.clone());
+        }
+        return response;
+      })
+      .catch(() => cache.match(cacheKey).then((cached) => {
+        return cached || cache.match('/index.html');
+      }));
+  });
+}
+
+function cacheFirst(request, cacheKey) {
+  return caches.open(CACHE_NAME).then((cache) => {
+    return cache.match(cacheKey)
+      .then((cached) => {
+        if (cached) return cached;
+        return cache.match(request).then((requestCached) => {
+          if (requestCached) return requestCached;
+          return fetch(new Request(request.url, { cache: 'reload' }))
+            .then((response) => {
+              if (response && response.ok) {
+                cache.put(cacheKey, response.clone());
+              }
+              return response;
+            });
+        });
+      });
+  });
 }
