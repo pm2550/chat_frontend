@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import '../../constants/app_colors.dart';
 import '../../design/design.dart';
 import '../../services/auth_service.dart';
@@ -28,10 +29,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _notificationsEnabled = true;
   UserAppSettings _appSettings = const UserAppSettings();
   String _settingsQuery = '';
+  String _appVersionLabel = '读取中';
 
   @override
   void initState() {
     super.initState();
+    _loadAppVersion();
     _loadSettings();
   }
 
@@ -54,6 +57,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _appSettings = appSettings;
       _notificationsEnabled = appSettings.messageNotificationsEnabled;
     });
+  }
+
+  Future<void> _loadAppVersion() async {
+    try {
+      final info = await PackageInfo.fromPlatform();
+      final version = info.version.trim();
+      final buildNumber = info.buildNumber.trim();
+      final label = buildNumber.isEmpty ? version : '$version ($buildNumber)';
+      if (!mounted) return;
+      setState(() => _appVersionLabel = label);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _appVersionLabel = '未知');
+    }
   }
 
   Future<void> _saveAppSettings(UserAppSettings settings) async {
@@ -499,7 +516,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         PMListRow(
           leading: _settingsIcon(Icons.info_outline, AppColors.primary),
           title: const Text('版本'),
-          subtitle: const Text('1.0.0'),
+          subtitle: Text(_appVersionLabel),
         ),
       if (_matchesSetting('隐私政策', ['关于', '合规']))
         PMListRow(

@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../models/app_version.dart';
+import '../services/android_apk_installer.dart';
 import '../services/update_service.dart';
 import '../services/web_reload.dart' as web_reload;
 
@@ -186,32 +187,19 @@ class _UpdateDialogState extends State<UpdateDialog> {
   }
 
   Future<void> _installAndroidApk(String apkPath) async {
-    // Use Android Intent to trigger package installer.
-    // The 'open_filex' package or a method channel would be ideal,
-    // but to avoid adding another dependency, we use url_launcher
-    // with a file:// URI that goes through the FileProvider.
-    //
-    // Most reliable cross-API-level approach: use Process.run to call
-    // `am start` with the APK intent, BUT Process.run is sandboxed on Android.
-    //
-    // Pragmatic solution: use url_launcher with the content:// URI scheme.
-    // Actually the simplest working approach for sideloaded apps:
-    // shell out to `content://` via an intent helper.
-    //
-    // Since we can't easily do a proper content:// URI from Dart without
-    // a platform channel, we'll use the `open_filex` approach via
-    // launching a file:// URL which Android converts to a content:// URI
-    // when REQUEST_INSTALL_PACKAGES permission is granted.
     try {
-      final uri = Uri.parse('file://$apkPath');
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
+      final launched = await AndroidApkInstaller.install(apkPath);
+      if (launched) return;
     } catch (e) {
-      // If file:// doesn't work, fall back to opening the download URL in browser
-      final fullUrl = UpdateService.resolveUrl(widget.versionCheck.downloadUrl);
-      final uri = Uri.parse(fullUrl);
-      if (await canLaunchUrl(uri)) {
-        await launchUrl(uri, mode: LaunchMode.externalApplication);
-      }
+      debugPrint('Android APK installer failed: $e');
+    }
+
+    // If the native installer is unavailable, fall back to the browser so the
+    // user can still sideload the APK manually.
+    final fullUrl = UpdateService.resolveUrl(widget.versionCheck.downloadUrl);
+    final uri = Uri.parse(fullUrl);
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
     }
   }
 

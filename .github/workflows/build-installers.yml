@@ -52,6 +52,9 @@ jobs:
           distribution: temurin
           java-version: "21"
 
+      - name: Stamp package version
+        run: perl -0pi -e 's/^version:\s*.*$/version: '"$VERSION_NAME+$VERSION_CODE"'/m' pubspec.yaml
+
       - name: Install Linux desktop dependencies
         run: |
           sudo apt-get update
@@ -142,6 +145,11 @@ jobs:
           channel: stable
           cache: true
 
+      - name: Stamp package version
+        shell: pwsh
+        run: |
+          (Get-Content pubspec.yaml) -replace '^version:\s*.*$', "version: $env:VERSION_NAME+$env:VERSION_CODE" | Set-Content pubspec.yaml
+
       - name: Build Windows
         shell: pwsh
         run: |
@@ -230,6 +238,9 @@ jobs:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
           cache: true
+
+      - name: Stamp package version
+        run: perl -0pi -e 's/^version:\s*.*$/version: '"$VERSION_NAME+$VERSION_CODE"'/m' pubspec.yaml
 
       - name: Build macOS
         run: |
@@ -325,8 +336,8 @@ jobs:
               --notes "PM chat installers. Windows/macOS are unsigned unless signing secrets are configured."
           fi
 
-      - name: Mirror Android APK to PM chat server
-        if: success() && hashFiles('dist/pm-chat-android-v*.apk') != ''
+      - name: Mirror installers to PM chat server
+        if: success() && hashFiles('dist/pm-chat-*') != ''
         env:
           PMCHAT_PUBLISH_TOKEN: ${{ secrets.PMCHAT_PUBLISH_TOKEN }}
           COMMIT_SHA: ${{ github.sha }}
@@ -336,20 +347,31 @@ jobs:
             exit 0
           fi
 
-          apk=$(ls dist/pm-chat-android-v*.apk | head -1)
-          if [ -z "$apk" ]; then
-            echo "::warning::No APK found to mirror"
-            exit 0
-          fi
+          publish_one() {
+            local artifact="$1"
+            local platform=""
+            case "$(basename "$artifact")" in
+              pm-chat-android-*.apk) platform="ANDROID" ;;
+              pm-chat-windows-*.zip) platform="WINDOWS" ;;
+              pm-chat-macos-*.zip) platform="MACOS" ;;
+              pm-chat-linux-*.tar.gz) platform="LINUX" ;;
+              *) return 0 ;;
+            esac
 
-          metadata=$(jq -nc \
-            --arg p "ANDROID" \
-            --arg n "$VERSION_NAME" \
-            --argjson c "$VERSION_CODE" \
-            --arg notes "Built from commit $COMMIT_SHA" \
-            '{platform: $p, versionName: $n, versionCode: $c, forceUpdate: false, releaseNotes: $notes}')
+            metadata=$(jq -nc \
+              --arg p "$platform" \
+              --arg n "$VERSION_NAME" \
+              --argjson c "$VERSION_CODE" \
+              --arg notes "Built from commit $COMMIT_SHA" \
+              '{platform: $p, versionName: $n, versionCode: $c, forceUpdate: false, releaseNotes: $notes}')
 
-          curl --retry 3 --retry-delay 5 -fSL -X POST https://gateway.chat.pm2550.com/api/v1/app/version/publish-from-ci \
-            -H "Authorization: Bearer $PMCHAT_PUBLISH_TOKEN" \
-            -F "metadata=$metadata;type=application/json" \
-            -F "artifact=@$apk"
+            curl --retry 3 --retry-delay 5 -fSL -X POST https://gateway.chat.pm2550.com/api/v1/app/version/publish-from-ci \
+              -H "Authorization: Bearer $PMCHAT_PUBLISH_TOKEN" \
+              -F "metadata=$metadata;type=application/json" \
+              -F "artifact=@$artifact"
+            echo "Mirrored $platform $(basename "$artifact")"
+          }
+
+          while IFS= read -r -d '' artifact; do
+            publish_one "$artifact"
+          done < <(find dist -type f -print0)
