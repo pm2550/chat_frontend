@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/services.dart';
@@ -138,6 +140,55 @@ void main() {
 
       expect(find.text('好友'), findsOneWidget);
       expect(find.text('李四'), findsNothing);
+    });
+
+    testWidgets('own realtime message does not show new message badge',
+        (tester) async {
+      final chat = createTestChat();
+      final authService = _CurrentUserNoSocketAuthService(userId: 'user1');
+      final webSocketService =
+          WebSocketService.forTesting(authService: authService);
+      final messages = List<Message>.generate(
+        36,
+        (index) => Message(
+          id: 'history-$index',
+          content: '历史消息 $index',
+          senderId: index.isEven ? 'user2' : 'user1',
+          senderName: index.isEven ? '好友' : '我',
+          chatRoomId: 'chat1',
+          status: MessageStatus.sent,
+          timestamp: DateTime.parse('2024-01-01T10:00:00')
+              .add(Duration(minutes: index)),
+        ),
+      );
+
+      await tester.pumpWidget(buildTestWidget(
+        chat,
+        chatService: FakeChatDataService(messages: messages),
+        authService: authService,
+        webSocketService: webSocketService,
+      ));
+      await tester.pumpAndSettle();
+
+      await tester.drag(find.byType(Scrollable).first, const Offset(0, 1200));
+      await tester.pump();
+
+      webSocketService.handleMessageForTest(jsonEncode({
+        'type': 'message',
+        'message': {
+          'id': 'own-realtime',
+          'content': '自己的远端回包',
+          'senderId': 'user1',
+          'senderName': '我',
+          'chatRoomId': 'chat1',
+          'messageType': 'TEXT',
+          'messageStatus': 'SENT',
+          'createdAt': '2024-01-01T11:00:00',
+        },
+      }));
+      await tester.pump();
+
+      expect(find.text('1 条新消息'), findsNothing);
     });
 
     testWidgets('mobile composer moves above keyboard viewInsets',
@@ -1498,6 +1549,7 @@ class FakeChatDataService extends ChatDataService {
   final List<String> deletedMessageIds = [];
   final List<String> recalledMessageIds = [];
   final List<String> loadedChatRoomIds = [];
+  final List<String> readMessageIds = [];
   bool markAllReadCalled = false;
 
   static Future<http.Response> _unusedRequest(
@@ -1596,6 +1648,11 @@ class FakeChatDataService extends ChatDataService {
   @override
   Future<void> markAllRead(String chatRoomId) async {
     markAllReadCalled = true;
+  }
+
+  @override
+  Future<void> markMessageRead(String messageId) async {
+    readMessageIds.add(messageId);
   }
 
   Message? _findMessage(String? messageId) {
@@ -1749,6 +1806,34 @@ class _NoSocketAuthService extends AuthService {
   _NoSocketAuthService() : super.test();
 
   String? _token = 'test-stale-access-token';
+
+  @override
+  String? get accessToken => _token;
+
+  @override
+  Future<bool> ensureAuthenticated() async => true;
+
+  @override
+  Future<bool> refreshAccessToken() async {
+    _token = null;
+    return false;
+  }
+}
+
+class _CurrentUserNoSocketAuthService extends AuthService {
+  _CurrentUserNoSocketAuthService({required this.userId}) : super.test();
+
+  final String userId;
+  String? _token = 'test-stale-access-token';
+
+  @override
+  User? get currentUser => User(
+        id: userId,
+        username: 'me',
+        email: 'me@test.com',
+        displayName: '我',
+        createdAt: DateTime.parse('2024-01-01T10:00:00'),
+      );
 
   @override
   String? get accessToken => _token;

@@ -141,7 +141,7 @@ class _ChatListPageState extends State<ChatListPage>
 
     final currentUserId = _currentUserId;
     final isIncoming =
-        currentUserId == null || message.senderId != currentUserId;
+        currentUserId != null && !message.isFromCurrentUser(currentUserId);
     final original = _chats[index];
     final currentLastMessage = original.lastMessage;
     final replacesLastMessage = currentLastMessage?.id == message.id;

@@ -193,6 +193,51 @@ void main() {
       expect(backend.shownNotifications.single.body, '桌面通知消息');
     });
 
+    testWidgets('does not count own realtime message as unread notification',
+        (tester) async {
+      final realtime = FakeRealtimeService();
+      final backend = StubDesktopNotificationBackend(
+        supported: true,
+        permissionGranted: true,
+        visible: false,
+      );
+      final notificationService = DesktopNotificationService(backend: backend);
+      final service = FakeChatListService(chats: [
+        Chat(
+          id: '1',
+          name: '通知群聊',
+          type: ChatType.group,
+          createdAt: DateTime.parse('2024-01-01T10:00:00'),
+          unreadCount: 2,
+        ),
+      ]);
+
+      await tester.pumpWidget(buildTestWidget(
+        service,
+        realtimeService: realtime,
+        notificationService: notificationService,
+        currentUserId: 'me',
+      ));
+      await tester.pump();
+
+      expect(backend.lastUnreadCount, 2);
+
+      realtime.emitMessage(Message(
+        id: 'm-own',
+        content: '自己发出的消息',
+        senderId: 'me',
+        senderName: '我',
+        chatRoomId: '1',
+        timestamp: DateTime.parse('2024-01-01T10:02:00'),
+      ));
+      await tester.pump();
+
+      expect(find.text('自己发出的消息'), findsOneWidget);
+      expect(backend.lastUnreadCount, 2);
+      expect(backend.shownNotifications, isEmpty);
+      expect(find.text('通知群聊: 自己发出的消息'), findsNothing);
+    });
+
     testWidgets('shows @ badge for unread latest mention', (tester) async {
       final service = FakeChatListService(chats: [
         Chat(

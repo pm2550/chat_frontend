@@ -534,10 +534,12 @@ class _ChatScreenState extends State<ChatScreen> {
     if (message.chatRoomId != _chat.id || !mounted) {
       return;
     }
+    final isOwnMessage =
+        message.isFromCurrentUser(_authService.currentUser?.id);
     _upsertMessage(message);
     if (_isNearBottom()) {
       _scrollToBottom();
-    } else {
+    } else if (!isOwnMessage) {
       setState(() {
         _newMessagesBelow += 1;
         _showNewMessagesButton = true;
@@ -968,5 +970,4 @@ class _ChatScreenState extends State<ChatScreen> {
     if (message.isLocationMessage) return AttachmentType.location;
     return AttachmentType.file;
   }
-
 }
