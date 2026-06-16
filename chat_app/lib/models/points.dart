@@ -118,6 +118,21 @@ class RedeemResult {
   }
 }
 
+class IssueCodesResult {
+  const IssueCodesResult({required this.codes});
+
+  final List<String> codes;
+
+  factory IssueCodesResult.fromJson(Map<String, dynamic> json) {
+    final rawCodes = json['codes'];
+    return IssueCodesResult(
+      codes: rawCodes is List
+          ? rawCodes.map((value) => value.toString()).toList()
+          : const <String>[],
+    );
+  }
+}
+
 int _asInt(Object? value) {
   if (value is int) return value;
   return int.tryParse(value?.toString() ?? '') ?? 0;

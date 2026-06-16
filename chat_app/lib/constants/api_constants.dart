@@ -322,6 +322,16 @@ class ApiConstants {
   static const String pointsRedeem = '$apiBaseUrl/points/redeem';
   static String pointsPreview(String featureKey) =>
       '$apiBaseUrl/points/preview/$featureKey';
+  static const String adminIssueCodes = '$apiBaseUrl/admin/codes/issue';
+  static const String adminCodes = '$apiBaseUrl/admin/codes';
+  static String adminUserPoints(Object userId) =>
+      '$apiBaseUrl/admin/users/$userId/points';
+  static String adminUserLedger(Object userId) =>
+      '$apiBaseUrl/admin/users/$userId/ledger';
+  static String adminUserCredit(Object userId) =>
+      '$apiBaseUrl/admin/users/$userId/credit';
+  static String adminUserDebit(Object userId) =>
+      '$apiBaseUrl/admin/users/$userId/debit';
 
   // Device token (push notifications)
   static const String registerDevice = '$apiBaseUrl/device-tokens/register';

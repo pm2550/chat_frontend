@@ -4,6 +4,8 @@ import 'package:flutter/services.dart';
 import '../../constants/app_colors.dart';
 import '../../design/design.dart';
 import '../../models/points.dart';
+import '../../models/user.dart';
+import '../../services/auth_service.dart';
 import '../../services/points_service.dart';
 import '../../widgets/pm_brand.dart';
 import '../../widgets/pm_responsive.dart';
@@ -12,9 +14,11 @@ class PointsScreen extends StatefulWidget {
   const PointsScreen({
     super.key,
     this.pointsService = const PointsService(),
+    this.isAdminOverride,
   });
 
   final PointsService pointsService;
+  final bool? isAdminOverride;
 
   @override
   State<PointsScreen> createState() => _PointsScreenState();
@@ -22,9 +26,29 @@ class PointsScreen extends StatefulWidget {
 
 class _PointsScreenState extends State<PointsScreen> {
   final TextEditingController _codeController = TextEditingController();
+  final TextEditingController _adminUserController = TextEditingController();
+  final TextEditingController _adminPointsController =
+      TextEditingController(text: '100');
+  final TextEditingController _adminMemoController = TextEditingController();
+  final TextEditingController _issueCountController =
+      TextEditingController(text: '5');
+  final TextEditingController _issuePointsController =
+      TextEditingController(text: '100');
+  final TextEditingController _issueBatchController = TextEditingController();
+  final TextEditingController _issueMemoController = TextEditingController();
   late Future<_PointsPageData> _future;
   bool _redeeming = false;
   String? _codeError;
+  bool _adminSearching = false;
+  bool _adminAdjusting = false;
+  bool _issuingCodes = false;
+  String? _adminError;
+  String? _issueError;
+  List<User> _adminSearchResults = const [];
+  User? _selectedAdminUser;
+  PointsBalance? _selectedAdminBalance;
+  List<PointsLedgerEntry> _selectedAdminLedger = const [];
+  List<String> _issuedCodes = const [];
 
   @override
   void initState() {
@@ -35,6 +59,13 @@ class _PointsScreenState extends State<PointsScreen> {
   @override
   void dispose() {
     _codeController.dispose();
+    _adminUserController.dispose();
+    _adminPointsController.dispose();
+    _adminMemoController.dispose();
+    _issueCountController.dispose();
+    _issuePointsController.dispose();
+    _issueBatchController.dispose();
+    _issueMemoController.dispose();
     super.dispose();
   }
 
@@ -72,7 +103,8 @@ class _PointsScreenState extends State<PointsScreen> {
       _refresh();
     } catch (error) {
       if (!mounted) return;
-      setState(() => _codeError = error.toString().replaceFirst('Exception: ', ''));
+      setState(
+          () => _codeError = error.toString().replaceFirst('Exception: ', ''));
     } finally {
       if (mounted) {
         setState(() => _redeeming = false);
@@ -81,8 +113,161 @@ class _PointsScreenState extends State<PointsScreen> {
   }
 
   bool _isValidCode(String code) {
-    return RegExp(r'^[A-HJ-KM-NP-Z2-9]{4}-[A-HJ-KM-NP-Z2-9]{4}-[A-HJ-KM-NP-Z2-9]{4}$')
+    return RegExp(
+            r'^[A-HJ-KM-NP-Z2-9]{4}-[A-HJ-KM-NP-Z2-9]{4}-[A-HJ-KM-NP-Z2-9]{4}$')
         .hasMatch(code);
+  }
+
+  bool get _canUseAdminTools {
+    final override = widget.isAdminOverride;
+    if (override != null) return override;
+    return AuthService().currentUser?.roles.contains(UserRole.admin) == true;
+  }
+
+  Future<void> _searchAdminUsers() async {
+    final keyword = _adminUserController.text.trim();
+    if (keyword.isEmpty) {
+      setState(() {
+        _adminSearchResults = const [];
+        _adminError = '请输入用户名、昵称或邮箱';
+      });
+      return;
+    }
+    setState(() {
+      _adminSearching = true;
+      _adminError = null;
+    });
+    try {
+      final users = await widget.pointsService.searchUsers(keyword, limit: 8);
+      if (!mounted) return;
+      setState(() {
+        _adminSearchResults = users;
+        if (users.isEmpty) {
+          _adminError = '没有找到匹配用户';
+        }
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _adminError = _cleanError(error));
+    } finally {
+      if (mounted) setState(() => _adminSearching = false);
+    }
+  }
+
+  Future<void> _selectAdminUser(User user) async {
+    setState(() {
+      _selectedAdminUser = user;
+      _adminSearchResults = const [];
+      _adminUserController.text = user.displayName.isNotEmpty
+          ? '${user.displayName} (${user.username})'
+          : user.username;
+      _adminError = null;
+    });
+    await _loadSelectedAdminUser();
+  }
+
+  Future<void> _loadSelectedAdminUser() async {
+    final user = _selectedAdminUser;
+    if (user == null) return;
+    setState(() => _adminAdjusting = true);
+    try {
+      final results = await Future.wait([
+        widget.pointsService.adminFetchUserBalance(user.id),
+        widget.pointsService.adminFetchUserLedger(user.id, limit: 8),
+      ]);
+      if (!mounted) return;
+      setState(() {
+        _selectedAdminBalance = results[0] as PointsBalance;
+        _selectedAdminLedger = results[1] as List<PointsLedgerEntry>;
+        _adminError = null;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _adminError = _cleanError(error));
+    } finally {
+      if (mounted) setState(() => _adminAdjusting = false);
+    }
+  }
+
+  Future<void> _adjustSelectedUser({required bool credit}) async {
+    final user = _selectedAdminUser;
+    if (user == null) {
+      setState(() => _adminError = '请先选择用户');
+      return;
+    }
+    final points = int.tryParse(_adminPointsController.text.trim()) ?? 0;
+    if (points <= 0) {
+      setState(() => _adminError = '积分数量必须大于 0');
+      return;
+    }
+    setState(() {
+      _adminAdjusting = true;
+      _adminError = null;
+    });
+    try {
+      final balance = credit
+          ? await widget.pointsService.adminCreditUser(
+              user.id,
+              points,
+              memo: _adminMemoController.text,
+            )
+          : await widget.pointsService.adminDebitUser(
+              user.id,
+              points,
+              memo: _adminMemoController.text,
+            );
+      final ledger =
+          await widget.pointsService.adminFetchUserLedger(user.id, limit: 8);
+      if (!mounted) return;
+      setState(() {
+        _selectedAdminBalance = balance;
+        _selectedAdminLedger = ledger;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(credit ? '已加 $points 积分' : '已扣 $points 积分')),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _adminError = _cleanError(error));
+    } finally {
+      if (mounted) setState(() => _adminAdjusting = false);
+    }
+  }
+
+  Future<void> _issueCodes() async {
+    final count = int.tryParse(_issueCountController.text.trim()) ?? 0;
+    final pointsEach = int.tryParse(_issuePointsController.text.trim()) ?? 0;
+    if (count <= 0 || pointsEach <= 0) {
+      setState(() => _issueError = '数量和每码积分都必须大于 0');
+      return;
+    }
+    setState(() {
+      _issuingCodes = true;
+      _issueError = null;
+      _issuedCodes = const [];
+    });
+    try {
+      final result = await widget.pointsService.adminIssueCodes(
+        count: count,
+        pointsEach: pointsEach,
+        batchLabel: _issueBatchController.text,
+        memo: _issueMemoController.text,
+      );
+      if (!mounted) return;
+      setState(() => _issuedCodes = result.codes);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('已生成 ${result.codes.length} 个兑换码')),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _issueError = _cleanError(error));
+    } finally {
+      if (mounted) setState(() => _issuingCodes = false);
+    }
+  }
+
+  String _cleanError(Object error) {
+    return error.toString().replaceFirst('Exception: ', '');
   }
 
   @override
@@ -163,6 +348,10 @@ class _PointsScreenState extends State<PointsScreen> {
         _buildRedeemCard(),
         const SizedBox(height: PMSpacing.l),
         _buildLedgerCard(data.ledger),
+        if (_canUseAdminTools) ...[
+          const SizedBox(height: PMSpacing.l),
+          _buildAdminToolsCard(),
+        ],
       ],
     );
   }
@@ -210,7 +399,8 @@ class _PointsScreenState extends State<PointsScreen> {
                   subtitle: balance.freeRemainingPerFeature.isEmpty
                       ? '暂无免费功能配置'
                       : balance.freeRemainingPerFeature.entries
-                          .map((entry) => '${_featureLabel(entry.key)} ${entry.value}')
+                          .map((entry) =>
+                              '${_featureLabel(entry.key)} ${entry.value}')
                           .join(' · '),
                 ),
                 _StatTile(
@@ -336,6 +526,432 @@ class _PointsScreenState extends State<PointsScreen> {
             ),
           ),
       ],
+    );
+  }
+
+  Widget _buildAdminToolsCard() {
+    return PMSectionCard(
+      title: '管理员积分管理',
+      subtitle: '查看用户积分、手动加减积分，或批量发放一次性兑换码。',
+      children: [
+        Padding(
+          padding: const EdgeInsets.all(PMSpacing.m),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildAdminUserSearch(),
+              if (_adminError != null) ...[
+                const SizedBox(height: PMSpacing.s),
+                Text(
+                  _adminError!,
+                  style: const TextStyle(
+                    color: AppColors.error,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+              if (_adminSearchResults.isNotEmpty) ...[
+                const SizedBox(height: PMSpacing.m),
+                _buildAdminSearchResults(),
+              ],
+              if (_selectedAdminUser != null) ...[
+                const SizedBox(height: PMSpacing.l),
+                _buildSelectedUserPanel(),
+              ],
+              const SizedBox(height: PMSpacing.xl),
+              _buildIssueCodesPanel(),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildAdminUserSearch() {
+    final compact = MediaQuery.sizeOf(context).width < 720;
+    final input = TextField(
+      controller: _adminUserController,
+      decoration: InputDecoration(
+        labelText: '搜索用户',
+        hintText: '用户名、昵称或邮箱',
+        prefixIcon: const Icon(Icons.search),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(PMRadius.s),
+        ),
+      ),
+      onSubmitted: (_) => _adminSearching ? null : _searchAdminUsers(),
+    );
+    final button = PMButton(
+      label: '搜索',
+      icon: Icons.search,
+      loading: _adminSearching,
+      onPressed: _adminSearching ? null : _searchAdminUsers,
+    );
+    if (compact) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          input,
+          const SizedBox(height: PMSpacing.m),
+          button,
+        ],
+      );
+    }
+    return Row(
+      children: [
+        Expanded(child: input),
+        const SizedBox(width: PMSpacing.m),
+        button,
+      ],
+    );
+  }
+
+  Widget _buildAdminSearchResults() {
+    return PMCard(
+      padding: const EdgeInsets.all(PMSpacing.s),
+      child: Column(
+        children: [
+          for (final user in _adminSearchResults)
+            PMListRow(
+              leading: PMUserAvatar(user: user, size: 38),
+              title: Text(user.displayName.isNotEmpty
+                  ? user.displayName
+                  : user.username),
+              subtitle: Text('@${user.username} · ${user.email}'),
+              onTap: () => _selectAdminUser(user),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSelectedUserPanel() {
+    final user = _selectedAdminUser!;
+    final balance = _selectedAdminBalance;
+    final compact = MediaQuery.sizeOf(context).width < 720;
+    return PMCard(
+      padding: const EdgeInsets.all(PMSpacing.l),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              PMUserAvatar(
+                user: user,
+                size: 44,
+              ),
+              const SizedBox(width: PMSpacing.m),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      user.displayName.isNotEmpty
+                          ? user.displayName
+                          : user.username,
+                      style: const TextStyle(
+                        color: AppColors.textPrimary,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    Text(
+                      '@${user.username} · ID ${user.id}',
+                      style: const TextStyle(
+                        color: AppColors.textSecondary,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (_adminAdjusting)
+                const SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+            ],
+          ),
+          const SizedBox(height: PMSpacing.l),
+          _StatTile(
+            label: '当前付费积分',
+            value: '${balance?.paidPoints ?? 0}',
+            color: AppColors.primary,
+            subtitle: balance == null ? '正在读取余额' : '管理员可手动加减',
+          ),
+          const SizedBox(height: PMSpacing.l),
+          compact ? _buildAdjustFormCompact() : _buildAdjustFormWide(),
+          const SizedBox(height: PMSpacing.l),
+          const Text(
+            '最近调整',
+            style: TextStyle(
+              color: AppColors.textPrimary,
+              fontSize: 15,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: PMSpacing.s),
+          if (_selectedAdminLedger.isEmpty)
+            const Text(
+              '暂无积分记录',
+              style: TextStyle(color: AppColors.textSecondary),
+            )
+          else
+            for (final entry in _selectedAdminLedger.take(5))
+              PMListRow(
+                dense: true,
+                leading: _ledgerIcon(entry),
+                title: Text(_reasonLabel(entry.reason)),
+                subtitle: Text([
+                  if (entry.memo != null && entry.memo!.isNotEmpty) entry.memo!,
+                  if (entry.createdAt != null) _formatTime(entry.createdAt!),
+                ].join(' · ')),
+                trailing: Text(
+                  entry.delta > 0 ? '+${entry.delta}' : '${entry.delta}',
+                  style: TextStyle(
+                    color: entry.delta >= 0
+                        ? AppColors.success
+                        : AppColors.warning,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAdjustFormCompact() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _buildPointsField(),
+        const SizedBox(height: PMSpacing.m),
+        _buildMemoField(),
+        const SizedBox(height: PMSpacing.m),
+        Row(
+          children: [
+            Expanded(child: _buildCreditButton()),
+            const SizedBox(width: PMSpacing.m),
+            Expanded(child: _buildDebitButton()),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildAdjustFormWide() {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(width: 140, child: _buildPointsField()),
+        const SizedBox(width: PMSpacing.m),
+        Expanded(child: _buildMemoField()),
+        const SizedBox(width: PMSpacing.m),
+        _buildCreditButton(),
+        const SizedBox(width: PMSpacing.s),
+        _buildDebitButton(),
+      ],
+    );
+  }
+
+  Widget _buildPointsField() {
+    return TextField(
+      controller: _adminPointsController,
+      keyboardType: TextInputType.number,
+      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+      decoration: InputDecoration(
+        labelText: '积分',
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(PMRadius.s),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMemoField() {
+    return TextField(
+      controller: _adminMemoController,
+      decoration: InputDecoration(
+        labelText: '备注',
+        hintText: '例如 手动补发 / 退款',
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(PMRadius.s),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCreditButton() {
+    return PMButton(
+      label: '加积分',
+      icon: Icons.add,
+      loading: _adminAdjusting,
+      onPressed:
+          _adminAdjusting ? null : () => _adjustSelectedUser(credit: true),
+    );
+  }
+
+  Widget _buildDebitButton() {
+    return PMButton(
+      label: '扣积分',
+      icon: Icons.remove,
+      variant: PMButtonVariant.danger,
+      loading: _adminAdjusting,
+      onPressed:
+          _adminAdjusting ? null : () => _adjustSelectedUser(credit: false),
+    );
+  }
+
+  Widget _buildIssueCodesPanel() {
+    final compact = MediaQuery.sizeOf(context).width < 720;
+    final fields = [
+      SizedBox(
+          width: 110, child: _smallNumberField(_issueCountController, '数量')),
+      SizedBox(
+        width: 130,
+        child: _smallNumberField(_issuePointsController, '每码积分'),
+      ),
+      Expanded(
+        child: TextField(
+          controller: _issueBatchController,
+          decoration: InputDecoration(
+            labelText: '批次',
+            hintText: '例如 2026-06 活动',
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(PMRadius.s),
+            ),
+          ),
+        ),
+      ),
+    ];
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          '发兑换码',
+          style: TextStyle(
+            color: AppColors.textPrimary,
+            fontSize: 16,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+        const SizedBox(height: PMSpacing.s),
+        const Text(
+          '生成的明文兑换码只会显示这一次，请立即分发或保存到你的离线记录。',
+          style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
+        ),
+        const SizedBox(height: PMSpacing.m),
+        compact
+            ? Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(children: [
+                    Expanded(child: fields[0]),
+                    const SizedBox(width: PMSpacing.m),
+                    Expanded(child: fields[1])
+                  ]),
+                  const SizedBox(height: PMSpacing.m),
+                  fields[2],
+                ],
+              )
+            : Row(
+                children: [
+                  fields[0],
+                  const SizedBox(width: PMSpacing.m),
+                  fields[1],
+                  const SizedBox(width: PMSpacing.m),
+                  fields[2],
+                ],
+              ),
+        const SizedBox(height: PMSpacing.m),
+        TextField(
+          controller: _issueMemoController,
+          decoration: InputDecoration(
+            labelText: '兑换备注',
+            hintText: '用户兑换后可在账本里看到',
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(PMRadius.s),
+            ),
+          ),
+        ),
+        if (_issueError != null) ...[
+          const SizedBox(height: PMSpacing.s),
+          Text(
+            _issueError!,
+            style: const TextStyle(
+              color: AppColors.error,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+        const SizedBox(height: PMSpacing.m),
+        PMButton(
+          label: '生成兑换码',
+          icon: Icons.confirmation_number_outlined,
+          loading: _issuingCodes,
+          onPressed: _issuingCodes ? null : _issueCodes,
+        ),
+        if (_issuedCodes.isNotEmpty) ...[
+          const SizedBox(height: PMSpacing.m),
+          PMCard(
+            padding: const EdgeInsets.all(PMSpacing.m),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Expanded(
+                      child: Text(
+                        '本次生成的兑换码',
+                        style: TextStyle(
+                          color: AppColors.textPrimary,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
+                    PMButton(
+                      label: '复制全部',
+                      icon: Icons.copy,
+                      compact: true,
+                      variant: PMButtonVariant.secondary,
+                      onPressed: () {
+                        Clipboard.setData(
+                          ClipboardData(text: _issuedCodes.join('\n')),
+                        );
+                      },
+                    ),
+                  ],
+                ),
+                const SizedBox(height: PMSpacing.s),
+                SelectableText(
+                  _issuedCodes.join('\n'),
+                  style: const TextStyle(
+                    color: AppColors.textPrimary,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 0,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _smallNumberField(TextEditingController controller, String label) {
+    return TextField(
+      controller: controller,
+      keyboardType: TextInputType.number,
+      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+      decoration: InputDecoration(
+        labelText: label,
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(PMRadius.s),
+        ),
+      ),
     );
   }
 

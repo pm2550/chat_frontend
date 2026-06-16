@@ -1,4 +1,5 @@
 import 'package:chat_app/models/points.dart';
+import 'package:chat_app/models/user.dart';
 import 'package:chat_app/screens/settings/points_screen.dart';
 import 'package:chat_app/services/points_service.dart';
 import 'package:chat_app/widgets/cost_preview_chip.dart';
@@ -13,8 +14,7 @@ void main() {
   }
 
   group('PointsScreen', () {
-    testWidgets('renders balance, free quota and ledger rows',
-        (tester) async {
+    testWidgets('renders balance, free quota and ledger rows', (tester) async {
       tester.view.physicalSize = const Size(1440, 1400);
       tester.view.devicePixelRatio = 1;
       addTearDown(() {
@@ -127,6 +127,79 @@ void main() {
       expect(find.text('暂无积分记录'), findsOneWidget);
       expect(find.text('暂无免费功能配置'), findsOneWidget);
     });
+
+    testWidgets('admin tools search users, credit points and issue codes',
+        (tester) async {
+      tester.view.physicalSize = const Size(1440, 1800);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(() {
+        tester.view.resetPhysicalSize();
+        tester.view.resetDevicePixelRatio();
+      });
+      final service = _FakePointsService(
+        users: [_adminTarget],
+        adminBalance: const PointsBalance(
+          paidPoints: 20,
+          freeRemainingPerFeature: {},
+        ),
+        adminLedger: const [
+          PointsLedgerEntry(
+            id: 10,
+            delta: 20,
+            reason: 'admin_credit',
+            balancePaidAfter: 20,
+            freeUsed: 0,
+            memo: 'seed',
+          ),
+        ],
+        issueCodesResult:
+            const IssueCodesResult(codes: ['ABCD-EFGH-2345', 'JKLM-NPQR-6789']),
+      );
+
+      await tester.pumpWidget(
+        harness(
+          PointsScreen(
+            pointsService: service,
+            isAdminOverride: true,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('管理员积分管理'), findsOneWidget);
+
+      await tester.enterText(
+        find.widgetWithText(TextField, '搜索用户'),
+        'target',
+      );
+      await tester.tap(find.widgetWithText(FilledButton, '搜索'));
+      await tester.pumpAndSettle();
+
+      expect(service.searchCalls, 1);
+      expect(find.text('Target User'), findsOneWidget);
+
+      await tester.tap(find.text('Target User').first);
+      await tester.pumpAndSettle();
+
+      expect(service.adminBalanceFetches, 1);
+      expect(find.text('当前付费积分'), findsOneWidget);
+      expect(find.text('20'), findsOneWidget);
+
+      await tester.enterText(find.widgetWithText(TextField, '积分'), '30');
+      await tester.enterText(find.widgetWithText(TextField, '备注'), 'manual');
+      await tester.tap(find.widgetWithText(FilledButton, '加积分'));
+      await tester.pumpAndSettle();
+
+      expect(service.adminCreditCalls, 1);
+      expect(service.lastAdjustedUserId, '42');
+      expect(service.lastAdjustedPoints, 30);
+
+      await tester.tap(find.widgetWithText(FilledButton, '生成兑换码'));
+      await tester.pumpAndSettle();
+
+      expect(service.issueCalls, 1);
+      expect(find.text('ABCD-EFGH-2345\nJKLM-NPQR-6789'), findsOneWidget);
+    });
   });
 
   group('PMCostPreviewChip', () {
@@ -213,17 +286,36 @@ class _FakePointsService extends PointsService {
       credited: 0,
       newPaidBalance: 0,
     ),
+    this.users = const <User>[],
+    this.adminBalance = const PointsBalance(
+      paidPoints: 0,
+      freeRemainingPerFeature: {},
+    ),
+    this.adminLedger = const <PointsLedgerEntry>[],
+    this.issueCodesResult = const IssueCodesResult(codes: []),
   });
 
   final PointsBalance balance;
   final List<PointsLedgerEntry> ledger;
   final CostPreview preview;
   final RedeemResult redeemResult;
+  final List<User> users;
+  PointsBalance adminBalance;
+  List<PointsLedgerEntry> adminLedger;
+  final IssueCodesResult issueCodesResult;
 
   int balanceFetches = 0;
   int ledgerFetches = 0;
   int redeemCalls = 0;
+  int searchCalls = 0;
+  int adminBalanceFetches = 0;
+  int adminLedgerFetches = 0;
+  int adminCreditCalls = 0;
+  int adminDebitCalls = 0;
+  int issueCalls = 0;
   String? lastRedeemedCode;
+  String? lastAdjustedUserId;
+  int? lastAdjustedPoints;
 
   @override
   Future<PointsBalance> fetchBalance() async {
@@ -251,4 +343,78 @@ class _FakePointsService extends PointsService {
     lastRedeemedCode = code;
     return redeemResult;
   }
+
+  @override
+  Future<List<User>> searchUsers(String keyword, {int limit = 10}) async {
+    searchCalls += 1;
+    return users;
+  }
+
+  @override
+  Future<PointsBalance> adminFetchUserBalance(String userId) async {
+    adminBalanceFetches += 1;
+    return adminBalance;
+  }
+
+  @override
+  Future<List<PointsLedgerEntry>> adminFetchUserLedger(
+    String userId, {
+    int limit = 20,
+    int offset = 0,
+  }) async {
+    adminLedgerFetches += 1;
+    return adminLedger;
+  }
+
+  @override
+  Future<PointsBalance> adminCreditUser(
+    String userId,
+    int points, {
+    String? memo,
+  }) async {
+    adminCreditCalls += 1;
+    lastAdjustedUserId = userId;
+    lastAdjustedPoints = points;
+    adminBalance = PointsBalance(
+      paidPoints: adminBalance.paidPoints + points,
+      freeRemainingPerFeature: adminBalance.freeRemainingPerFeature,
+    );
+    return adminBalance;
+  }
+
+  @override
+  Future<PointsBalance> adminDebitUser(
+    String userId,
+    int points, {
+    String? memo,
+  }) async {
+    adminDebitCalls += 1;
+    lastAdjustedUserId = userId;
+    lastAdjustedPoints = points;
+    adminBalance = PointsBalance(
+      paidPoints: adminBalance.paidPoints - points,
+      freeRemainingPerFeature: adminBalance.freeRemainingPerFeature,
+    );
+    return adminBalance;
+  }
+
+  @override
+  Future<IssueCodesResult> adminIssueCodes({
+    required int count,
+    required int pointsEach,
+    String? batchLabel,
+    String? memo,
+  }) async {
+    issueCalls += 1;
+    return issueCodesResult;
+  }
 }
+
+final _adminTarget = User(
+  id: '42',
+  username: 'target',
+  email: 'target@example.com',
+  displayName: 'Target User',
+  createdAt: DateTime(2026, 1, 1),
+  roles: const [UserRole.user],
+);
