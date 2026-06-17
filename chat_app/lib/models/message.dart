@@ -1,3 +1,5 @@
+import '../utils/date_time_utils.dart';
+
 enum MessageType {
   text('文本'),
   image('图片'),
@@ -290,11 +292,9 @@ class Message {
         (e) => e.name.toUpperCase() == statusValue.toString().toUpperCase(),
         orElse: () => MessageStatus.sent,
       ),
-      timestamp:
-          DateTime.tryParse(timestampValue?.toString() ?? '') ?? DateTime.now(),
+      timestamp: parseServerDateTime(timestampValue) ?? DateTime.now(),
       editedAt: json['editedAt'] != null || json['edited_at'] != null
-          ? DateTime.tryParse(
-              (json['editedAt'] ?? json['edited_at']).toString())
+          ? parseServerDateTime(json['editedAt'] ?? json['edited_at'])
           : null,
       replyToId: json['replyToId']?.toString(),
       replyToMessage: json['replyToMessage'] != null

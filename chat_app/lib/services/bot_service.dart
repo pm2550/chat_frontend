@@ -40,6 +40,8 @@ class BotConfig {
   final List<String> characterAlternateGreetings;
   final int characterBookEntryCount;
   final List<String> enabledTools;
+  final String? inboundTokenLast4;
+  final List<String> inboundTokenScopes;
 
   BotConfig({
     this.id,
@@ -69,6 +71,8 @@ class BotConfig {
     this.characterAlternateGreetings = const [],
     this.characterBookEntryCount = 0,
     this.enabledTools = const [],
+    this.inboundTokenLast4,
+    this.inboundTokenScopes = const [],
   });
 
   factory BotConfig.fromJson(Map<String, dynamic> json) {
@@ -109,6 +113,11 @@ class BotConfig {
       characterBookEntryCount:
           int.tryParse(json['characterBookEntryCount']?.toString() ?? '') ?? 0,
       enabledTools: (json['enabledTools'] as List<dynamic>?)
+              ?.map((item) => item.toString())
+              .toList(growable: false) ??
+          const [],
+      inboundTokenLast4: json['inboundTokenLast4']?.toString(),
+      inboundTokenScopes: (json['inboundTokenScopes'] as List<dynamic>?)
               ?.map((item) => item.toString())
               .toList(growable: false) ??
           const [],
@@ -298,6 +307,63 @@ class BotService {
     final response = await _request('DELETE', ApiConstants.botDetail(botId));
     _decodeResponse(response);
     return true;
+  }
+
+  Future<String> rotateInboundToken(int botId) async {
+    final response = await _request('POST', ApiConstants.rotateBotToken(botId));
+    final data = _decodeResponse(response);
+    final token = (data['data'] is Map<String, dynamic>)
+        ? (data['data'] as Map<String, dynamic>)['token']?.toString()
+        : null;
+    if (token == null || token.isEmpty) {
+      throw const BotServiceException('令牌已生成但响应中没有 token');
+    }
+    return token;
+  }
+
+  Future<void> revokeInboundToken(int botId) async {
+    final response = await _request('DELETE', ApiConstants.revokeBotToken(botId));
+    _decodeResponse(response);
+  }
+
+  Future<List<String>> updateInboundTokenScopes(
+    int botId,
+    List<String> scopes,
+  ) async {
+    final response = await _request(
+      'PUT',
+      ApiConstants.botTokenScopes(botId),
+      body: {'scopes': scopes},
+    );
+    final data = _decodeResponse(response);
+    final raw = data['data'] is Map<String, dynamic>
+        ? (data['data'] as Map<String, dynamic>)['scopes']
+        : null;
+    if (raw is List<dynamic>) {
+      return raw.map((item) => item.toString()).toList(growable: false);
+    }
+    return scopes;
+  }
+
+  Future<void> registerWebhook(
+    int botId, {
+    required String callbackUrl,
+    String? secret,
+    String? eventTypes,
+    int? chatRoomId,
+  }) async {
+    final response = await _request(
+      'POST',
+      ApiConstants.botWebhooks(botId),
+      body: {
+        'callbackUrl': callbackUrl,
+        if (secret != null && secret.isNotEmpty) 'secret': secret,
+        if (eventTypes != null && eventTypes.isNotEmpty)
+          'eventTypes': eventTypes,
+        if (chatRoomId != null) 'chatRoomId': chatRoomId,
+      },
+    );
+    _decodeResponse(response);
   }
 
   Future<BotConfig> importCharacterCard(

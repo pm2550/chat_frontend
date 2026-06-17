@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import '../../constants/app_colors.dart';
 import '../../design/design.dart';
@@ -1298,6 +1299,9 @@ class _BotManagementScreenState extends State<BotManagementScreen> {
                             leading: const CircleAvatar(
                               child: Icon(Icons.smart_toy),
                             ),
+                            onTap: bot.id == null
+                                ? null
+                                : () => _showExternalAccessSheet(bot),
                             title: Text(bot.botName),
                             subtitle: Text(
                               [
@@ -1305,13 +1309,28 @@ class _BotManagementScreenState extends State<BotManagementScreen> {
                                 if (bot.modelName != null &&
                                     bot.modelName!.isNotEmpty)
                                   bot.modelName!,
+                                if (bot.inboundTokenLast4?.isNotEmpty == true)
+                                  'token ****${bot.inboundTokenLast4}',
                               ].join(' · '),
                             ),
-                            trailing: IconButton(
-                              icon: const Icon(Icons.delete_outline,
-                                  color: Colors.red),
-                              onPressed:
-                                  bot.id == null ? null : () => _deleteBot(bot),
+                            trailing: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                IconButton(
+                                  tooltip: '外部接入',
+                                  icon: const Icon(Icons.key),
+                                  onPressed: bot.id == null
+                                      ? null
+                                      : () => _showExternalAccessSheet(bot),
+                                ),
+                                IconButton(
+                                  icon: const Icon(Icons.delete_outline,
+                                      color: Colors.red),
+                                  onPressed: bot.id == null
+                                      ? null
+                                      : () => _deleteBot(bot),
+                                ),
+                              ],
                             ),
                           );
                         },
@@ -1394,6 +1413,298 @@ class _BotManagementScreenState extends State<BotManagementScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  static const List<Map<String, String>> _gatewayScopeOptions = [
+    {'id': 'message:send', 'label': '发送消息 / 文件 / 图片 / 引用'},
+    {'id': 'message:read', 'label': '读取历史 / 搜索 / 看图'},
+    {'id': 'workspace:read', 'label': '读取资料库'},
+    {'id': 'workspace:write', 'label': '写入资料库'},
+    {'id': 'room:manage', 'label': '建群 / 成员 / 禁言'},
+    {'id': 'friend:send', 'label': '好友私聊发送'},
+  ];
+
+  void _showExternalAccessSheet(BotConfig bot) {
+    final botId = bot.id;
+    if (botId == null) return;
+    final selected = <String>{...bot.inboundTokenScopes};
+    final webhookUrlController = TextEditingController();
+    final webhookSecretController = TextEditingController();
+    String? currentTokenLast4 = bot.inboundTokenLast4;
+    String? oneTimeToken;
+    bool isSavingScopes = false;
+    bool isRotating = false;
+    bool isRevoking = false;
+    bool isSavingWebhook = false;
+    final gatewayBase = '${Uri.base.origin}/api/bot-gateway/v1';
+    final messenger = ScaffoldMessenger.of(context);
+
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (sheetContext) {
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            Future<void> saveScopes() async {
+              setSheetState(() => isSavingScopes = true);
+              try {
+                final saved = await _botService.updateInboundTokenScopes(
+                  botId,
+                  selected.toList(growable: false),
+                );
+                selected
+                  ..clear()
+                  ..addAll(saved);
+                await _loadBots();
+                if (!mounted) return;
+                messenger.showSnackBar(
+                  const SnackBar(content: Text('外部接入权限已保存')),
+                );
+              } catch (error) {
+                if (!mounted) return;
+                messenger.showSnackBar(
+                  SnackBar(content: Text('保存权限失败: $error')),
+                );
+              } finally {
+                setSheetState(() => isSavingScopes = false);
+              }
+            }
+
+            Future<void> rotateToken() async {
+              setSheetState(() => isRotating = true);
+              try {
+                final token = await _botService.rotateInboundToken(botId);
+                await _loadBots();
+                setSheetState(() {
+                  oneTimeToken = token;
+                  currentTokenLast4 =
+                      token.length >= 4 ? token.substring(token.length - 4) : token;
+                });
+              } catch (error) {
+                if (!mounted) return;
+                messenger.showSnackBar(
+                  SnackBar(content: Text('生成令牌失败: $error')),
+                );
+              } finally {
+                setSheetState(() => isRotating = false);
+              }
+            }
+
+            Future<void> revokeToken() async {
+              setSheetState(() => isRevoking = true);
+              try {
+                await _botService.revokeInboundToken(botId);
+                await _loadBots();
+                setSheetState(() {
+                  oneTimeToken = null;
+                  currentTokenLast4 = null;
+                });
+                if (!mounted) return;
+                messenger.showSnackBar(
+                  const SnackBar(content: Text('令牌已吊销')),
+                );
+              } catch (error) {
+                if (!mounted) return;
+                messenger.showSnackBar(
+                  SnackBar(content: Text('吊销令牌失败: $error')),
+                );
+              } finally {
+                setSheetState(() => isRevoking = false);
+              }
+            }
+
+            Future<void> saveWebhook() async {
+              final url = webhookUrlController.text.trim();
+              if (url.isEmpty) return;
+              setSheetState(() => isSavingWebhook = true);
+              try {
+                await _botService.registerWebhook(
+                  botId,
+                  callbackUrl: url,
+                  secret: webhookSecretController.text.trim(),
+                  eventTypes: 'message.created',
+                );
+                if (!mounted) return;
+                messenger.showSnackBar(
+                  const SnackBar(content: Text('Webhook 已保存')),
+                );
+              } catch (error) {
+                if (!mounted) return;
+                messenger.showSnackBar(
+                  SnackBar(content: Text('保存 Webhook 失败: $error')),
+                );
+              } finally {
+                setSheetState(() => isSavingWebhook = false);
+              }
+            }
+
+            final curl = '''
+curl -X POST "$gatewayBase/messages" \\
+  -H "Authorization: Bearer <TOKEN>" \\
+  -H "Content-Type: application/json" \\
+  -d '{"roomId":123,"content":"hello","reply_to_message_id":456}'
+
+curl "$gatewayBase/rooms/123/messages?page=0&size=20" \\
+  -H "Authorization: Bearer <TOKEN>"
+
+curl -F "roomId=123" -F "file=@./demo.png" \\
+  -H "Authorization: Bearer <TOKEN>" \\
+  "$gatewayBase/files"
+
+Webhook 签名：服务端会使用你填写的 secret 对推送事件签名，接收端按 webhook 文档校验请求签名。
+''';
+
+            return SafeArea(
+              child: Padding(
+                padding: EdgeInsets.fromLTRB(
+                  20,
+                  18,
+                  20,
+                  MediaQuery.of(sheetContext).viewInsets.bottom + 20,
+                ),
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 760),
+                  child: SingleChildScrollView(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          '${bot.botName} · 外部接入',
+                          style: Theme.of(context).textTheme.titleLarge,
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          currentTokenLast4?.isNotEmpty == true
+                              ? '当前令牌：****$currentTokenLast4'
+                              : '尚未生成长期 token',
+                        ),
+                        const SizedBox(height: 16),
+                        Text('Token scopes',
+                            style: Theme.of(context).textTheme.titleMedium),
+                        const SizedBox(height: 8),
+                        for (final option in _gatewayScopeOptions)
+                          CheckboxListTile(
+                            value: selected.contains(option['id']),
+                            onChanged: (checked) {
+                              setSheetState(() {
+                                if (checked == true) {
+                                  selected.add(option['id']!);
+                                } else {
+                                  selected.remove(option['id']);
+                                }
+                              });
+                            },
+                            title: Text(option['label']!),
+                            subtitle: Text(option['id']!),
+                            contentPadding: EdgeInsets.zero,
+                          ),
+                        const SizedBox(height: 8),
+                        Wrap(
+                          spacing: 10,
+                          runSpacing: 10,
+                          children: [
+                            ElevatedButton.icon(
+                              onPressed: isSavingScopes ? null : saveScopes,
+                              icon: const Icon(Icons.save),
+                              label: Text(isSavingScopes ? '保存中...' : '保存权限'),
+                            ),
+                            OutlinedButton.icon(
+                              onPressed: isRotating ? null : rotateToken,
+                              icon: const Icon(Icons.key),
+                              label: Text(isRotating ? '生成中...' : '生成/轮换 token'),
+                            ),
+                            OutlinedButton.icon(
+                              onPressed: currentTokenLast4 == null || isRevoking
+                                  ? null
+                                  : revokeToken,
+                              icon: const Icon(Icons.block),
+                              label: Text(isRevoking ? '吊销中...' : '吊销 token'),
+                            ),
+                          ],
+                        ),
+                        if (oneTimeToken != null) ...[
+                          const SizedBox(height: 16),
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: AppColors.pixelBlue,
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: AppColors.borderLight),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text('明文 token 仅显示这一次，关闭后无法再查看。'),
+                                const SizedBox(height: 8),
+                                SelectableText(oneTimeToken!),
+                                const SizedBox(height: 8),
+                                TextButton.icon(
+                                  onPressed: () {
+                                    Clipboard.setData(
+                                      ClipboardData(text: oneTimeToken!),
+                                    );
+                                  },
+                                  icon: const Icon(Icons.copy),
+                                  label: const Text('复制 token'),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                        const SizedBox(height: 20),
+                        Text('Webhook',
+                            style: Theme.of(context).textTheme.titleMedium),
+                        const SizedBox(height: 8),
+                        TextField(
+                          controller: webhookUrlController,
+                          decoration:
+                              const InputDecoration(labelText: 'Callback URL'),
+                        ),
+                        const SizedBox(height: 8),
+                        TextField(
+                          controller: webhookSecretController,
+                          decoration:
+                              const InputDecoration(labelText: 'Webhook secret'),
+                          obscureText: true,
+                        ),
+                        const SizedBox(height: 8),
+                        ElevatedButton.icon(
+                          onPressed: isSavingWebhook ? null : saveWebhook,
+                          icon: const Icon(Icons.webhook),
+                          label: Text(isSavingWebhook ? '保存中...' : '保存 webhook'),
+                        ),
+                        const SizedBox(height: 20),
+                        Text('curl 示例',
+                            style: Theme.of(context).textTheme.titleMedium),
+                        const SizedBox(height: 8),
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: Colors.black87,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: SelectableText(
+                            curl,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontFamily: 'monospace',
+                              fontSize: 12,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
     );
   }
 

@@ -1,5 +1,6 @@
 import 'user.dart';
 import 'message.dart';
+import '../utils/date_time_utils.dart';
 
 class Chat {
   final String id;
@@ -70,9 +71,8 @@ class Chat {
       announcement: json['announcement']?.toString(),
       announcementUpdatedAt: json['announcementUpdatedAt'] != null ||
               json['announcement_updated_at'] != null
-          ? DateTime.tryParse(
-              (json['announcementUpdatedAt'] ?? json['announcement_updated_at'])
-                  .toString())
+          ? parseServerDateTime(
+              json['announcementUpdatedAt'] ?? json['announcement_updated_at'])
           : null,
       announcementUpdatedBy: json['announcementUpdatedBy']?.toString() ??
           json['announcement_updated_by']?.toString(),
@@ -101,12 +101,11 @@ class Chat {
           json['customBackgroundPreset'] ?? json['custom_background_preset'],
       customBackgroundUrl:
           json['customBackgroundUrl'] ?? json['custom_background_url'],
-      createdAt: DateTime.tryParse(
-              (json['createdAt'] ?? json['created_at']).toString()) ??
-          DateTime.now(),
+      createdAt:
+          parseServerDateTime(json['createdAt'] ?? json['created_at']) ??
+              DateTime.now(),
       updatedAt: json['updatedAt'] != null || json['updated_at'] != null
-          ? DateTime.tryParse(
-              (json['updatedAt'] ?? json['updated_at']).toString())
+          ? parseServerDateTime(json['updatedAt'] ?? json['updated_at'])
           : null,
       lastMessage: json['lastMessage'] != null
           ? Message.fromJson(json['lastMessage'] as Map<String, dynamic>)
@@ -115,8 +114,7 @@ class Chat {
       isPinned: json['isPinned'] ?? json['is_pinned'] ?? false,
       isMuted: json['isMuted'] ?? json['muted'] ?? json['is_muted'] ?? false,
       hiddenAt: json['hiddenAt'] != null || json['hidden_at'] != null
-          ? DateTime.tryParse(
-              (json['hiddenAt'] ?? json['hidden_at']).toString())
+          ? parseServerDateTime(json['hiddenAt'] ?? json['hidden_at'])
           : null,
       isBlocked:
           json['isBlocked'] ?? json['blocked'] ?? json['is_blocked'] ?? false,

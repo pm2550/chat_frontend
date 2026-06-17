@@ -229,6 +229,12 @@ class ApiConstants {
   static const String createBot = '$apiBaseUrl/bots';
   static const String myBots = '$apiBaseUrl/bots/my';
   static String botDetail(int botId) => '$apiBaseUrl/bots/$botId';
+  static String rotateBotToken(int botId) =>
+      '$apiBaseUrl/bots/$botId/token/rotate';
+  static String revokeBotToken(int botId) => '$apiBaseUrl/bots/$botId/token';
+  static String botTokenScopes(int botId) =>
+      '$apiBaseUrl/bots/$botId/token/scopes';
+  static String botWebhooks(int botId) => '$apiBaseUrl/bots/$botId/webhooks';
   static String botCharacterCardImport(int botId) =>
       '$apiBaseUrl/bots/$botId/character-card/import';
   static String botCharacterCardExport(int botId) =>
