@@ -306,6 +306,9 @@ class _HomeScreenState extends State<HomeScreen> {
   void _setAiSection(String section) {
     if (_aiSection == section) return;
     setState(() => _aiSection = section);
+    if (_currentIndex == 3) {
+      _syncRoute('/home/ai/$section');
+    }
   }
 
   void _syncRoute(String route) {
