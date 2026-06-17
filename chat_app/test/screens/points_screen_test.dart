@@ -1,6 +1,7 @@
 import 'package:chat_app/models/points.dart';
 import 'package:chat_app/models/user.dart';
 import 'package:chat_app/screens/settings/points_screen.dart';
+import 'package:chat_app/services/auth_service.dart';
 import 'package:chat_app/services/points_service.dart';
 import 'package:chat_app/widgets/cost_preview_chip.dart';
 import 'package:flutter/material.dart';
@@ -199,6 +200,48 @@ void main() {
 
       expect(service.issueCalls, 1);
       expect(find.text('ABCD-EFGH-2345\nJKLM-NPQR-6789'), findsOneWidget);
+    });
+
+    testWidgets('admin tools show when backend admin probe succeeds',
+        (tester) async {
+      tester.view.physicalSize = const Size(1440, 1200);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(() {
+        tester.view.resetPhysicalSize();
+        tester.view.resetDevicePixelRatio();
+      });
+      final service = _FakePointsService(
+        balance: const PointsBalance(
+          paidPoints: 0,
+          freeRemainingPerFeature: {},
+        ),
+        adminBalance: const PointsBalance(
+          paidPoints: 10000,
+          freeRemainingPerFeature: {},
+        ),
+      );
+
+      await tester.pumpWidget(
+        harness(
+          PointsScreen(
+            pointsService: service,
+            authService: _FakeAuthService(
+              currentUser: User(
+                id: '1',
+                username: 'admin',
+                email: 'admin@example.com',
+                displayName: 'Admin',
+                createdAt: DateTime(2026, 1, 1),
+                roles: const [UserRole.user],
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(service.adminBalanceFetches, 1);
+      expect(find.text('管理员积分管理'), findsOneWidget);
     });
   });
 
@@ -418,3 +461,14 @@ final _adminTarget = User(
   createdAt: DateTime(2026, 1, 1),
   roles: const [UserRole.user],
 );
+
+class _FakeAuthService extends AuthService {
+  _FakeAuthService({required User currentUser})
+      : _currentUser = currentUser,
+        super.test();
+
+  final User _currentUser;
+
+  @override
+  User? get currentUser => _currentUser;
+}

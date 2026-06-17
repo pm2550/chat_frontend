@@ -14,10 +14,12 @@ class PointsScreen extends StatefulWidget {
   const PointsScreen({
     super.key,
     this.pointsService = const PointsService(),
+    this.authService,
     this.isAdminOverride,
   });
 
   final PointsService pointsService;
+  final AuthService? authService;
   final bool? isAdminOverride;
 
   @override
@@ -72,10 +74,13 @@ class _PointsScreenState extends State<PointsScreen> {
   Future<_PointsPageData> _load() async {
     final balance = await widget.pointsService.fetchBalance();
     final ledger = await widget.pointsService.fetchLedger(limit: 20);
-    return _PointsPageData(balance, ledger);
+    final canUseAdminTools = await _detectAdminAccess();
+    return _PointsPageData(balance, ledger, canUseAdminTools);
   }
 
   Future<_PointsPageData> _loadDeferred() => Future.microtask(_load);
+
+  AuthService get _auth => widget.authService ?? AuthService();
 
   void _refresh() {
     setState(() {
@@ -118,10 +123,18 @@ class _PointsScreenState extends State<PointsScreen> {
         .hasMatch(code);
   }
 
-  bool get _canUseAdminTools {
+  Future<bool> _detectAdminAccess() async {
     final override = widget.isAdminOverride;
     if (override != null) return override;
-    return AuthService().currentUser?.roles.contains(UserRole.admin) == true;
+    final currentUser = _auth.currentUser;
+    if (currentUser == null) return false;
+    if (currentUser.roles.contains(UserRole.admin)) return true;
+    try {
+      await widget.pointsService.adminFetchUserBalance(currentUser.id);
+      return true;
+    } catch (_) {
+      return false;
+    }
   }
 
   Future<void> _searchAdminUsers() async {
@@ -305,6 +318,7 @@ class _PointsScreenState extends State<PointsScreen> {
                           paidPoints: 0,
                         ),
                         [],
+                        false,
                       );
                   return _buildContent(data);
                 },
@@ -348,7 +362,7 @@ class _PointsScreenState extends State<PointsScreen> {
         _buildRedeemCard(),
         const SizedBox(height: PMSpacing.l),
         _buildLedgerCard(data.ledger),
-        if (_canUseAdminTools) ...[
+        if (data.canUseAdminTools) ...[
           const SizedBox(height: PMSpacing.l),
           _buildAdminToolsCard(),
         ],
@@ -1035,10 +1049,15 @@ class _StatTile extends StatelessWidget {
 }
 
 class _PointsPageData {
-  const _PointsPageData(this.balance, this.ledger);
+  const _PointsPageData(
+    this.balance,
+    this.ledger,
+    this.canUseAdminTools,
+  );
 
   final PointsBalance balance;
   final List<PointsLedgerEntry> ledger;
+  final bool canUseAdminTools;
 }
 
 class UpperCaseTextFormatter extends TextInputFormatter {
