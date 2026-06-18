@@ -71,6 +71,47 @@ void main() {
       expect(find.text('暂无聊天记录'), findsOneWidget);
     });
 
+    testWidgets('sorts loaded rooms by latest known message time',
+        (tester) async {
+      final service = FakeChatListService(chats: [
+        Chat(
+          id: 'old',
+          name: '旧会话',
+          type: ChatType.group,
+          createdAt: DateTime.parse('2024-01-01T10:00:00'),
+          lastMessage: Message(
+            id: 'old-msg',
+            content: '旧消息',
+            senderId: '2',
+            senderName: 'Alice',
+            chatRoomId: 'old',
+            timestamp: DateTime.parse('2024-01-01T10:01:00'),
+          ),
+        ),
+        Chat(
+          id: 'new',
+          name: '新会话',
+          type: ChatType.group,
+          createdAt: DateTime.parse('2024-01-01T10:00:00'),
+          lastMessage: Message(
+            id: 'new-msg',
+            content: '新消息',
+            senderId: '3',
+            senderName: 'Bob',
+            chatRoomId: 'new',
+            timestamp: DateTime.parse('2024-01-01T10:09:00'),
+          ),
+        ),
+      ]);
+
+      await tester.pumpWidget(buildTestWidget(service));
+      await tester.pump();
+
+      final newTop = tester.getTopLeft(find.text('新会话'));
+      final oldTop = tester.getTopLeft(find.text('旧会话'));
+      expect(newTop.dy, lessThan(oldTop.dy));
+    });
+
     testWidgets('renders group avatar image when room has avatarUrl',
         (tester) async {
       final service = FakeChatListService(chats: [

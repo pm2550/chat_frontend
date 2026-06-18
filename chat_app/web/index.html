@@ -192,9 +192,10 @@
   </script>
   <script>
     (function () {
-      var fallbackBuildStamp = 'pmchat-rescue-20260615-p0';
-      var recoveryGeneration = '20260615-p0';
+      var fallbackBuildStamp = 'pmchat-rescue-20260618-video-cache-p2';
+      var recoveryGeneration = '20260618-video-cache-p2';
       var currentBuildStamp = fallbackBuildStamp;
+      var flutterLoadStarted = false;
 
       function dismissBoot() {
         var boot = document.getElementById('pm-boot');
@@ -242,6 +243,9 @@
       }
 
       function loadFlutter() {
+        if (flutterLoadStarted) return;
+        flutterLoadStarted = true;
+        window.__PMCHAT_BUILD_STAMP = currentBuildStamp;
         var restoreServiceWorkerLookup = disableFlutterDeprecatedServiceWorker();
         var script = document.createElement('script');
         script.src = 'flutter_bootstrap.js?v=' + encodeURIComponent(currentBuildStamp);
@@ -299,10 +303,10 @@
       }
 
       function fetchBuildStampFile() {
-        return fetch('/.last_build_id?ts=' + Date.now(), {
+        return fetchWithTimeout('/.last_build_id?ts=' + Date.now(), {
           cache: 'no-store',
           credentials: 'same-origin'
-        })
+        }, 2500)
           .then(function (response) {
             if (!response.ok) throw new Error('build stamp unavailable');
             return response.text();
@@ -314,11 +318,11 @@
       }
 
       function fetchAssetBuildStamp() {
-        return fetch('/main.dart.js?stamp=' + Date.now(), {
+        return fetchWithTimeout('/main.dart.js?stamp=' + Date.now(), {
           method: 'HEAD',
           cache: 'no-store',
           credentials: 'same-origin'
-        })
+        }, 2500)
           .then(function (response) {
             if (!response.ok) throw new Error('main asset stamp unavailable');
             var stampParts = [
@@ -352,6 +356,50 @@
         } catch (error) {
           // Storage can be unavailable in private/locked-down browsers.
         }
+      }
+
+      function fetchWithTimeout(url, options, timeoutMs) {
+        if (typeof AbortController === 'undefined') {
+          return Promise.race([
+            fetch(url, options),
+            delay(timeoutMs).then(function () {
+              throw new Error('fetch timeout');
+            })
+          ]);
+        }
+        var controller = new AbortController();
+        var timer = setTimeout(function () {
+          controller.abort();
+        }, timeoutMs);
+        var requestOptions = Object.assign({}, options || {}, {
+          signal: controller.signal
+        });
+        return fetch(url, requestOptions).finally(function () {
+          clearTimeout(timer);
+        });
+      }
+
+      function delay(timeoutMs) {
+        return new Promise(function (resolve) {
+          setTimeout(resolve, timeoutMs);
+        });
+      }
+
+      function withTimeout(promise, timeoutMs, fallbackValue) {
+        var settled = false;
+        return Promise.race([
+          promise.then(function (value) {
+            settled = true;
+            return value;
+          }, function (error) {
+            settled = true;
+            throw error;
+          }),
+          delay(timeoutMs).then(function () {
+            if (!settled) return fallbackValue;
+            return fallbackValue;
+          })
+        ]);
       }
 
       function pmchatWorkerUrl(buildStamp) {
@@ -492,6 +540,81 @@
           window.navigator.standalone === true;
       }
 
+      function isAppleStandalonePwa() {
+        var ua = navigator.userAgent || '';
+        var isiOS = /iPad|iPhone|iPod/.test(ua) ||
+          (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+        return isiOS && isStandalonePwa();
+      }
+
+      function shouldRunIosPwaHardReset() {
+        if (!isAppleStandalonePwa()) return false;
+        var url = new URL(window.location.href);
+        if (url.searchParams.get('pmchat_ios_pwa_reset') === recoveryGeneration) {
+          try {
+            localStorage.setItem(
+              'pmchat-ios-pwa-hard-reset-generation',
+              recoveryGeneration
+            );
+          } catch (error) {
+            // Storage may be unavailable; the URL marker is enough for this load.
+          }
+          return false;
+        }
+        try {
+          return localStorage.getItem('pmchat-ios-pwa-hard-reset-generation') !==
+            recoveryGeneration;
+        } catch (error) {
+          return true;
+        }
+      }
+
+      function runIosPwaHardReset() {
+        var resetTasks = [];
+        if ('serviceWorker' in navigator && navigator.serviceWorker.getRegistrations) {
+          resetTasks.push(
+            navigator.serviceWorker.getRegistrations()
+              .then(function (registrations) {
+                return Promise.all(registrations.map(function (registration) {
+                  return registration.unregister().catch(function () { return false; });
+                }));
+              })
+              .catch(function () {})
+          );
+        }
+        if ('caches' in window) {
+          resetTasks.push(
+            caches.keys()
+              .then(function (keys) {
+                return Promise.all(keys.map(function (key) {
+                  return caches.delete(key);
+                }));
+              })
+              .catch(function () {})
+          );
+        }
+
+        Promise.race([
+          Promise.all(resetTasks),
+          delay(4500)
+        ]).then(function () {
+          try {
+            localStorage.setItem(
+              'pmchat-ios-pwa-hard-reset-generation',
+              recoveryGeneration
+            );
+          } catch (error) {
+            // The rescue URL marker still prevents reload loops.
+          }
+          var url = new URL(window.location.href);
+          url.searchParams.set('pmchat_ios_pwa_reset', recoveryGeneration);
+          url.searchParams.set('pmchat_ios_pwa_ts', Date.now().toString(36));
+          window.location.replace(url.toString());
+        }, function () {
+          loadFlutter();
+        });
+      }
+
       function subscriptionPayload(subscription) {
         if (!subscription) return null;
         var json = subscription.toJSON ? subscription.toJSON() : {};
@@ -579,10 +702,26 @@
         return window.pmchatWebPush.unsubscribe();
       };
 
-      fetchBuildStamp()
+      if (shouldRunIosPwaHardReset()) {
+        runIosPwaHardReset();
+        return;
+      }
+
+      setTimeout(function () {
+        if (!flutterLoadStarted) {
+          console.warn('PM chat bootstrap fallback: loading Flutter without waiting for service worker recovery.');
+          loadFlutter();
+        }
+      }, 6000);
+
+      withTimeout(fetchBuildStamp(), 3500, cachedAssetBuildStamp() || fallbackBuildStamp)
         .then(function (buildStamp) {
           currentBuildStamp = buildStamp;
-          return preparePmchatServiceWorker(buildStamp);
+          return withTimeout(
+            preparePmchatServiceWorker(buildStamp),
+            3500,
+            { reloading: false, timedOut: true }
+          );
         })
         .then(function (result) {
           if (result && result.reloading) return;

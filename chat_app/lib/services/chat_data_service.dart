@@ -109,12 +109,15 @@ class ChatDataService {
   static DateTime? _cachedChatRoomsAt;
   static int? _cachedChatRoomsPage;
   static int? _cachedChatRoomsSize;
+  static final Map<String, Message> _cachedLastMessagesByRoomId =
+      <String, Message>{};
 
   static void clearChatRoomsCache() {
     _cachedChatRooms = null;
     _cachedChatRoomsAt = null;
     _cachedChatRoomsPage = null;
     _cachedChatRoomsSize = null;
+    _cachedLastMessagesByRoomId.clear();
   }
 
   static void clearChatRoomsCacheForTesting() => clearChatRoomsCache();
@@ -142,6 +145,7 @@ class ChatDataService {
     if (index == -1) return;
     final patched = List<Chat>.from(cached);
     patched[index] = chat;
+    _rememberLastMessages(patched);
     _cachedChatRooms = _sortChatsInPlace(patched);
     _cachedChatRoomsAt = DateTime.now();
   }
@@ -187,10 +191,13 @@ class ChatDataService {
         _extractList(data, keys: const ['chatRooms', 'data', 'content'])
             .whereType<Map<String, dynamic>>()
             .map(Chat.fromJson)
+            .map(_mergeCachedLastMessage)
             .toList();
 
     if (!includeDetails || rooms.isEmpty) {
-      return _sortChats(rooms);
+      final sortedRooms = _sortChats(rooms);
+      _rememberLastMessages(sortedRooms);
+      return sortedRooms;
     }
 
     final enrichedRooms = await _enrichChatsWithLimit(
@@ -198,6 +205,7 @@ class ChatDataService {
       concurrency: detailLimit.clamp(1, 8),
     );
     final sortedRooms = _sortChats(enrichedRooms);
+    _rememberLastMessages(sortedRooms);
     if (useSharedCache) {
       _cacheChatRooms(sortedRooms, page: page, size: size);
     }
@@ -228,10 +236,46 @@ class ChatDataService {
     required int page,
     required int size,
   }) {
+    _rememberLastMessages(rooms);
     _cachedChatRooms = List<Chat>.from(rooms);
     _cachedChatRoomsAt = DateTime.now();
     _cachedChatRoomsPage = page;
     _cachedChatRoomsSize = size;
+  }
+
+  static Chat _mergeCachedLastMessage(Chat chat) {
+    final lastMessage = chat.lastMessage;
+    if (lastMessage != null) {
+      _cachedLastMessagesByRoomId[chat.id] = lastMessage;
+      return chat;
+    }
+
+    final cachedLastMessage = _cachedLastMessagesByRoomId[chat.id] ??
+        _lastMessageFromCachedRooms(chat.id);
+    if (cachedLastMessage == null) {
+      return chat;
+    }
+    return chat.copyWith(lastMessage: cachedLastMessage);
+  }
+
+  static Message? _lastMessageFromCachedRooms(String chatRoomId) {
+    final cached = _cachedChatRooms;
+    if (cached == null) return null;
+    for (final room in cached) {
+      if (room.id == chatRoomId && room.lastMessage != null) {
+        return room.lastMessage;
+      }
+    }
+    return null;
+  }
+
+  static void _rememberLastMessages(List<Chat> rooms) {
+    for (final room in rooms) {
+      final lastMessage = room.lastMessage;
+      if (lastMessage != null) {
+        _cachedLastMessagesByRoomId[room.id] = lastMessage;
+      }
+    }
   }
 
   Future<List<Chat>> _enrichChatsWithLimit(

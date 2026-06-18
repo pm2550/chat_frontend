@@ -168,6 +168,80 @@ void main() {
       expect(settingsRoomIds.toSet(), {'10', '11', '12'});
     });
 
+    test('getChatRooms preserves cached last messages when recent lookup fails',
+        () async {
+      var recentFails = false;
+      final service = ChatDataService(
+        authenticatedRequest: (method, url, {headers, body}) async {
+          expect(method, 'GET');
+          final uri = Uri.parse(url);
+          final path = uri.path;
+          final roomIdMatch =
+              RegExp(r'/messages/chat-room/(\d+)').firstMatch(path);
+          final roomId = roomIdMatch?.group(1);
+
+          if (path.endsWith('/chat-rooms')) {
+            return jsonResponse({
+              'chatRooms': [
+                for (final id in [10, 11])
+                  {
+                    'id': id,
+                    'name': 'Room $id',
+                    'roomType': 'GROUP',
+                    'isPrivate': false,
+                    'createdAt': '2024-01-01T10:00:00',
+                    'updatedAt': '2024-01-01T10:00:00',
+                  },
+              ],
+            });
+          }
+
+          if (path.contains('/messages/chat-room/') &&
+              path.endsWith('/recent')) {
+            if (recentFails) {
+              return jsonResponse({'error': 'temporary'}, statusCode: 503);
+            }
+            return jsonResponse({
+              'messages': [
+                {
+                  'id': int.parse(roomId!),
+                  'content': roomId == '10' ? 'newer cached' : 'older cached',
+                  'messageStatus': 'SENT',
+                  'createdAt': roomId == '10'
+                      ? '2024-01-01T10:05:00'
+                      : '2024-01-01T10:01:00',
+                  'senderId': 7,
+                  'sender': {'id': 7, 'displayName': 'Sender'},
+                },
+              ],
+            });
+          }
+
+          if (path.endsWith('/messages/unread-count')) {
+            return jsonResponse({'unreadCount': 0});
+          }
+          if (path.endsWith('/members')) {
+            return jsonResponse({'members': []});
+          }
+          if (path.endsWith('/notification-settings')) {
+            return jsonResponse({'pinned': false, 'muted': false});
+          }
+
+          fail('Unexpected request: $url');
+        },
+      );
+
+      final first = await service.getChatRooms(includeHidden: true);
+      expect(first.map((room) => room.id), ['10', '11']);
+      expect(first.first.lastMessage?.content, 'newer cached');
+
+      recentFails = true;
+      final second = await service.getChatRooms(includeHidden: true);
+      expect(second.map((room) => room.id), ['10', '11']);
+      expect(second.first.lastMessage?.content, 'newer cached');
+      expect(second.last.lastMessage?.content, 'older cached');
+    });
+
     test('getChatRoom reads backend chatRoom detail response', () async {
       final service = ChatDataService(
         authenticatedRequest: (method, url, {headers, body}) async {

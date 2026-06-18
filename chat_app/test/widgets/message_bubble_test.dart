@@ -880,6 +880,36 @@ void main() {
       expect(opened, message);
     });
 
+    testWidgets('tapping a video attachment opens preview handler',
+        (tester) async {
+      final message = createMessage(
+        content: 'clip.mp4',
+        type: MessageType.video,
+        fileUrl: '/api/files/chat/clip.mp4',
+        fileName: 'clip.mp4',
+        fileSize: 1024,
+        fileType: 'video/mp4',
+      );
+      Message? opened;
+
+      await tester.pumpWidget(buildTestWidget(
+        MessageBubble(
+          message: message,
+          isMe: false,
+          onOpenAttachment: (value) async {
+            opened = value;
+          },
+        ),
+      ));
+      await tester.pumpAndSettle();
+
+      expect(find.byIcon(Icons.play_arrow), findsWidgets);
+      await tester.tap(find.text('[视频] clip.mp4'));
+      await tester.pump();
+
+      expect(opened, message);
+    });
+
     testWidgets('renders content moderation reason for failed AI image',
         (tester) async {
       final message = createMessage(

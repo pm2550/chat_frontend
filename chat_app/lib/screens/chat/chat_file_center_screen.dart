@@ -8,6 +8,7 @@ import '../../design/design.dart';
 import '../../models/message.dart';
 import '../../services/chat_data_service.dart';
 import '../../services/file_save.dart' as file_save;
+import '../../widgets/chat_video_preview_dialog.dart';
 import '../../widgets/pm_brand.dart';
 
 class ChatFileCenterScreen extends StatefulWidget {
@@ -122,6 +123,10 @@ class _ChatFileCenterScreenState extends State<ChatFileCenterScreen> {
       await _showImagePreview(message);
       return;
     }
+    if (message.isVideoMessage) {
+      await _showVideoPreview(message);
+      return;
+    }
     await _downloadFile(message);
   }
 
@@ -151,6 +156,19 @@ class _ChatFileCenterScreenState extends State<ChatFileCenterScreen> {
       context: context,
       barrierColor: Colors.black.withValues(alpha: 0.88),
       builder: (dialogContext) => _FileCenterImagePreviewDialog(
+        message: message,
+        fileFuture: fileFuture,
+        onDownload: (file) => _downloadFile(message, downloaded: file),
+      ),
+    );
+  }
+
+  Future<void> _showVideoPreview(Message message) async {
+    final fileFuture = _chatService.downloadFile(message);
+    await showDialog<void>(
+      context: context,
+      barrierColor: Colors.black.withValues(alpha: 0.88),
+      builder: (_) => ChatVideoPreviewDialog(
         message: message,
         fileFuture: fileFuture,
         onDownload: (file) => _downloadFile(message, downloaded: file),

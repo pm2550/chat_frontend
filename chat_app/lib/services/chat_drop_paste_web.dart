@@ -40,6 +40,7 @@ ChatDropPasteController attachChatDropPasteHandlers({
 
   bool hasFileItems(web.DataTransfer? transfer) {
     if (transfer == null) return false;
+    if (dataTransferTypesContainFiles(transfer)) return true;
     final items = transfer.items;
     for (var i = 0; i < items.length; i++) {
       final item = items[i];
@@ -55,7 +56,7 @@ ChatDropPasteController attachChatDropPasteHandlers({
     for (var i = 0; i < items.length; i++) {
       if (items[i].kind == 'file') count++;
     }
-    return count;
+    return count > 0 ? count : (dataTransferTypesContainFiles(transfer) ? 1 : 0);
   }
 
   add('dragenter', (event) {
@@ -132,6 +133,16 @@ ChatDropPasteController attachChatDropPasteHandlers({
   });
 
   return ChatDropPasteController._(listeners);
+}
+
+bool dataTransferTypesContainFiles(web.DataTransfer transfer) {
+  final types = transfer.types.toDart;
+  for (var i = 0; i < types.length; i++) {
+    if (types[i].toDart.toLowerCase() == 'files') {
+      return true;
+    }
+  }
+  return false;
 }
 
 bool _isTextEditingElement(web.Element? element) {

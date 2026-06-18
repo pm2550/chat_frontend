@@ -528,7 +528,10 @@ class Message {
       (fileType?.toLowerCase().startsWith('audio/') ?? false);
   bool get isVideoMessage =>
       type == MessageType.video ||
-      (fileType?.toLowerCase().startsWith('video/') ?? false);
+      (fileType?.toLowerCase().startsWith('video/') ?? false) ||
+      _hasAnyLowercaseSuffix(fileName, _videoFileExtensions) ||
+      _hasAnyLowercaseSuffix(fileUrl, _videoFileExtensions) ||
+      _hasAnyLowercaseSuffix(content, _videoFileExtensions);
   bool get isLocationMessage => type == MessageType.location;
   bool get isStickerMessage => type == MessageType.sticker;
   bool get isPollMessage => type == MessageType.poll;
@@ -551,7 +554,7 @@ class Message {
   bool get hasPreviewImage => previewImageUrl != null;
 
   bool get isFileMessage =>
-      type == MessageType.file ||
+      (type == MessageType.file && !isVoiceMessage && !isVideoMessage) ||
       (fileUrl != null &&
           !isImageMessage &&
           !isImageGenerationMessage &&
@@ -645,6 +648,25 @@ class Message {
     if (value == null) return false;
     if (value is bool) return value;
     return value.toString().toLowerCase() == 'true';
+  }
+
+  static const Set<String> _videoFileExtensions = {
+    '.mp4',
+    '.m4v',
+    '.mov',
+    '.webm',
+    '.mkv',
+    '.avi',
+    '.3gp',
+    '.3gpp',
+    '.mpeg',
+    '.mpg',
+  };
+
+  static bool _hasAnyLowercaseSuffix(String? value, Set<String> suffixes) {
+    if (value == null || value.trim().isEmpty) return false;
+    final normalized = value.toLowerCase().split('?').first.split('#').first;
+    return suffixes.any((suffix) => normalized.endsWith(suffix));
   }
 
   static List<String> _parseStringList(dynamic value) {

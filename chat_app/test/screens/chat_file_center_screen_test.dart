@@ -50,6 +50,28 @@ void main() {
     expect(find.textContaining('已保存'), findsNothing);
   });
 
+  testWidgets('tapping video opens preview instead of saving immediately',
+      (tester) async {
+    final service = FakeFileCenterChatService();
+
+    await tester.pumpWidget(MaterialApp(
+      home: ChatFileCenterScreen(
+        chatRoomId: '42',
+        chatRoomName: 'Project Room',
+        chatService: service,
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('clip.mp4').first);
+    await tester.pump();
+
+    expect(service.downloadedIds, ['3']);
+    expect(find.byTooltip('保存视频'), findsOneWidget);
+    expect(find.textContaining('已取回'), findsNothing);
+    expect(find.textContaining('已保存'), findsNothing);
+  });
+
   testWidgets('filters file center by image type', (tester) async {
     final service = FakeFileCenterChatService();
 
@@ -127,6 +149,20 @@ class FakeFileCenterChatService extends ChatDataService {
       fileName: 'doc.pdf',
       fileSize: 3,
       fileType: 'application/pdf',
+    ),
+    Message(
+      id: '3',
+      content: 'clip.mp4',
+      senderId: '9',
+      senderName: 'Carol',
+      chatRoomId: '42',
+      type: MessageType.video,
+      status: MessageStatus.sent,
+      timestamp: DateTime.parse('2024-01-01T10:02:00'),
+      fileUrl: '/api/files/chat/clip.mp4',
+      fileName: 'clip.mp4',
+      fileSize: 4,
+      fileType: 'video/mp4',
     ),
   ];
 

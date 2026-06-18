@@ -6,6 +6,10 @@ extension _ChatScreenAttachmentParts on _ChatScreenState {
       await _showImagePreview(message);
       return;
     }
+    if (message.isVideoMessage) {
+      await _showVideoPreview(message);
+      return;
+    }
     await _downloadAttachment(message);
   }
 
@@ -47,6 +51,26 @@ extension _ChatScreenAttachmentParts on _ChatScreenState {
       context: context,
       barrierColor: Colors.black.withValues(alpha: 0.88),
       builder: (dialogContext) => _ImagePreviewDialog(
+        message: message,
+        fileFuture: fileFuture,
+        onDownload: (file) => _downloadAttachment(
+          message,
+          downloaded: file,
+        ),
+        onForward: (file) async {
+          Navigator.of(dialogContext).pop();
+          await _forwardAttachment(message, downloaded: file);
+        },
+      ),
+    );
+  }
+
+  Future<void> _showVideoPreview(Message message) async {
+    final fileFuture = _chatService.downloadFile(message);
+    await showDialog<void>(
+      context: context,
+      barrierColor: Colors.black.withValues(alpha: 0.88),
+      builder: (dialogContext) => ChatVideoPreviewDialog(
         message: message,
         fileFuture: fileFuture,
         onDownload: (file) => _downloadAttachment(

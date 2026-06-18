@@ -977,8 +977,12 @@ class MessageBubble extends StatelessWidget {
             ? message.fileName!
             : message.resolvedFileLabel
         : message.resolvedFileLabel;
+    final maxWidth =
+        type == AttachmentType.image || type == AttachmentType.video
+            ? 360.0
+            : 260.0;
     return ConstrainedBox(
-      constraints: const BoxConstraints(maxWidth: 260),
+      constraints: BoxConstraints(maxWidth: maxWidth),
       child: PMAttachmentCard(
         type: type,
         name: label,
@@ -1004,6 +1008,36 @@ class MessageBubble extends StatelessWidget {
           icon,
           color: isMe ? Colors.white70 : AppColors.textSecondary,
           size: 42,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildVideoPreviewFallback() {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: isMe
+              ? const [Color(0xFF155B91), Color(0xFF0F9B95)]
+              : const [Color(0xFFE8F1FF), Color(0xFFE9FFFA)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+      ),
+      child: Center(
+        child: Container(
+          width: 64,
+          height: 64,
+          decoration: BoxDecoration(
+            color: Colors.black.withValues(alpha: 0.46),
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(color: Colors.white30),
+          ),
+          child: const Icon(
+            Icons.play_arrow,
+            color: Colors.white,
+            size: 40,
+          ),
         ),
       ),
     );
@@ -1209,7 +1243,7 @@ class MessageBubble extends StatelessWidget {
               ),
             )
           : message.isVideoMessage
-              ? _buildAttachmentFallback(Icons.movie_outlined)
+              ? _buildVideoPreviewFallback()
               : null,
     );
   }

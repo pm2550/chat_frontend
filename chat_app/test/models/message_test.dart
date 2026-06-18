@@ -235,6 +235,29 @@ void main() {
       expect(message.isPollMessage, isTrue);
     });
 
+    test('detects video attachments even when backend reports a generic file',
+        () {
+      final message = Message.fromJson({
+        'id': 304,
+        'content': '/api/files/chat/clip.mp4?download=false',
+        'senderId': 5,
+        'senderName': 'Sender',
+        'chatRoomId': 20,
+        'messageType': 'FILE',
+        'messageStatus': 'SENT',
+        'createdAt': '2024-06-15T08:30:00.000Z',
+        'fileUrl': '/api/files/chat/clip.mp4?token=abc',
+        'fileName': 'clip.MP4',
+        'fileSize': 4096,
+        'fileType': 'application/octet-stream',
+      });
+
+      expect(message.type, MessageType.file);
+      expect(message.isVideoMessage, isTrue);
+      expect(message.isFileMessage, isFalse);
+      expect(message.resolvedFileLabel, '[视频] clip.MP4');
+    });
+
     test('fromJson handles missing fields gracefully', () {
       final json = {
         'id': null,

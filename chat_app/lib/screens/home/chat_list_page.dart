@@ -89,7 +89,8 @@ class _ChatListPageState extends State<ChatListPage>
       final chats = await _chatService.getChatRooms();
       if (!mounted) return;
       setState(() {
-        _chats = chats;
+        _chats = List<Chat>.from(chats);
+        _sortChatsInPlace();
         _isLoading = false;
         _errorMessage = null;
       });
