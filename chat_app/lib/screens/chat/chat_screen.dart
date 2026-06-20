@@ -644,28 +644,42 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   void _scrollToBottom() {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!_scrollController.hasClients) return;
-      final position = _scrollController.position;
-      if (!position.hasContentDimensions) return;
-      final maxScrollExtent = position.maxScrollExtent;
-      if (!maxScrollExtent.isFinite) return;
-      _scrollController.animateTo(
-        maxScrollExtent,
-        duration: const Duration(milliseconds: 300),
-        curve: Curves.easeOut,
-      );
-    });
+    _scheduleScrollToBottom(animated: true);
   }
 
   void _jumpToBottom() {
+    _scheduleScrollToBottom(animated: false);
+  }
+
+  void _scheduleScrollToBottom({
+    required bool animated,
+    int attempts = 5,
+  }) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!_scrollController.hasClients) return;
       final position = _scrollController.position;
-      if (!position.hasContentDimensions) return;
+      if (!position.hasContentDimensions) {
+        if (attempts > 0) {
+          _scheduleScrollToBottom(animated: animated, attempts: attempts - 1);
+        }
+        return;
+      }
       final maxScrollExtent = position.maxScrollExtent;
       if (!maxScrollExtent.isFinite) return;
-      _scrollController.jumpTo(maxScrollExtent);
+      if (animated) {
+        _scrollController.animateTo(
+          maxScrollExtent,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeOut,
+        );
+      } else {
+        _scrollController.jumpTo(maxScrollExtent);
+      }
+      final remainingDistance = _scrollController.position.maxScrollExtent -
+          _scrollController.position.pixels;
+      if (attempts > 0 && remainingDistance.abs() > 2) {
+        _scheduleScrollToBottom(animated: false, attempts: attempts - 1);
+      }
     });
   }
 

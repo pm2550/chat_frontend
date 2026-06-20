@@ -255,7 +255,10 @@ class ChatDataService {
     if (cachedLastMessage == null) {
       return chat;
     }
-    return chat.copyWith(lastMessage: cachedLastMessage);
+    return chat.copyWith(
+      lastMessage: cachedLastMessage,
+      updatedAt: _updatedAtWithLastMessage(chat, cachedLastMessage),
+    );
   }
 
   static Message? _lastMessageFromCachedRooms(String chatRoomId) {
@@ -1261,6 +1264,16 @@ class ChatDataService {
     } catch (_) {
       // Last-message decoration should not block the room list.
     }
+    if (lastMessage == null) {
+      try {
+        final page = await getMessagePage(chat.id, page: 0, size: 1);
+        if (page.messages.isNotEmpty) {
+          lastMessage = page.messages.last;
+        }
+      } catch (_) {
+        // Private-room summaries must still render even when message decoration fails.
+      }
+    }
 
     try {
       unreadCount = await getUnreadCount(chat.id);
@@ -1299,6 +1312,7 @@ class ChatDataService {
 
     return chat.copyWith(
       lastMessage: lastMessage,
+      updatedAt: _updatedAtWithLastMessage(chat, lastMessage),
       unreadCount: unreadCount,
       participants: participants,
       isPinned: isPinned,
@@ -1307,6 +1321,15 @@ class ChatDataService {
       isBlocked: isBlocked,
       clearedBeforeMessageId: clearedBeforeMessageId,
     );
+  }
+
+  static DateTime? _updatedAtWithLastMessage(Chat chat, Message? lastMessage) {
+    final existing = chat.updatedAt;
+    if (lastMessage == null) return existing;
+    if (existing == null || lastMessage.timestamp.isAfter(existing)) {
+      return lastMessage.timestamp;
+    }
+    return existing;
   }
 
   Future<dynamic> _request(

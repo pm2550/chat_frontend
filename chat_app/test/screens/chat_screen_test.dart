@@ -1033,6 +1033,46 @@ void main() {
       expect(find.text('后端消息二'), findsOneWidget);
     });
 
+    testWidgets('opens loaded history pinned to the latest message',
+        (tester) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(() {
+        tester.view.resetPhysicalSize();
+        tester.view.resetDevicePixelRatio();
+      });
+
+      final chat = createTestChat(id: 'long-history-room');
+      final messages = List<Message>.generate(
+        48,
+        (index) => Message(
+          id: 'history-$index',
+          content: '历史消息 $index',
+          senderId: index.isEven ? 'user2' : 'user1',
+          senderName: index.isEven ? '好友' : '我',
+          chatRoomId: 'long-history-room',
+          status: MessageStatus.sent,
+          timestamp: DateTime.parse('2024-01-01T10:00:00')
+              .add(Duration(minutes: index)),
+        ),
+      );
+
+      await tester.pumpWidget(buildTestWidget(
+        chat,
+        chatService: FakeChatDataService(messages: messages),
+      ));
+      await tester.pumpAndSettle();
+
+      final scrollableState =
+          tester.state<ScrollableState>(find.byType(Scrollable).first);
+
+      expect(
+        scrollableState.position.pixels,
+        closeTo(scrollableState.position.maxScrollExtent, 2),
+      );
+      expect(find.text('历史消息 47'), findsOneWidget);
+    });
+
     testWidgets('reuses cached messages when re-enter refresh fails',
         (tester) async {
       final chat = createTestChat(id: 'cache-room');

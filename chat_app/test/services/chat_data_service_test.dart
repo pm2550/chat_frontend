@@ -242,6 +242,99 @@ void main() {
       expect(second.last.lastMessage?.content, 'older cached');
     });
 
+    test('getChatRooms falls back to message page for private room summaries',
+        () async {
+      final pageRequests = <String>[];
+      final service = ChatDataService(
+        authenticatedRequest: (method, url, {headers, body}) async {
+          expect(method, 'GET');
+          final uri = Uri.parse(url);
+          final path = uri.path;
+          final roomIdMatch =
+              RegExp(r'/messages/chat-room/(\d+)').firstMatch(path);
+          final roomId = roomIdMatch?.group(1);
+
+          if (path.endsWith('/chat-rooms')) {
+            return jsonResponse({
+              'chatRooms': [
+                {
+                  'id': 20,
+                  'name': 'No Summary',
+                  'roomType': 'PRIVATE',
+                  'isPrivate': true,
+                  'createdAt': '2024-01-01T08:00:00',
+                  'updatedAt': '2024-01-01T08:00:00',
+                },
+                {
+                  'id': 21,
+                  'name': 'Has Page Summary',
+                  'roomType': 'PRIVATE',
+                  'isPrivate': true,
+                  'createdAt': '2024-01-01T08:00:00',
+                  'updatedAt': '2024-01-01T08:00:00',
+                },
+              ],
+            });
+          }
+
+          if (path.contains('/messages/chat-room/') &&
+              path.endsWith('/recent')) {
+            return jsonResponse({'error': 'forbidden'}, statusCode: 403);
+          }
+
+          if (path.contains('/messages/chat-room/') &&
+              !path.endsWith('/recent')) {
+            pageRequests.add(url);
+            if (roomId == '21') {
+              return jsonResponse({
+                'messages': [
+                  {
+                    'id': 210,
+                    'content': '真正最新消息',
+                    'messageStatus': 'SENT',
+                    'createdAt': '2024-01-01T12:00:00',
+                    'senderId': 7,
+                    'sender': {'id': 7, 'displayName': 'Sender'},
+                  },
+                ],
+                'currentPage': 0,
+                'totalPages': 1,
+                'totalElements': 1,
+              });
+            }
+            return jsonResponse({
+              'messages': [],
+              'currentPage': 0,
+              'totalPages': 0,
+              'totalElements': 0,
+            });
+          }
+
+          if (path.endsWith('/messages/unread-count')) {
+            return jsonResponse({'unreadCount': 0});
+          }
+          if (path.endsWith('/members')) {
+            return jsonResponse({'members': []});
+          }
+          if (path.endsWith('/notification-settings')) {
+            return jsonResponse({'pinned': false, 'muted': false});
+          }
+
+          fail('Unexpected request: $url');
+        },
+      );
+
+      final rooms = await service.getChatRooms(detailLimit: 1);
+
+      expect(rooms.map((room) => room.id), ['21', '20']);
+      expect(rooms.first.lastMessage?.content, '真正最新消息');
+      expect(rooms.first.updatedAt, DateTime.parse('2024-01-01T12:00:00'));
+      expect(
+        pageRequests,
+        everyElement(contains('size=1')),
+      );
+    });
+
     test('getChatRoom reads backend chatRoom detail response', () async {
       final service = ChatDataService(
         authenticatedRequest: (method, url, {headers, body}) async {
