@@ -878,6 +878,50 @@ void main() {
       expect(editable.controller.text, '@alice ');
     });
 
+    testWidgets('long-press bot message avatar inserts bot mention on mobile',
+        (tester) async {
+      final now = DateTime.now();
+      final groupChat = Chat(
+        id: 'group1',
+        name: 'Mention Room',
+        type: ChatType.group,
+        createdAt: now,
+        participants: [
+          User(
+            id: 'moondubai',
+            username: 'Moondubai',
+            email: 'moon@test.com',
+            displayName: 'MoonDubai',
+            createdAt: now,
+          ),
+        ],
+      );
+      final service = FakeChatDataService(messages: [
+        Message(
+          id: 'bot-msg',
+          content: '我是 Agent',
+          senderId: 'moondubai',
+          senderName: 'Moondubai',
+          chatRoomId: 'group1',
+          status: MessageStatus.sent,
+          timestamp: DateTime.parse('2024-01-01T10:00:00'),
+          botConfigId: '9',
+          botSenderId: '9',
+          botName: 'Agent',
+        ),
+      ]);
+
+      await tester.pumpWidget(buildTestWidget(groupChat, chatService: service));
+      await tester.pump();
+
+      await tester.longPress(find.byType(PMUserAvatar).first);
+      await tester.pump();
+
+      final editable = tester.widget<EditableText>(find.byType(EditableText));
+      expect(editable.controller.text, '@Agent ');
+      expect(editable.controller.text, isNot('@Moondubai '));
+    });
+
     testWidgets('pressing Enter sends message and clears input',
         (tester) async {
       final chat = createTestChat();

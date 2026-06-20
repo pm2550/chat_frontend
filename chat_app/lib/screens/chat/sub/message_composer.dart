@@ -658,6 +658,20 @@ extension _ChatScreenComposerParts on _ChatScreenState {
   }
 
   User? _participantForMessageSender(Message message) {
+    if (message.isBotMessage) {
+      final label = message.effectiveBotName.trim();
+      if (label.isEmpty) return null;
+      return User(
+        id: 'bot-${message.botConfigId ?? message.botSenderId ?? label}',
+        username: label,
+        email: '',
+        displayName: label,
+        avatarUrl: message.botAvatar,
+        onlineStatus: OnlineStatus.online,
+        createdAt: DateTime.fromMillisecondsSinceEpoch(0),
+      );
+    }
+
     final source =
         _mentionMembers.isNotEmpty ? _mentionMembers : _chat.participants;
     for (final participant in source) {
