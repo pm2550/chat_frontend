@@ -1,11 +1,13 @@
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 
 import '../constants/api_constants.dart';
 import '../constants/app_colors.dart';
 import '../services/auth_service.dart';
+import '../services/video_object_url.dart';
 
 class ChatVideoThumbnail extends StatefulWidget {
   const ChatVideoThumbnail({
@@ -26,6 +28,7 @@ class ChatVideoThumbnail extends StatefulWidget {
 class _ChatVideoThumbnailState extends State<ChatVideoThumbnail> {
   VideoPlayerController? _controller;
   late final Future<void> _initializeFuture;
+  String? _objectUrl;
 
   @override
   void initState() {
@@ -39,9 +42,33 @@ class _ChatVideoThumbnailState extends State<ChatVideoThumbnail> {
       throw StateError('Missing video URL');
     }
 
-    final resolvedUrl = ApiConstants.resolveFileUrl(fileUrl);
+    var resolvedUrl = ApiConstants.resolveFileUrl(fileUrl);
+    final needsAuthHeader = ApiConstants.requiresAuthHeaderForFile(fileUrl);
     final authToken = AuthService().accessToken;
-    final headers = ApiConstants.requiresAuthHeaderForFile(fileUrl) &&
+
+    // Flutter web video thumbnails are backed by an HTML <video>. Protected
+    // chat files need Authorization, but browser video loading/seek can lose
+    // custom headers on range requests. Match the full-screen preview path:
+    // fetch once through AuthService, then hand video_player a blob URL.
+    if (kIsWeb && needsAuthHeader) {
+      final response = await AuthService().authenticatedRequest(
+        'GET',
+        resolvedUrl,
+      );
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        throw StateError('Video thumbnail load failed: ${response.statusCode}');
+      }
+      _objectUrl = await createVideoObjectUrl(
+        bytes: response.bodyBytes,
+        mimeType: widget.mimeType,
+      );
+      if (_objectUrl != null && _objectUrl!.isNotEmpty) {
+        resolvedUrl = _objectUrl!;
+      }
+    }
+
+    final headers = _objectUrl == null &&
+            needsAuthHeader &&
             authToken != null &&
             authToken.isNotEmpty
         ? <String, String>{'Authorization': 'Bearer $authToken'}
@@ -76,6 +103,7 @@ class _ChatVideoThumbnailState extends State<ChatVideoThumbnail> {
   @override
   void dispose() {
     _controller?.dispose();
+    revokeVideoObjectUrl(_objectUrl);
     super.dispose();
   }
 
