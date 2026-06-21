@@ -81,12 +81,14 @@ class _BotEditScreenState extends State<BotEditScreen> {
   late final TextEditingController _modelController;
   late final TextEditingController _promptController;
   late final TextEditingController _apiKeyController;
+  late final TextEditingController _allowedUsersController;
 
   final _formKey = GlobalKey<FormState>();
   double _temperature = 0.7;
   int _maxTokens = 2048;
   bool _webSearchEnabled = false;
   bool _imageGenerationEnabled = false;
+  String _accessPolicy = 'PRIVATE';
   bool _saving = false;
   bool _loadingCredentials = false;
   bool _characterBusy = false;
@@ -112,9 +114,17 @@ class _BotEditScreenState extends State<BotEditScreen> {
     _modelController = TextEditingController(text: bot?.modelName ?? '');
     _promptController = TextEditingController(text: bot?.systemPrompt ?? '');
     _apiKeyController = TextEditingController();
+    _allowedUsersController = TextEditingController(
+      text: bot?.allowedUsers
+              .map((user) =>
+                  user.username.isNotEmpty ? user.username : user.id.toString())
+              .join(', ') ??
+          '',
+    );
     _webSearchEnabled = bot?.enabledTools.contains('web_search') ?? false;
     _imageGenerationEnabled =
         bot?.enabledTools.contains('generate_image') ?? false;
+    _accessPolicy = bot?.accessPolicy ?? 'PRIVATE';
     _providerController.addListener(_loadCredentialsForProvider);
     _temperature = bot?.temperature ?? 0.7;
     _maxTokens = bot?.maxTokens ?? 2048;
@@ -137,6 +147,7 @@ class _BotEditScreenState extends State<BotEditScreen> {
     _modelController.dispose();
     _promptController.dispose();
     _apiKeyController.dispose();
+    _allowedUsersController.dispose();
     super.dispose();
   }
 
@@ -275,6 +286,8 @@ class _BotEditScreenState extends State<BotEditScreen> {
                           ),
                           const SizedBox(height: PMSpacing.l),
                           _buildToolTogglesSection(),
+                          const SizedBox(height: PMSpacing.l),
+                          _buildAccessPolicySection(),
                           const SizedBox(height: PMSpacing.xl),
                           Align(
                             alignment: Alignment.centerRight,
@@ -434,6 +447,84 @@ class _BotEditScreenState extends State<BotEditScreen> {
           onChanged: onChanged,
         ),
       ],
+    );
+  }
+
+  Widget _buildAccessPolicySection() {
+    return PMCard(
+      elevated: false,
+      background: AppColors.cloud,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(
+            children: [
+              Icon(Icons.admin_panel_settings_outlined,
+                  color: AppColors.primary),
+              SizedBox(width: PMSpacing.s),
+              Expanded(
+                child: Text(
+                  '使用权限',
+                  style: TextStyle(fontWeight: FontWeight.w900),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: PMSpacing.s),
+          const Text(
+            '控制谁可以把这个 Bot 加进房间、谁可以在房间里触发它。创建者始终拥有完整权限。',
+            style: TextStyle(color: AppColors.textSecondary),
+          ),
+          const SizedBox(height: PMSpacing.m),
+          Wrap(
+            spacing: PMSpacing.s,
+            runSpacing: PMSpacing.s,
+            children: [
+              PMChip(
+                key: const Key('bot-access-private'),
+                label: '仅自己',
+                icon: Icons.lock_outline,
+                selected: _accessPolicy == 'PRIVATE',
+                onTap: () => setState(() => _accessPolicy = 'PRIVATE'),
+              ),
+              PMChip(
+                key: const Key('bot-access-allowlist'),
+                label: '指定用户',
+                icon: Icons.group_add_outlined,
+                selected: _accessPolicy == 'ALLOWLIST',
+                onTap: () => setState(() => _accessPolicy = 'ALLOWLIST'),
+              ),
+              PMChip(
+                key: const Key('bot-access-public'),
+                label: '房间成员可用',
+                icon: Icons.public,
+                selected: _accessPolicy == 'PUBLIC',
+                onTap: () => setState(() => _accessPolicy = 'PUBLIC'),
+              ),
+            ],
+          ),
+          if (_accessPolicy == 'ALLOWLIST') ...[
+            const SizedBox(height: PMSpacing.m),
+            TextFormField(
+              key: const Key('bot-access-allowed-users-field'),
+              controller: _allowedUsersController,
+              decoration: const InputDecoration(
+                labelText: '允许使用者',
+                hintText: '用户名或用户 ID，用逗号分隔，例如 admin, user, 42',
+                prefixIcon: Icon(Icons.person_add_alt_1_outlined),
+                helperText: '这些用户可把 Bot 加到自己管理的房间，也可在已加入房间中触发它。',
+              ),
+            ),
+          ],
+          if (_accessPolicy == 'PUBLIC') ...[
+            const SizedBox(height: PMSpacing.s),
+            const Text(
+              '公开后，房间管理员可以把它加入房间；加入后该房间成员都可触发。',
+              style: TextStyle(color: AppColors.secondaryDark),
+            ),
+          ],
+        ],
+      ),
     );
   }
 
@@ -705,6 +796,9 @@ class _BotEditScreenState extends State<BotEditScreen> {
       maxTokens: _maxTokens,
       isActive: widget.bot?.isActive ?? true,
       enabledTools: _composeEnabledTools(),
+      accessPolicy: _accessPolicy,
+      allowedUsernames:
+          _accessPolicy == 'ALLOWLIST' ? _parseAllowedUsers() : const [],
       providerCredentialId: _selectedCredentialId,
     );
 
@@ -751,6 +845,15 @@ class _BotEditScreenState extends State<BotEditScreen> {
       tools.remove('generate_image');
     }
     return tools.toList(growable: false);
+  }
+
+  List<String> _parseAllowedUsers() {
+    return _allowedUsersController.text
+        .split(RegExp(r'[,，\s]+'))
+        .map((value) => value.trim())
+        .where((value) => value.isNotEmpty)
+        .toSet()
+        .toList(growable: false);
   }
 
   Future<void> _showImportCharacterCardDialog() async {

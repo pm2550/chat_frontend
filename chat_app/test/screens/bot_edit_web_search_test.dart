@@ -150,4 +150,36 @@ void main() {
     expect(service.savedConfig!.enabledTools, contains('generate_image'));
     expect(service.savedConfig!.systemPrompt, contains('generate_image'));
   });
+
+  testWidgets('saving allowlist policy sends allowed user tokens',
+      (tester) async {
+    final service = _CapturingBotService();
+    final bot = BotConfig(
+      id: 7,
+      botName: 'private-draw-bot',
+      llmProvider: 'HERMES',
+      accessPolicy: 'PRIVATE',
+      enabledTools: const ['generate_image'],
+    );
+    await pumpEditor(tester, bot, service);
+
+    final allowlistChip = find.byKey(const Key('bot-access-allowlist'));
+    await tester.ensureVisible(allowlistChip);
+    await tester.tap(allowlistChip);
+    await tester.pumpAndSettle();
+
+    final allowedUsersField =
+        find.byKey(const Key('bot-access-allowed-users-field'));
+    await tester.enterText(allowedUsersField, 'alice, 42');
+    await tester.pumpAndSettle();
+
+    final saveButton = find.text('保存 Bot').last;
+    await tester.ensureVisible(saveButton);
+    await tester.tap(saveButton);
+    await tester.pumpAndSettle();
+
+    expect(service.savedConfig, isNotNull);
+    expect(service.savedConfig!.accessPolicy, 'ALLOWLIST');
+    expect(service.savedConfig!.allowedUsernames, ['alice', '42']);
+  });
 }

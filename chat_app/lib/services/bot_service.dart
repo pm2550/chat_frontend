@@ -26,6 +26,7 @@ class BotConfig {
   final String? roomNickname;
   final String? roomPromptSuffix;
   final bool enabledInRoom;
+
   /// F5: per-room moderation grant for this bot — NONE | MUTE | KICK (owner-set).
   final String? moderationGrant;
   final int? providerCredentialId;
@@ -40,6 +41,9 @@ class BotConfig {
   final List<String> characterAlternateGreetings;
   final int characterBookEntryCount;
   final List<String> enabledTools;
+  final String accessPolicy;
+  final List<BotAllowedUser> allowedUsers;
+  final List<String> allowedUsernames;
   final String? inboundTokenLast4;
   final List<String> inboundTokenScopes;
 
@@ -71,6 +75,9 @@ class BotConfig {
     this.characterAlternateGreetings = const [],
     this.characterBookEntryCount = 0,
     this.enabledTools = const [],
+    this.accessPolicy = 'PRIVATE',
+    this.allowedUsers = const [],
+    this.allowedUsernames = const [],
     this.inboundTokenLast4,
     this.inboundTokenScopes = const [],
   });
@@ -116,6 +123,12 @@ class BotConfig {
               ?.map((item) => item.toString())
               .toList(growable: false) ??
           const [],
+      accessPolicy: json['accessPolicy']?.toString() ?? 'PRIVATE',
+      allowedUsers: (json['allowedUsers'] as List<dynamic>?)
+              ?.whereType<Map<String, dynamic>>()
+              .map(BotAllowedUser.fromJson)
+              .toList(growable: false) ??
+          const [],
       inboundTokenLast4: json['inboundTokenLast4']?.toString(),
       inboundTokenScopes: (json['inboundTokenScopes'] as List<dynamic>?)
               ?.map((item) => item.toString())
@@ -133,6 +146,8 @@ class BotConfig {
         'temperature': temperature,
         'maxTokens': maxTokens,
         'enabledTools': enabledTools,
+        'accessPolicy': accessPolicy,
+        'allowedUsernames': allowedUsernames,
         if (providerCredentialId != null)
           'providerCredentialId': providerCredentialId,
       };
@@ -144,6 +159,28 @@ class BotConfig {
         if (roomPromptSuffix != null) 'roomPromptSuffix': roomPromptSuffix,
         'enabledInRoom': enabledInRoom,
       };
+}
+
+class BotAllowedUser {
+  const BotAllowedUser({
+    required this.id,
+    required this.username,
+    this.displayName,
+  });
+
+  final int id;
+  final String username;
+  final String? displayName;
+
+  factory BotAllowedUser.fromJson(Map<String, dynamic> json) {
+    return BotAllowedUser(
+      id: json['id'] is int
+          ? json['id'] as int
+          : int.tryParse(json['id']?.toString() ?? '') ?? 0,
+      username: json['username']?.toString() ?? '',
+      displayName: json['displayName']?.toString(),
+    );
+  }
 }
 
 class ProviderCredential {
@@ -322,7 +359,8 @@ class BotService {
   }
 
   Future<void> revokeInboundToken(int botId) async {
-    final response = await _request('DELETE', ApiConstants.revokeBotToken(botId));
+    final response =
+        await _request('DELETE', ApiConstants.revokeBotToken(botId));
     _decodeResponse(response);
   }
 
