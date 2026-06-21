@@ -21,7 +21,60 @@ class BotEditScreen extends StatefulWidget {
   State<BotEditScreen> createState() => _BotEditScreenState();
 }
 
+class _ProviderOption {
+  const _ProviderOption({
+    required this.value,
+    required this.label,
+    required this.defaultModel,
+    required this.icon,
+  });
+
+  final String value;
+  final String label;
+  final String defaultModel;
+  final IconData icon;
+}
+
 class _BotEditScreenState extends State<BotEditScreen> {
+  static const List<_ProviderOption> _providerOptions = [
+    _ProviderOption(
+      value: 'HERMES',
+      label: 'Hermes / Grok',
+      defaultModel: 'grok-4.3',
+      icon: Icons.auto_awesome,
+    ),
+    _ProviderOption(
+      value: 'OPENAI',
+      label: 'OpenAI',
+      defaultModel: 'gpt-4.1',
+      icon: Icons.blur_on,
+    ),
+    _ProviderOption(
+      value: 'CLAUDE',
+      label: 'Claude',
+      defaultModel: 'claude-3-5-sonnet',
+      icon: Icons.hexagon_outlined,
+    ),
+    _ProviderOption(
+      value: 'DEEPSEEK',
+      label: 'DeepSeek',
+      defaultModel: 'deepseek-chat',
+      icon: Icons.water,
+    ),
+    _ProviderOption(
+      value: 'OLLAMA',
+      label: 'Ollama',
+      defaultModel: 'kimi-k2.6',
+      icon: Icons.dns_outlined,
+    ),
+    _ProviderOption(
+      value: 'DASHSCOPE',
+      label: 'DashScope',
+      defaultModel: 'qwen-plus',
+      icon: Icons.cloud_queue,
+    ),
+  ];
+
   late final BotService _botService;
   late final TextEditingController _nameController;
   late final TextEditingController _providerController;
@@ -33,6 +86,7 @@ class _BotEditScreenState extends State<BotEditScreen> {
   double _temperature = 0.7;
   int _maxTokens = 2048;
   bool _webSearchEnabled = false;
+  bool _imageGenerationEnabled = false;
   bool _saving = false;
   bool _loadingCredentials = false;
   bool _characterBusy = false;
@@ -59,6 +113,8 @@ class _BotEditScreenState extends State<BotEditScreen> {
     _promptController = TextEditingController(text: bot?.systemPrompt ?? '');
     _apiKeyController = TextEditingController();
     _webSearchEnabled = bot?.enabledTools.contains('web_search') ?? false;
+    _imageGenerationEnabled =
+        bot?.enabledTools.contains('generate_image') ?? false;
     _providerController.addListener(_loadCredentialsForProvider);
     _temperature = bot?.temperature ?? 0.7;
     _maxTokens = bot?.maxTokens ?? 2048;
@@ -141,23 +197,13 @@ class _BotEditScreenState extends State<BotEditScreen> {
                           LayoutBuilder(
                             builder: (context, constraints) {
                               final narrow = constraints.maxWidth < 620;
-                              final provider = TextFormField(
-                                controller: _providerController,
-                                decoration: const InputDecoration(
-                                  labelText: 'LLM Provider',
-                                  prefixIcon: Icon(Icons.cloud_queue),
-                                ),
-                                validator: (value) =>
-                                    value == null || value.trim().isEmpty
-                                        ? '请输入 Provider'
-                                        : null,
-                              );
+                              final provider = _buildProviderPicker();
                               final model = TextFormField(
                                 controller: _modelController,
                                 decoration: const InputDecoration(
                                   labelText: '模型名',
                                   prefixIcon: Icon(Icons.memory),
-                                  hintText: '例如 gpt-4.1 / hermes-agent',
+                                  hintText: '例如 grok-4.3 / gpt-4.1',
                                 ),
                               );
                               if (narrow) {
@@ -228,24 +274,7 @@ class _BotEditScreenState extends State<BotEditScreen> {
                                 setState(() => _maxTokens = value.round()),
                           ),
                           const SizedBox(height: PMSpacing.l),
-                          Row(
-                            children: [
-                              const Icon(Icons.travel_explore,
-                                  size: 20, color: AppColors.secondary),
-                              const SizedBox(width: PMSpacing.s),
-                              const Expanded(
-                                child: Text(
-                                  '联网搜索（web_search）—— 开启后被 @ 时走多轮 Agent，'
-                                  '通过自建 SearXNG 检索',
-                                ),
-                              ),
-                              Switch(
-                                value: _webSearchEnabled,
-                                onChanged: (value) =>
-                                    setState(() => _webSearchEnabled = value),
-                              ),
-                            ],
-                          ),
+                          _buildToolTogglesSection(),
                           const SizedBox(height: PMSpacing.xl),
                           Align(
                             alignment: Alignment.centerRight,
@@ -267,6 +296,178 @@ class _BotEditScreenState extends State<BotEditScreen> {
         ),
       ),
     );
+  }
+
+  Widget _buildProviderPicker() {
+    final selected = _providerController.text.trim().toUpperCase();
+    return PMCard(
+      elevated: false,
+      background: AppColors.cloud,
+      padding: const EdgeInsets.all(PMSpacing.m),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(
+            children: [
+              Icon(Icons.cloud_queue, size: 20, color: AppColors.primary),
+              SizedBox(width: PMSpacing.s),
+              Text(
+                'LLM Provider',
+                style: TextStyle(fontWeight: FontWeight.w900),
+              ),
+            ],
+          ),
+          const SizedBox(height: PMSpacing.s),
+          const Text(
+            '选择模型供应商，不需要手填枚举名。Hermes/Grok 支持当前 Agent 工具调用。',
+            style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
+          ),
+          const SizedBox(height: PMSpacing.m),
+          Wrap(
+            spacing: PMSpacing.s,
+            runSpacing: PMSpacing.s,
+            children: [
+              for (final option in _providerOptions)
+                PMChip(
+                  label: option.label,
+                  icon: option.icon,
+                  selected: selected == option.value,
+                  onTap: () => _setProvider(option),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildToolTogglesSection() {
+    return PMCard(
+      elevated: false,
+      background: AppColors.cloud,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.extension, color: AppColors.primary),
+              const SizedBox(width: PMSpacing.s),
+              const Expanded(
+                child: Text(
+                  'Bot 能力',
+                  style: TextStyle(fontWeight: FontWeight.w900),
+                ),
+              ),
+              PMButton(
+                label: '设为画图 Bot',
+                icon: Icons.image_outlined,
+                compact: true,
+                variant: PMButtonVariant.secondary,
+                onPressed: _applyImageBotPreset,
+              ),
+            ],
+          ),
+          const SizedBox(height: PMSpacing.s),
+          const Text(
+            '开启工具后，Bot 被 @ 或关键词触发时会走多轮 Agent，并按白名单调用这些能力。',
+            style: TextStyle(color: AppColors.textSecondary),
+          ),
+          const SizedBox(height: PMSpacing.m),
+          _buildToolRow(
+            icon: Icons.travel_explore,
+            title: '联网搜索',
+            subtitle: 'web_search · 通过自建 SearXNG 检索网页。',
+            value: _webSearchEnabled,
+            key: const Key('bot-edit-web-search-switch'),
+            onChanged: (value) => setState(() => _webSearchEnabled = value),
+          ),
+          const Divider(height: PMSpacing.l),
+          _buildToolRow(
+            icon: Icons.image_outlined,
+            title: 'AI 画图',
+            subtitle:
+                'generate_image · 调 Hermes /draw，扣发起人的 AI 图片点数，图片以 Bot 身份发回会话。',
+            value: _imageGenerationEnabled,
+            key: const Key('bot-edit-image-generation-switch'),
+            onChanged: (value) =>
+                setState(() => _imageGenerationEnabled = value),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildToolRow({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required bool value,
+    required Key key,
+    required ValueChanged<bool> onChanged,
+  }) {
+    return Row(
+      children: [
+        Icon(icon, size: 20, color: AppColors.secondary),
+        const SizedBox(width: PMSpacing.s),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: const TextStyle(fontWeight: FontWeight.w800),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                subtitle,
+                style: const TextStyle(
+                  color: AppColors.textSecondary,
+                  fontSize: 13,
+                ),
+              ),
+            ],
+          ),
+        ),
+        Switch(
+          key: key,
+          value: value,
+          onChanged: onChanged,
+        ),
+      ],
+    );
+  }
+
+  void _setProvider(_ProviderOption option) {
+    setState(() {
+      _providerController.text = option.value;
+      if (_modelController.text.trim().isEmpty ||
+          _providerOptions
+              .map((candidate) => candidate.defaultModel)
+              .contains(_modelController.text.trim())) {
+        _modelController.text = option.defaultModel;
+      }
+    });
+  }
+
+  void _applyImageBotPreset() {
+    const drawPrompt = '''
+你是 PM chat 的画图 Bot。用户让你画图、生成图片、做插画、改成某种画面风格时，先提取清晰的画面描述，然后调用 generate_image 工具。
+
+规则：
+- 不要假装已经画完；工具提交成功后告诉用户图片正在生成。
+- 如果用户没有说明比例，默认 1:1。
+- 如果用户要求快一点，可以把 expand 设为 false；否则默认 expand true。
+- 如果不是画图请求，正常简短回复。''';
+    setState(() {
+      final hermes =
+          _providerOptions.firstWhere((option) => option.value == 'HERMES');
+      _providerController.text = hermes.value;
+      _modelController.text = hermes.defaultModel;
+      _imageGenerationEnabled = true;
+      if (_promptController.text.trim().isEmpty) {
+        _promptController.text = drawPrompt.trim();
+      }
+    });
   }
 
   Widget _buildCharacterCardSection() {
@@ -536,13 +737,18 @@ class _BotEditScreenState extends State<BotEditScreen> {
     }
   }
 
-  // Preserve any other tools the bot already has; only flip web_search.
+  // Preserve any other tools the bot already has; only flip tools controlled here.
   List<String> _composeEnabledTools() {
     final tools = <String>{...?widget.bot?.enabledTools};
     if (_webSearchEnabled) {
       tools.add('web_search');
     } else {
       tools.remove('web_search');
+    }
+    if (_imageGenerationEnabled) {
+      tools.add('generate_image');
+    } else {
+      tools.remove('generate_image');
     }
     return tools.toList(growable: false);
   }
