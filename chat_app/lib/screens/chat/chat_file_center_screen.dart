@@ -8,6 +8,7 @@ import '../../design/design.dart';
 import '../../models/message.dart';
 import '../../services/chat_data_service.dart';
 import '../../services/file_save.dart' as file_save;
+import '../../widgets/chat_video_thumbnail.dart';
 import '../../widgets/chat_video_preview_dialog.dart';
 import '../../widgets/pm_brand.dart';
 
@@ -432,7 +433,9 @@ class _ChatFileCenterScreenState extends State<ChatFileCenterScreen> {
             trailing: Icon(
               message.isImageMessage
                   ? Icons.zoom_out_map
-                  : Icons.download_outlined,
+                  : message.isVideoMessage
+                      ? Icons.play_circle_outline
+                      : Icons.download_outlined,
               color: AppColors.textSecondary,
             ),
           ),
@@ -646,6 +649,12 @@ class _FileCenterTile extends StatelessWidget {
     return PMAttachmentCard(
       type: _attachmentType(message),
       thumbnail: publicThumbnail ? ApiConstants.resolveFileUrl(fileUrl) : null,
+      preview: message.isVideoMessage
+          ? ChatVideoThumbnail(
+              fileUrl: fileUrl,
+              mimeType: message.fileType,
+            )
+          : null,
       forcePreview: message.isImageMessage || message.isVideoMessage,
       name: name,
       sizeText: [
@@ -665,6 +674,39 @@ class _FileIcon extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final type = _attachmentType(message);
+    if (message.isVideoMessage) {
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(10),
+        child: SizedBox(
+          width: 56,
+          height: 56,
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              ChatVideoThumbnail(
+                fileUrl: message.fileUrl,
+                mimeType: message.fileType,
+              ),
+              Center(
+                child: Container(
+                  width: 28,
+                  height: 28,
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.48),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: const Icon(
+                    Icons.play_arrow,
+                    color: Colors.white,
+                    size: 20,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
     final color = switch (type) {
       AttachmentType.image => AppColors.secondary,
       AttachmentType.video => AppColors.accent,

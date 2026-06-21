@@ -43,7 +43,14 @@ extension _ChatScreenFilesPanelParts on _ChatScreenState {
                       sizeText: message.fileSize == null
                           ? null
                           : _formatFileSize(message.fileSize!),
-                      forcePreview: message.isImageMessage,
+                      forcePreview:
+                          message.isImageMessage || message.isVideoMessage,
+                      preview: message.isVideoMessage
+                          ? ChatVideoThumbnail(
+                              fileUrl: message.fileUrl,
+                              mimeType: message.fileType,
+                            )
+                          : null,
                       onTap: () => _openAttachment(message),
                     );
                   },

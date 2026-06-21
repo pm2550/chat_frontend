@@ -37,6 +37,7 @@ import '../../widgets/anonymous_toggle_button.dart';
 import '../../widgets/anonymous_identity_hint.dart';
 import '../../widgets/call_grid_view.dart';
 import '../../widgets/message_bubble.dart';
+import '../../widgets/chat_video_thumbnail.dart';
 import '../../widgets/chat_video_preview_dialog.dart';
 import '../../widgets/pm_brand.dart';
 import '../../widgets/pm_responsive.dart';

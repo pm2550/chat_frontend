@@ -13,6 +13,7 @@ import '../design/design.dart';
 import '../models/message.dart';
 import '../models/poll.dart';
 import '../services/auth_service.dart';
+import 'chat_video_thumbnail.dart';
 
 typedef ImageBytesLoader = Future<Uint8List> Function(String fileUrl);
 typedef LinkPreviewLoader = Future<LinkPreview?> Function(String url);
@@ -1026,20 +1027,32 @@ class MessageBubble extends StatelessWidget {
       ),
       child: Center(
         child: Container(
-          width: 64,
-          height: 64,
+          width: 58,
+          height: 58,
           decoration: BoxDecoration(
-            color: Colors.black.withValues(alpha: 0.46),
-            borderRadius: BorderRadius.circular(999),
-            border: Border.all(color: Colors.white30),
+            color: Colors.white.withValues(alpha: isMe ? 0.18 : 0.62),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: isMe
+                  ? Colors.white.withValues(alpha: 0.32)
+                  : AppColors.borderLight,
+            ),
           ),
-          child: const Icon(
-            Icons.play_arrow,
-            color: Colors.white,
-            size: 40,
+          child: Icon(
+            Icons.movie_filter_outlined,
+            color: isMe ? Colors.white : AppColors.accent,
+            size: 32,
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildVideoThumbnailPreview() {
+    return ChatVideoThumbnail(
+      fileUrl: message.fileUrl,
+      mimeType: message.fileType,
+      fallback: _buildVideoPreviewFallback(),
     );
   }
 
@@ -1243,7 +1256,7 @@ class MessageBubble extends StatelessWidget {
               ),
             )
           : message.isVideoMessage
-              ? _buildVideoPreviewFallback()
+              ? _buildVideoThumbnailPreview()
               : null,
     );
   }

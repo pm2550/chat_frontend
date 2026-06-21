@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:chat_app/design/design.dart';
 import 'package:chat_app/widgets/message_bubble.dart';
+import 'package:chat_app/widgets/chat_video_thumbnail.dart';
 import 'package:chat_app/models/message.dart';
 
 void main() {
@@ -903,6 +904,7 @@ void main() {
       ));
       await tester.pumpAndSettle();
 
+      expect(find.byType(ChatVideoThumbnail), findsOneWidget);
       expect(find.byIcon(Icons.play_arrow), findsWidgets);
       await tester.tap(find.text('[视频] clip.mp4'));
       await tester.pump();

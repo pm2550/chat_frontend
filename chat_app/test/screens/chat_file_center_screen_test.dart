@@ -1,6 +1,7 @@
 import 'package:chat_app/models/message.dart';
 import 'package:chat_app/screens/chat/chat_file_center_screen.dart';
 import 'package:chat_app/services/chat_data_service.dart';
+import 'package:chat_app/widgets/chat_video_thumbnail.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -63,6 +64,7 @@ void main() {
     ));
     await tester.pumpAndSettle();
 
+    expect(find.byType(ChatVideoThumbnail), findsOneWidget);
     await tester.tap(find.text('clip.mp4').first);
     await tester.pump();
 
