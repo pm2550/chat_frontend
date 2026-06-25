@@ -1404,6 +1404,91 @@ void main() {
       expect(find.text('已向 陌生人 发送好友请求'), findsOneWidget);
     });
 
+    testWidgets('desktop members panel opens private chat from group member',
+        (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      tester.view.physicalSize = const Size(1400, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      final now = DateTime.now();
+      final authService = AuthService();
+      await authService.replaceCurrentUser(User(
+        id: '1',
+        username: 'me',
+        email: 'me@test.com',
+        displayName: '我',
+        createdAt: now,
+      ));
+      addTearDown(authService.clearLocalSession);
+
+      final peer = User(
+        id: '3',
+        username: 'peer',
+        email: 'peer@test.com',
+        displayName: '侧栏成员',
+        createdAt: now,
+      );
+      final groupChat = Chat(
+        id: 'group1',
+        name: '群成员私聊',
+        type: ChatType.group,
+        createdAt: now,
+        participants: [
+          authService.currentUser!,
+          peer,
+        ],
+      );
+      final privateChat = Chat(
+        id: 'private-3',
+        name: '侧栏成员',
+        type: ChatType.private,
+        createdAt: now,
+        participants: [
+          authService.currentUser!,
+          peer,
+        ],
+      );
+      final contactService = FakeContactDataService(
+        privateChatsByUserId: {'3': privateChat},
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          onGenerateRoute: (settings) {
+            if (settings.name?.startsWith('/chat/') == true) {
+              final chat = settings.arguments as Chat;
+              return MaterialPageRoute<void>(
+                settings: settings,
+                builder: (_) => Scaffold(
+                  body: Text('opened-private-chat-${chat.id}'),
+                ),
+              );
+            }
+            return MaterialPageRoute<void>(
+              settings: RouteSettings(arguments: groupChat),
+              builder: (_) => ChatScreen(
+                chatService: FakeChatDataService(messages: const []),
+                contactService: contactService,
+                authService: authService,
+                webSocketService:
+                    WebSocketService.forTesting(authService: authService),
+              ),
+            );
+          },
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      await tester.tap(find.byTooltip('私聊'));
+      await tester.pumpAndSettle();
+
+      expect(contactService.createdPrivateChatUserIds, ['3']);
+      expect(find.text('opened-private-chat-private-3'), findsOneWidget);
+    });
+
     testWidgets('renders CircleAvatar in app bar', (tester) async {
       final chat = createTestChat();
 
@@ -1840,11 +1925,14 @@ class FakeContactDataService extends ContactDataService {
   FakeContactDataService({
     this.friends = const [],
     this.sentRequests = const [],
+    this.privateChatsByUserId = const {},
   }) : super(authenticatedRequest: _unusedRequest);
 
   final List<User> friends;
   final List<FriendshipRequest> sentRequests;
+  final Map<String, Chat> privateChatsByUserId;
   final List<String> sentFriendRequestIds = [];
+  final List<String> createdPrivateChatUserIds = [];
 
   static Future<http.Response> _unusedRequest(
     String method,
@@ -1882,6 +1970,36 @@ class FakeContactDataService extends ContactDataService {
         createdAt: DateTime.parse('2024-01-01T10:00:00'),
       ),
       friend: target,
+    );
+  }
+
+  @override
+  Future<Chat> createPrivateChat(String userId) async {
+    createdPrivateChatUserIds.add(userId);
+    final chat = privateChatsByUserId[userId];
+    if (chat != null) return chat;
+    final now = DateTime.parse('2024-01-01T10:00:00');
+    return Chat(
+      id: 'private-$userId',
+      name: '成员$userId',
+      type: ChatType.private,
+      createdAt: now,
+      participants: [
+        User(
+          id: '1',
+          username: 'me',
+          email: 'me@test.com',
+          displayName: '我',
+          createdAt: now,
+        ),
+        User(
+          id: userId,
+          username: 'target$userId',
+          email: 'target$userId@test.com',
+          displayName: '成员$userId',
+          createdAt: now,
+        ),
+      ],
     );
   }
 }

@@ -150,6 +150,7 @@ class _ChatScreenState extends State<ChatScreen> {
   final Set<String> _friendUserIds = {};
   final Set<String> _pendingFriendRequestUserIds = {};
   final Set<String> _sendingFriendRequestUserIds = {};
+  final Set<String> _openingPrivateChatUserIds = {};
   int _pollRefreshEpoch = 0;
   List<BotConfig> _roomBots = [];
   bool _isTyping = false;

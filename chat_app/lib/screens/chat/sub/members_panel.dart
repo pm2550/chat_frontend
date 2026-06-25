@@ -45,9 +45,8 @@ extension _ChatScreenMembersPanelParts on _ChatScreenState {
                   child: IconButton.filledTonal(
                     tooltip: tabs[i].$2,
                     icon: PMSymbolIcon(tabs[i].$1, size: 18),
-                    color: selectedTab == i
-                        ? tabs[i].$3
-                        : AppColors.textSecondary,
+                    color:
+                        selectedTab == i ? tabs[i].$3 : AppColors.textSecondary,
                     style: IconButton.styleFrom(
                       backgroundColor: selectedTab == i
                           ? tabs[i].$3.withValues(alpha: 0.12)
@@ -215,11 +214,7 @@ extension _ChatScreenMembersPanelParts on _ChatScreenState {
               spacing: 4,
               children: [
                 _buildFriendshipAction(participant),
-                IconButton(
-                  tooltip: '私聊',
-                  icon: const Icon(Icons.chat_bubble_rounded, size: 18),
-                  onPressed: () {},
-                ),
+                _buildPrivateChatAction(participant),
                 IconButton(
                   tooltip: '视频',
                   icon: const Icon(Icons.videocam_rounded, size: 18),
@@ -249,6 +244,66 @@ extension _ChatScreenMembersPanelParts on _ChatScreenState {
         ],
       ],
     );
+  }
+
+  Widget _buildPrivateChatAction(User participant) {
+    final userId = participant.id;
+    final currentUserId = _authService.currentUser?.id;
+    if (userId.isEmpty || userId == currentUserId) {
+      return const SizedBox.shrink();
+    }
+
+    final isOpening = _openingPrivateChatUserIds.contains(userId);
+    return IconButton(
+      tooltip: '私聊',
+      icon: isOpening
+          ? const SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
+          : const Icon(Icons.chat_bubble_rounded, size: 18),
+      onPressed:
+          isOpening ? null : () => _openPrivateChatFromMember(participant),
+    );
+  }
+
+  Future<void> _openPrivateChatFromMember(User participant) async {
+    final userId = participant.id;
+    final currentUserId = _authService.currentUser?.id;
+    if (userId.isEmpty ||
+        userId == currentUserId ||
+        _openingPrivateChatUserIds.contains(userId)) {
+      return;
+    }
+
+    _setViewState(() {
+      _openingPrivateChatUserIds.add(userId);
+    });
+
+    try {
+      final chat = await _contactService.createPrivateChat(userId);
+      if (!mounted) return;
+      await Navigator.pushNamed(
+        context,
+        '/chat/${chat.id}',
+        arguments: chat,
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('打开私聊失败: $error'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    } finally {
+      if (mounted) {
+        _setViewState(() {
+          _openingPrivateChatUserIds.remove(userId);
+        });
+      }
+    }
   }
 
   Future<void> _loadFriendshipState() async {
