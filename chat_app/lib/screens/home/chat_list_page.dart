@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:timeago/timeago.dart' as timeago;
 import '../../constants/api_constants.dart';
@@ -12,6 +13,7 @@ import '../../models/user.dart';
 import '../../services/auth_service.dart';
 import '../../services/chat_data_service.dart';
 import '../../services/desktop_notification_service.dart';
+import '../../services/native_push_service.dart';
 import '../../services/websocket_service.dart';
 import '../../widgets/pm_brand.dart';
 import '../../widgets/pm_responsive.dart';
@@ -69,6 +71,7 @@ class _ChatListPageState extends State<ChatListPage>
       _chats = cachedChats;
       _isLoading = false;
     }
+    _requestMobileNotificationPermission();
     _loadChats();
     _connectRealtime();
   }
@@ -129,6 +132,15 @@ class _ChatListPageState extends State<ChatListPage>
     _statusSubscription =
         _realtimeService.onStatusChange.listen(_handleStatusChange);
     await _realtimeService.connect();
+  }
+
+  void _requestMobileNotificationPermission() {
+    if (kIsWeb) return;
+    if (_notificationService.isSupported &&
+        !_notificationService.hasPermission) {
+      unawaited(_notificationService.requestPermission());
+    }
+    unawaited(NativePushService().initialize());
   }
 
   void _handleRealtimeMessage(Message message) {

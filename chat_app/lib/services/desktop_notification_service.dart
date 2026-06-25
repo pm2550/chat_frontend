@@ -1,5 +1,6 @@
 import 'desktop_notification_backend.dart';
 import 'desktop_notification_stub.dart'
+    if (dart.library.io) 'desktop_notification_io.dart'
     if (dart.library.js_interop) 'desktop_notification_web.dart' as platform;
 
 class DesktopNotificationService {
