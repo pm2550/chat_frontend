@@ -88,6 +88,7 @@ class _BotEditScreenState extends State<BotEditScreen> {
   int _maxTokens = 2048;
   bool _webSearchEnabled = false;
   bool _imageGenerationEnabled = false;
+  String _replyMode = 'SINGLE';
   String _accessPolicy = 'PRIVATE';
   bool _saving = false;
   bool _loadingCredentials = false;
@@ -124,6 +125,7 @@ class _BotEditScreenState extends State<BotEditScreen> {
     _webSearchEnabled = bot?.enabledTools.contains('web_search') ?? false;
     _imageGenerationEnabled =
         bot?.enabledTools.contains('generate_image') ?? false;
+    _replyMode = (bot?.replyMode ?? 'SINGLE').toUpperCase();
     _accessPolicy = bot?.accessPolicy ?? 'PRIVATE';
     _providerController.addListener(_loadCredentialsForProvider);
     _temperature = bot?.temperature ?? 0.7;
@@ -285,6 +287,8 @@ class _BotEditScreenState extends State<BotEditScreen> {
                                 setState(() => _maxTokens = value.round()),
                           ),
                           const SizedBox(height: PMSpacing.l),
+                          _buildReplyModeSection(),
+                          const SizedBox(height: PMSpacing.l),
                           _buildToolTogglesSection(),
                           const SizedBox(height: PMSpacing.l),
                           _buildAccessPolicySection(),
@@ -347,6 +351,56 @@ class _BotEditScreenState extends State<BotEditScreen> {
                   selected: selected == option.value,
                   onTap: () => _setProvider(option),
                 ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildReplyModeSection() {
+    return PMCard(
+      elevated: false,
+      background: AppColors.cloud,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(
+            children: [
+              Icon(Icons.forum_outlined, color: AppColors.primary),
+              SizedBox(width: PMSpacing.s),
+              Expanded(
+                child: Text(
+                  '说话模式',
+                  style: TextStyle(fontWeight: FontWeight.w900),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: PMSpacing.s),
+          const Text(
+            '控制 Bot 回复时是一整段发出，还是像 QQ Bot/阿雷那样按句子连续发出。',
+            style: TextStyle(color: AppColors.textSecondary),
+          ),
+          const SizedBox(height: PMSpacing.m),
+          Wrap(
+            spacing: PMSpacing.s,
+            runSpacing: PMSpacing.s,
+            children: [
+              PMChip(
+                key: const Key('bot-reply-mode-single'),
+                label: '整段回复',
+                icon: Icons.subject,
+                selected: _replyMode == 'SINGLE',
+                onTap: () => setState(() => _replyMode = 'SINGLE'),
+              ),
+              PMChip(
+                key: const Key('bot-reply-mode-chunked'),
+                label: '一句一句说',
+                icon: Icons.chat_bubble_outline,
+                selected: _replyMode == 'CHUNKED',
+                onTap: () => setState(() => _replyMode = 'CHUNKED'),
+              ),
             ],
           ),
         ],
@@ -794,6 +848,7 @@ class _BotEditScreenState extends State<BotEditScreen> {
           : _promptController.text.trim(),
       temperature: _temperature,
       maxTokens: _maxTokens,
+      replyMode: _replyMode,
       isActive: widget.bot?.isActive ?? true,
       enabledTools: _composeEnabledTools(),
       accessPolicy: _accessPolicy,

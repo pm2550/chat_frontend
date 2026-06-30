@@ -151,6 +151,30 @@ void main() {
     expect(service.savedConfig!.systemPrompt, contains('generate_image'));
   });
 
+  testWidgets('saving chunked reply mode sends replyMode', (tester) async {
+    final service = _CapturingBotService();
+    final bot = BotConfig(
+      id: 8,
+      botName: 'talky-bot',
+      llmProvider: 'HERMES',
+      replyMode: 'SINGLE',
+    );
+    await pumpEditor(tester, bot, service);
+
+    final chunkedChip = find.byKey(const Key('bot-reply-mode-chunked'));
+    await tester.ensureVisible(chunkedChip);
+    await tester.tap(chunkedChip);
+    await tester.pumpAndSettle();
+
+    final saveButton = find.text('保存 Bot').last;
+    await tester.ensureVisible(saveButton);
+    await tester.tap(saveButton);
+    await tester.pumpAndSettle();
+
+    expect(service.savedConfig, isNotNull);
+    expect(service.savedConfig!.replyMode, 'CHUNKED');
+  });
+
   testWidgets('saving allowlist policy sends allowed user tokens',
       (tester) async {
     final service = _CapturingBotService();

@@ -20,6 +20,7 @@ class BotConfig {
   final String? systemPrompt;
   final double temperature;
   final int maxTokens;
+  final String replyMode;
   final bool isActive;
   final String? triggerMode;
   final String? triggerKeywords;
@@ -56,6 +57,7 @@ class BotConfig {
     this.systemPrompt,
     this.temperature = 0.7,
     this.maxTokens = 2048,
+    this.replyMode = 'SINGLE',
     this.isActive = true,
     this.triggerMode,
     this.triggerKeywords,
@@ -92,6 +94,7 @@ class BotConfig {
       systemPrompt: json['systemPrompt'],
       temperature: (json['temperature'] ?? 0.7).toDouble(),
       maxTokens: json['maxTokens'] ?? 2048,
+      replyMode: json['replyMode']?.toString() ?? 'SINGLE',
       isActive: json['isActive'] ?? true,
       triggerMode: json['triggerMode']?.toString(),
       triggerKeywords: json['triggerKeywords']?.toString(),
@@ -145,6 +148,7 @@ class BotConfig {
         'systemPrompt': systemPrompt,
         'temperature': temperature,
         'maxTokens': maxTokens,
+        'replyMode': replyMode,
         'enabledTools': enabledTools,
         'accessPolicy': accessPolicy,
         'allowedUsernames': allowedUsernames,

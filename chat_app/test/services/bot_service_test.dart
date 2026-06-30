@@ -26,6 +26,7 @@ void main() {
       expect(config.systemPrompt, isNull);
       expect(config.temperature, equals(0.7));
       expect(config.maxTokens, equals(2048));
+      expect(config.replyMode, equals('SINGLE'));
       expect(config.isActive, isTrue);
     });
 
@@ -63,6 +64,7 @@ void main() {
           'systemPrompt': 'Be helpful',
           'temperature': 0.5,
           'maxTokens': 1024,
+          'replyMode': 'CHUNKED',
           'isActive': true,
         };
 
@@ -75,6 +77,7 @@ void main() {
         expect(config.systemPrompt, equals('Be helpful'));
         expect(config.temperature, equals(0.5));
         expect(config.maxTokens, equals(1024));
+        expect(config.replyMode, equals('CHUNKED'));
         expect(config.isActive, isTrue);
       });
 
@@ -138,6 +141,7 @@ void main() {
           systemPrompt: 'Be concise',
           temperature: 0.3,
           maxTokens: 512,
+          replyMode: 'CHUNKED',
         );
 
         final json = config.toJson();
@@ -148,6 +152,7 @@ void main() {
         expect(json['systemPrompt'], equals('Be concise'));
         expect(json['temperature'], equals(0.3));
         expect(json['maxTokens'], equals(512));
+        expect(json['replyMode'], equals('CHUNKED'));
       });
 
       test('does not include id in toJson', () {
