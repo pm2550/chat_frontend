@@ -86,6 +86,8 @@ class _BotEditScreenState extends State<BotEditScreen> {
   final _formKey = GlobalKey<FormState>();
   double _temperature = 0.7;
   int _maxTokens = 2048;
+  int _maxHistoryMessages = 20;
+  bool _includeRoomMetadata = true;
   bool _webSearchEnabled = false;
   bool _imageGenerationEnabled = false;
   String _replyMode = 'SINGLE';
@@ -130,6 +132,8 @@ class _BotEditScreenState extends State<BotEditScreen> {
     _providerController.addListener(_loadCredentialsForProvider);
     _temperature = bot?.temperature ?? 0.7;
     _maxTokens = bot?.maxTokens ?? 2048;
+    _maxHistoryMessages = bot?.maxHistoryMessages ?? 20;
+    _includeRoomMetadata = bot?.includeRoomMetadata ?? true;
     _selectedCredentialId = bot?.providerCredentialId;
     _hasCharacterCard = bot?.hasCharacterCard ?? false;
     _characterPersona = bot?.characterPersona;
@@ -289,6 +293,8 @@ class _BotEditScreenState extends State<BotEditScreen> {
                           const SizedBox(height: PMSpacing.l),
                           _buildReplyModeSection(),
                           const SizedBox(height: PMSpacing.l),
+                          _buildContextSection(),
+                          const SizedBox(height: PMSpacing.l),
                           _buildToolTogglesSection(),
                           const SizedBox(height: PMSpacing.l),
                           _buildAccessPolicySection(),
@@ -367,7 +373,7 @@ class _BotEditScreenState extends State<BotEditScreen> {
         children: [
           const Row(
             children: [
-              Icon(Icons.forum_outlined, color: AppColors.primary),
+              Icon(Icons.chat_bubble_outline, color: AppColors.primary),
               SizedBox(width: PMSpacing.s),
               Expanded(
                 child: Text(
@@ -402,6 +408,86 @@ class _BotEditScreenState extends State<BotEditScreen> {
                 onTap: () => setState(() => _replyMode = 'CHUNKED'),
               ),
             ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildContextSection() {
+    return PMCard(
+      elevated: false,
+      background: AppColors.cloud,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(
+            children: [
+              Icon(Icons.group, color: AppColors.primary),
+              SizedBox(width: PMSpacing.s),
+              Expanded(
+                child: Text(
+                  '群聊上下文',
+                  style: TextStyle(fontWeight: FontWeight.w900),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: PMSpacing.s),
+          const Text(
+            '默认开启。开启后，Bot 会知道自己所在房间、成员概况和最近聊天，不会像孤立 API 一样只看当前一句。',
+            style: TextStyle(color: AppColors.textSecondary),
+          ),
+          const SizedBox(height: PMSpacing.m),
+          _buildToolRow(
+            icon: Icons.chat_bubble_outline,
+            title: '注入房间和成员信息',
+            subtitle: '让 Bot 知道房间名、成员、自己在本群的昵称；关闭后仍保留基本系统提示。',
+            value: _includeRoomMetadata,
+            key: const Key('bot-edit-room-context-switch'),
+            onChanged: (value) => setState(() => _includeRoomMetadata = value),
+          ),
+          const Divider(height: PMSpacing.l),
+          Row(
+            children: [
+              const Icon(Icons.history, size: 20, color: AppColors.secondary),
+              const SizedBox(width: PMSpacing.s),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      '最近消息条数',
+                      style: TextStyle(fontWeight: FontWeight.w800),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      '当前会把最近 $_maxHistoryMessages 条消息放进上下文。',
+                      style: const TextStyle(
+                        color: AppColors.textSecondary,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Text(
+                '$_maxHistoryMessages',
+                style: const TextStyle(
+                  color: AppColors.secondaryDark,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ],
+          ),
+          Slider(
+            value: _maxHistoryMessages.toDouble().clamp(0, 60),
+            min: 0,
+            max: 60,
+            divisions: 12,
+            label: '$_maxHistoryMessages',
+            onChanged: (value) =>
+                setState(() => _maxHistoryMessages = value.round()),
           ),
         ],
       ),
@@ -848,6 +934,8 @@ class _BotEditScreenState extends State<BotEditScreen> {
           : _promptController.text.trim(),
       temperature: _temperature,
       maxTokens: _maxTokens,
+      maxHistoryMessages: _maxHistoryMessages,
+      includeRoomMetadata: _includeRoomMetadata,
       replyMode: _replyMode,
       isActive: widget.bot?.isActive ?? true,
       enabledTools: _composeEnabledTools(),
