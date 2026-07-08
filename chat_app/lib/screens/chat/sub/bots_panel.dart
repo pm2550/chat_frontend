@@ -78,8 +78,8 @@ extension _ChatScreenBotsPanelParts on _ChatScreenState {
                 runSpacing: 8,
                 children: [
                   PMChip(
-                    label: bot.triggerMode ?? 'MENTION',
-                    icon: Icons.alternate_email,
+                    label: _botTriggerLabel(bot.triggerMode),
+                    icon: _botTriggerIcon(bot.triggerMode),
                     selected: true,
                     color: AppColors.secondaryDark,
                   ),
@@ -123,6 +123,24 @@ extension _ChatScreenBotsPanelParts on _ChatScreenState {
         );
       },
     );
+  }
+
+  String _botTriggerLabel(String? mode) {
+    return switch ((mode ?? 'MENTION').toUpperCase()) {
+      'KEYWORD' => '关键词触发',
+      'REGEX' => '正则触发',
+      'ALL' => '全消息触发',
+      _ => '提及触发',
+    };
+  }
+
+  IconData _botTriggerIcon(String? mode) {
+    return switch ((mode ?? 'MENTION').toUpperCase()) {
+      'KEYWORD' => Icons.key,
+      'REGEX' => Icons.data_object,
+      'ALL' => Icons.all_inclusive,
+      _ => Icons.alternate_email,
+    };
   }
 
   void _openRoomSettings() {

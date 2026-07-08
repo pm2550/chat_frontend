@@ -1336,9 +1336,9 @@ class _ChatRoomSettingsScreenState extends State<ChatRoomSettingsScreen> {
               ],
             ),
             const SizedBox(height: PMSpacing.m),
-            const PMChip(
-              label: 'Mention 触发',
-              icon: Icons.alternate_email,
+            PMChip(
+              label: _botTriggerLabel(bot.triggerMode),
+              icon: _botTriggerIcon(bot.triggerMode),
               selected: true,
               color: AppColors.secondaryDark,
             ),
@@ -1346,6 +1346,24 @@ class _ChatRoomSettingsScreenState extends State<ChatRoomSettingsScreen> {
         ),
       ),
     );
+  }
+
+  String _botTriggerLabel(String? mode) {
+    return switch ((mode ?? 'MENTION').toUpperCase()) {
+      'KEYWORD' => '关键词触发',
+      'REGEX' => '正则触发',
+      'ALL' => '全消息触发',
+      _ => '提及触发',
+    };
+  }
+
+  IconData _botTriggerIcon(String? mode) {
+    return switch ((mode ?? 'MENTION').toUpperCase()) {
+      'KEYWORD' => Icons.key,
+      'REGEX' => Icons.data_object,
+      'ALL' => Icons.all_inclusive,
+      _ => Icons.alternate_email,
+    };
   }
 
   Widget _buildBehaviorSection() {

@@ -23,6 +23,7 @@ class BotConfig {
   final int maxHistoryMessages;
   final bool includeRoomMetadata;
   final String replyMode;
+  final String workflowMode;
   final bool isActive;
   final String? triggerMode;
   final String? triggerKeywords;
@@ -62,6 +63,7 @@ class BotConfig {
     this.maxHistoryMessages = 20,
     this.includeRoomMetadata = true,
     this.replyMode = 'SINGLE',
+    this.workflowMode = 'SINGLE_PASS',
     this.isActive = true,
     this.triggerMode,
     this.triggerKeywords,
@@ -102,6 +104,7 @@ class BotConfig {
           int.tryParse(json['maxHistoryMessages']?.toString() ?? '') ?? 20,
       includeRoomMetadata: json['includeRoomMetadata'] != false,
       replyMode: json['replyMode']?.toString() ?? 'SINGLE',
+      workflowMode: json['workflowMode']?.toString() ?? 'SINGLE_PASS',
       isActive: json['isActive'] ?? true,
       triggerMode: json['triggerMode']?.toString(),
       triggerKeywords: json['triggerKeywords']?.toString(),
@@ -158,6 +161,7 @@ class BotConfig {
         'maxHistoryMessages': maxHistoryMessages,
         'includeRoomMetadata': includeRoomMetadata,
         'replyMode': replyMode,
+        'workflowMode': workflowMode,
         'enabledTools': enabledTools,
         'accessPolicy': accessPolicy,
         'allowedUsernames': allowedUsernames,

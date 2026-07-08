@@ -178,6 +178,7 @@ class _ChatRoomBotConfigScreenState extends State<ChatRoomBotConfigScreen> {
                             for (final mode in const [
                               'MENTION',
                               'KEYWORD',
+                              'REGEX',
                               'ALL'
                             ])
                               PMChip(
@@ -186,7 +187,9 @@ class _ChatRoomBotConfigScreenState extends State<ChatRoomBotConfigScreen> {
                                     ? Icons.alternate_email
                                     : mode == 'KEYWORD'
                                         ? Icons.key
-                                        : Icons.all_inclusive,
+                                        : mode == 'REGEX'
+                                            ? Icons.data_object
+                                            : Icons.all_inclusive,
                                 selected: _triggerMode == mode,
                                 color: AppColors.secondaryDark,
                                 onTap: () =>
@@ -197,19 +200,25 @@ class _ChatRoomBotConfigScreenState extends State<ChatRoomBotConfigScreen> {
                       ),
                     ],
                   ),
-                  if (_triggerMode == 'KEYWORD') ...[
+                  if (_triggerMode == 'KEYWORD' || _triggerMode == 'REGEX') ...[
                     const SizedBox(height: PMSpacing.l),
                     PMSectionCard(
-                      title: '关键词',
+                      title: _triggerMode == 'REGEX' ? '正则表达式' : '关键词',
                       children: [
                         Padding(
                           padding: const EdgeInsets.all(PMSpacing.m),
                           child: TextField(
                             controller: _keywordsController,
-                            decoration: const InputDecoration(
-                              labelText: '关键词',
-                              hintText: '用逗号分隔，例如：总结, 帮我, PM',
-                              border: OutlineInputBorder(),
+                            decoration: InputDecoration(
+                              labelText:
+                                  _triggerMode == 'REGEX' ? '正则表达式' : '关键词',
+                              hintText: _triggerMode == 'REGEX'
+                                  ? r'例如：(?i)(画图|draw)\s*[:：]'
+                                  : '用逗号分隔，例如：总结, 帮我, PM',
+                              helperText: _triggerMode == 'REGEX'
+                                  ? '消息匹配该正则时触发；正则无效时服务端会跳过，不会影响群聊。'
+                                  : '任一关键词命中即触发。',
+                              border: const OutlineInputBorder(),
                             ),
                           ),
                         ),
@@ -335,6 +344,7 @@ class _ChatRoomBotConfigScreenState extends State<ChatRoomBotConfigScreen> {
   String _modeLabel(String mode) {
     return switch (mode) {
       'KEYWORD' => '关键词',
+      'REGEX' => '正则',
       'ALL' => '全部消息',
       _ => '提及',
     };
