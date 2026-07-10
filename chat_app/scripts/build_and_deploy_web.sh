@@ -20,12 +20,17 @@ mkdir -p "$RELEASES_DIR"
 TEMP_RELEASE="$RELEASES_DIR/.${BUILD_ID}.staging"
 FINAL_RELEASE="$RELEASES_DIR/$BUILD_ID"
 if [[ -e "$FINAL_RELEASE" ]]; then
-  echo "Release already exists: $FINAL_RELEASE" >&2
-  exit 3
+  if [[ ! -f "$FINAL_RELEASE/.last_build_id" ]] ||
+    [[ "$(tr -d '\n' < "$FINAL_RELEASE/.last_build_id")" != "$BUILD_ID" ]]; then
+    echo "Existing release is incomplete or has the wrong build id: $FINAL_RELEASE" >&2
+    exit 3
+  fi
+  echo "Verified existing immutable release: $FINAL_RELEASE"
+else
+  mkdir "$TEMP_RELEASE"
+  cp -a build/web/. "$TEMP_RELEASE/"
+  mv "$TEMP_RELEASE" "$FINAL_RELEASE"
 fi
-mkdir "$TEMP_RELEASE"
-cp -a build/web/. "$TEMP_RELEASE/"
-mv "$TEMP_RELEASE" "$FINAL_RELEASE"
 
 if [[ -L "$RELEASES_DIR/current" ]]; then
   CURRENT_TARGET="$(readlink -f "$RELEASES_DIR/current")"

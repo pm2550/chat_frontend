@@ -13,31 +13,6 @@ Future<void> main(List<String> arguments) async {
     return;
   }
 
-  final seedPaths = <String>[
-    'index.html',
-    'pmchat_service_worker.js',
-    'main.dart.js',
-    'flutter_bootstrap.js',
-    'canvaskit/canvaskit.js',
-    'canvaskit/canvaskit.wasm',
-    'canvaskit/chromium/canvaskit.js',
-    'canvaskit/chromium/canvaskit.wasm',
-  ];
-  _requireFiles(root, seedPaths);
-  final seed = StringBuffer();
-  for (final path in seedPaths) {
-    seed.write(path);
-    seed.write(await _digest(File('${root.path}/$path')));
-  }
-  final buildId =
-      sha256.convert(utf8.encode(seed.toString())).toString().substring(0, 20);
-
-  for (final path in ['index.html', 'pmchat_service_worker.js']) {
-    final file = File('${root.path}/$path');
-    final content = await file.readAsString();
-    await file.writeAsString(content.replaceAll(_buildIdMarker, buildId));
-  }
-
   final requiredPaths = <String>[
     'index.html',
     'flutter.js',
@@ -54,12 +29,26 @@ Future<void> main(List<String> arguments) async {
     'assets/AssetManifest.bin.json',
     'assets/FontManifest.json',
     'assets/fonts/MaterialIcons-Regular.otf',
+    'pmchat_service_worker.js',
     'canvaskit/canvaskit.js',
     'canvaskit/canvaskit.wasm',
     'canvaskit/chromium/canvaskit.js',
     'canvaskit/chromium/canvaskit.wasm',
   ];
   _requireFiles(root, requiredPaths);
+  final seed = StringBuffer();
+  for (final path in requiredPaths) {
+    seed.write(path);
+    seed.write(await _digest(File('${root.path}/$path')));
+  }
+  final buildId =
+      sha256.convert(utf8.encode(seed.toString())).toString().substring(0, 20);
+
+  for (final path in ['index.html', 'pmchat_service_worker.js']) {
+    final file = File('${root.path}/$path');
+    final content = await file.readAsString();
+    await file.writeAsString(content.replaceAll(_buildIdMarker, buildId));
+  }
 
   final assets = <Map<String, Object>>[];
   for (final path in requiredPaths) {
