@@ -430,6 +430,19 @@
           scriptUrl.indexOf('build=' + encodeURIComponent(buildStamp)) !== -1;
       }
 
+      function controlledPmchatBuildStamp() {
+        if (!('serviceWorker' in navigator) || !navigator.serviceWorker.controller) {
+          return '';
+        }
+        var scriptUrl = navigator.serviceWorker.controller.scriptURL || '';
+        if (scriptUrl.indexOf('pmchat_service_worker.js') === -1) return '';
+        try {
+          return normalizeBuildStamp(new URL(scriptUrl).searchParams.get('build') || '');
+        } catch (error) {
+          return '';
+        }
+      }
+
       function clearLegacyCaches() {
         if (!('caches' in window)) return Promise.resolve();
         return caches.keys()
@@ -720,6 +733,27 @@
           loadFlutter();
         }
       }, 6000);
+
+      var controlledBuildStamp = controlledPmchatBuildStamp();
+      if (controlledBuildStamp) {
+        // An active worker only claims clients after its complete release has
+        // been cached. Start that coherent release immediately; update checks
+        // continue in the background and may reload once after a full install.
+        currentBuildStamp = controlledBuildStamp;
+        loadFlutter();
+        withTimeout(fetchBuildStamp(), 3500, controlledBuildStamp)
+          .then(function (availableBuildStamp) {
+            if (!availableBuildStamp || availableBuildStamp === controlledBuildStamp) {
+              return;
+            }
+            currentBuildStamp = availableBuildStamp;
+            return preparePmchatServiceWorker(availableBuildStamp);
+          })
+          .catch(function (error) {
+            console.warn('PM chat background update check failed:', error);
+          });
+        return;
+      }
 
       withTimeout(fetchBuildStamp(), 3500, cachedAssetBuildStamp() || fallbackBuildStamp)
         .then(function (buildStamp) {
