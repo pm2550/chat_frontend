@@ -31,6 +31,8 @@ import '../../services/file_save.dart' as file_save;
 import '../../services/platform_chat_file_picker.dart'
     if (dart.library.js_interop) '../../services/platform_chat_file_picker_web.dart';
 import '../../services/user_profile_service.dart';
+import '../../services/voice_recorder.dart'
+    if (dart.library.js_interop) '../../services/voice_recorder_web.dart';
 import '../../services/websocket_service.dart';
 import 'sub/memory_panel.dart';
 import '../../widgets/anonymous_toggle_button.dart';
@@ -142,6 +144,11 @@ class _ChatScreenState extends State<ChatScreen> {
   StreamSubscription<Map<String, dynamic>>? _typingSubscription;
   StreamSubscription<Map<String, dynamic>>? _callSubscription;
   Timer? _messageHighlightTimer;
+  Timer? _voiceRecordingTimer;
+  Timer? _initialBottomAnchorTimer;
+  int _initialBottomAnchorGeneration = 0;
+  bool _initialBottomAnchorActive = false;
+  final VoiceRecorder _voiceRecorder = VoiceRecorder();
 
   List<Message> _messages = [];
   final Map<String, GlobalKey> _messageKeys = {};
@@ -158,6 +165,9 @@ class _ChatScreenState extends State<ChatScreen> {
   bool _isLoadingOlderMessages = false;
   bool _hasMoreMessages = false;
   bool _isSendingAttachment = false;
+  bool _isRecordingVoice = false;
+  bool _isStoppingVoice = false;
+  Duration _voiceRecordingDuration = Duration.zero;
   bool _isLoadingRoomBots = false;
   bool _desktopInfoPanelCollapsed = false;
   int _desktopInfoPanelTab = 0;
@@ -356,6 +366,9 @@ class _ChatScreenState extends State<ChatScreen> {
     _typingSubscription?.cancel();
     _callSubscription?.cancel();
     _messageHighlightTimer?.cancel();
+    _voiceRecordingTimer?.cancel();
+    _cancelInitialBottomAnchor();
+    _voiceRecorder.dispose();
     _dropPasteController?.dispose();
     if (_ownsCallService) {
       _callService.dispose();
@@ -384,7 +397,7 @@ class _ChatScreenState extends State<ChatScreen> {
     _isLoadingMessages = false;
     _errorMessage = null;
     _restoredMessagesFromCache = true;
-    _jumpToBottom();
+    _startInitialBottomAnchor();
   }
 
   Future<void> _loadInitialMessages({bool showBlockingLoader = true}) async {
@@ -407,7 +420,9 @@ class _ChatScreenState extends State<ChatScreen> {
         _errorMessage = null;
       });
       _saveMessageCache();
-      if (showBlockingLoader || wasNearBottom) {
+      if (showBlockingLoader) {
+        _startInitialBottomAnchor();
+      } else if (wasNearBottom) {
         _jumpToBottom();
       }
       unawaited(_markAllRead());
@@ -444,6 +459,10 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   void _handleScroll() {
+    if (_initialBottomAnchorActive) {
+      _syncNewMessageButton();
+      return;
+    }
     if (!_scrollController.hasClients ||
         _isLoadingMessages ||
         _isLoadingOlderMessages ||
@@ -651,6 +670,78 @@ class _ChatScreenState extends State<ChatScreen> {
 
   void _jumpToBottom() {
     _scheduleScrollToBottom(animated: false);
+  }
+
+  void _startInitialBottomAnchor() {
+    final generation = ++_initialBottomAnchorGeneration;
+    _initialBottomAnchorTimer?.cancel();
+    _initialBottomAnchorActive = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || generation != _initialBottomAnchorGeneration) return;
+      _beginInitialBottomAnchorPasses(generation);
+    });
+  }
+
+  void _cancelInitialBottomAnchor() {
+    _initialBottomAnchorGeneration += 1;
+    _initialBottomAnchorTimer?.cancel();
+    _initialBottomAnchorTimer = null;
+    _initialBottomAnchorActive = false;
+  }
+
+  void _beginInitialBottomAnchorPasses(int generation) {
+    if (!_snapInitialHistoryToBottom(generation)) return;
+
+    var ticks = 0;
+    var stablePasses = 0;
+    var previousExtent = _scrollController.position.maxScrollExtent;
+    _initialBottomAnchorTimer = Timer.periodic(
+      const Duration(milliseconds: 40),
+      (timer) {
+        ticks += 1;
+        if (!mounted || generation != _initialBottomAnchorGeneration) {
+          timer.cancel();
+          return;
+        }
+        if (!_snapInitialHistoryToBottom(generation)) {
+          timer.cancel();
+          return;
+        }
+
+        final extent = _scrollController.position.maxScrollExtent;
+        if ((extent - previousExtent).abs() <= 1) {
+          stablePasses += 1;
+        } else {
+          stablePasses = 0;
+        }
+        previousExtent = extent;
+
+        if (ticks >= 75 || (ticks >= 25 && stablePasses >= 6)) {
+          timer.cancel();
+          _initialBottomAnchorTimer = null;
+          _initialBottomAnchorActive = false;
+        }
+      },
+    );
+  }
+
+  bool _snapInitialHistoryToBottom(int generation) {
+    if (!mounted ||
+        generation != _initialBottomAnchorGeneration ||
+        !_scrollController.hasClients) {
+      return false;
+    }
+    final position = _scrollController.position;
+    if (!position.hasContentDimensions || !position.maxScrollExtent.isFinite) {
+      return false;
+    }
+    final extent = position.maxScrollExtent;
+    _scrollController.jumpTo(extent);
+    if (extent <= 0) {
+      _initialBottomAnchorActive = false;
+      return false;
+    }
+    return true;
   }
 
   void _scheduleScrollToBottom({
@@ -870,6 +961,7 @@ class _ChatScreenState extends State<ChatScreen> {
                   _buildReplyPreviewStrip(),
                   _buildMentionPickerPanel(),
                   _buildAnonymousIdentityHint(),
+                  _buildVoiceRecordingStrip(),
                   LayoutBuilder(
                     builder: (context, constraints) {
                       if (constraints.maxWidth < 400) {
@@ -974,9 +1066,10 @@ class _ChatScreenState extends State<ChatScreen> {
             filled: true,
           )
         : _buildInputIconButton(
-            symbol: PMSymbol.mic,
-            onPressed: _pickAndSendVoiceFile,
-            tooltip: '语音消息',
+            symbol: _isRecordingVoice ? PMSymbol.send : PMSymbol.mic,
+            onPressed: _toggleVoiceRecording,
+            tooltip: _isRecordingVoice ? '停止并发送语音' : '录音说话',
+            filled: _isRecordingVoice,
           );
   }
 

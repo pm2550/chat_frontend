@@ -1,7 +1,10 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 
+import '../../constants/api_constants.dart';
 import '../../constants/app_colors.dart';
 import '../../design/design.dart';
 import '../../services/bot_service.dart';
@@ -73,6 +76,12 @@ class _BotEditScreenState extends State<BotEditScreen> {
       defaultModel: 'qwen-plus',
       icon: Icons.cloud_queue,
     ),
+    _ProviderOption(
+      value: 'KIMI',
+      label: 'Kimi Code',
+      defaultModel: 'kimi-code',
+      icon: Icons.code,
+    ),
   ];
 
   late final BotService _botService;
@@ -103,6 +112,9 @@ class _BotEditScreenState extends State<BotEditScreen> {
   String? _characterFirstMes;
   List<String> _alternateGreetings = const [];
   int _bookEntryCount = 0;
+  PickedBotAvatar? _selectedAvatar;
+  Uint8List? _avatarPreviewBytes;
+  String? _botAvatarUrl;
 
   bool get _isEditing => widget.bot?.id != null;
 
@@ -124,6 +136,7 @@ class _BotEditScreenState extends State<BotEditScreen> {
               .join(', ') ??
           '',
     );
+    _botAvatarUrl = bot?.botAvatar;
     _webSearchEnabled = bot?.enabledTools.contains('web_search') ?? false;
     _imageGenerationEnabled =
         bot?.enabledTools.contains('generate_image') ?? false;
@@ -210,6 +223,8 @@ class _BotEditScreenState extends State<BotEditScreen> {
                                     ? '请输入 Bot 名称'
                                     : null,
                           ),
+                          const SizedBox(height: PMSpacing.l),
+                          _buildAvatarSection(),
                           const SizedBox(height: PMSpacing.l),
                           LayoutBuilder(
                             builder: (context, constraints) {
@@ -362,6 +377,131 @@ class _BotEditScreenState extends State<BotEditScreen> {
         ],
       ),
     );
+  }
+
+  Widget _buildAvatarSection() {
+    return PMCard(
+      elevated: false,
+      background: AppColors.cloud,
+      padding: const EdgeInsets.all(PMSpacing.m),
+      child: Row(
+        children: [
+          _buildAvatarPreview(),
+          const SizedBox(width: PMSpacing.m),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Bot 头像',
+                  style: TextStyle(
+                    color: AppColors.textPrimary,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  _selectedAvatar != null
+                      ? '已选择 ${_selectedAvatar!.name}，保存后上传。'
+                      : (_botAvatarUrl?.trim().isNotEmpty == true
+                          ? '当前头像会用于聊天气泡和 Bot 列表。'
+                          : '未设置头像，聊天里会显示默认 Bot 图标。'),
+                  style: const TextStyle(
+                    color: AppColors.textSecondary,
+                    fontSize: 13,
+                  ),
+                ),
+                const SizedBox(height: PMSpacing.s),
+                Wrap(
+                  spacing: PMSpacing.s,
+                  runSpacing: PMSpacing.s,
+                  children: [
+                    PMButton(
+                      label: '选择头像',
+                      icon: Icons.image_outlined,
+                      compact: true,
+                      variant: PMButtonVariant.secondary,
+                      onPressed: _saving ? null : _pickBotAvatar,
+                    ),
+                    if (_selectedAvatar != null)
+                      PMButton(
+                        label: '取消选择',
+                        icon: Icons.close,
+                        compact: true,
+                        variant: PMButtonVariant.link,
+                        onPressed: _saving
+                            ? null
+                            : () => setState(() {
+                                  _selectedAvatar = null;
+                                  _avatarPreviewBytes = null;
+                                }),
+                      ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAvatarPreview() {
+    final bytes = _avatarPreviewBytes;
+    final avatarUrl = _botAvatarUrl?.trim();
+    Widget child;
+    if (bytes != null && bytes.isNotEmpty) {
+      child = Image.memory(bytes, fit: BoxFit.cover);
+    } else if (avatarUrl != null && avatarUrl.isNotEmpty) {
+      child = Image.network(
+        ApiConstants.resolveFileUrl(avatarUrl),
+        fit: BoxFit.cover,
+        errorBuilder: (_, __, ___) => const _BotAvatarFallback(),
+      );
+    } else {
+      child = const _BotAvatarFallback();
+    }
+
+    return Container(
+      width: 72,
+      height: 72,
+      decoration: BoxDecoration(
+        color: AppColors.pixelBlue,
+        borderRadius: BorderRadius.circular(PMRadius.m),
+        border: Border.all(color: AppColors.border),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: child,
+    );
+  }
+
+  Future<void> _pickBotAvatar() async {
+    try {
+      final image = await ImagePicker().pickImage(
+        source: ImageSource.gallery,
+        maxWidth: 512,
+        maxHeight: 512,
+        imageQuality: 90,
+      );
+      if (image == null) return;
+      final bytes = await image.readAsBytes();
+      if (!mounted) return;
+      setState(() {
+        _selectedAvatar = PickedBotAvatar(
+          name: image.name,
+          path: image.path,
+          bytes: bytes,
+          size: bytes.length,
+          mimeType: image.mimeType,
+        );
+        _avatarPreviewBytes = bytes;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('选择头像失败: $error')),
+      );
+    }
   }
 
   Widget _buildReplyModeSection() {
@@ -925,6 +1065,7 @@ class _BotEditScreenState extends State<BotEditScreen> {
     final config = BotConfig(
       id: widget.bot?.id,
       botName: _nameController.text.trim(),
+      botAvatar: _botAvatarUrl,
       llmProvider: _providerController.text.trim(),
       modelName: _modelController.text.trim().isEmpty
           ? null
@@ -946,8 +1087,9 @@ class _BotEditScreenState extends State<BotEditScreen> {
     );
 
     try {
+      BotConfig? saved;
       if (_isEditing) {
-        await _botService.updateBot(
+        saved = await _botService.updateBot(
           widget.bot!.id!,
           config,
           apiKey: _apiKeyController.text.trim().isEmpty
@@ -955,14 +1097,24 @@ class _BotEditScreenState extends State<BotEditScreen> {
               : _apiKeyController.text.trim(),
         );
       } else {
-        await _botService.createBot(
+        saved = await _botService.createBot(
           config,
           apiKey: _apiKeyController.text.trim().isEmpty
               ? null
               : _apiKeyController.text.trim(),
         );
       }
+      final avatar = _selectedAvatar;
+      final botId = saved?.id;
+      if (avatar != null && botId != null) {
+        saved = await _botService.uploadBotAvatar(botId, avatar);
+      }
       if (!mounted) return;
+      setState(() {
+        _botAvatarUrl = saved?.botAvatar ?? _botAvatarUrl;
+        _selectedAvatar = null;
+        _avatarPreviewBytes = null;
+      });
       Navigator.pop(context, true);
     } catch (error) {
       if (!mounted) return;
@@ -1162,5 +1314,19 @@ class _BotEditScreenState extends State<BotEditScreen> {
     } finally {
       if (mounted) setState(() => _loadingCredentials = false);
     }
+  }
+}
+
+class _BotAvatarFallback extends StatelessWidget {
+  const _BotAvatarFallback();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: const BoxDecoration(gradient: AppColors.primaryGradient),
+      child: const Center(
+        child: Icon(Icons.smart_toy, color: Colors.white, size: 30),
+      ),
+    );
   }
 }

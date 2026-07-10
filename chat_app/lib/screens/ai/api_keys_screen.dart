@@ -26,6 +26,7 @@ class _ApiKeysScreenState extends State<ApiKeysScreen> {
     'OLLAMA',
     'HERMES',
     'DASHSCOPE',
+    'KIMI',
   ];
 
   late final BotService _botService;
@@ -36,7 +37,8 @@ class _ApiKeysScreenState extends State<ApiKeysScreen> {
   bool _showForm = false;
   bool _saving = false;
   String _provider = 'OPENAI';
-  int? _editingId; // non-null => the form is editing this credential, not creating
+  int?
+      _editingId; // non-null => the form is editing this credential, not creating
   final _labelController = TextEditingController();
   final _secretController = TextEditingController();
   final _baseUrlController = TextEditingController();
@@ -142,7 +144,8 @@ class _ApiKeysScreenState extends State<ApiKeysScreen> {
 
   void _startEdit(ProviderCredential credential) {
     _labelController.text = credential.label;
-    _secretController.clear(); // never pre-fill the secret; blank = keep existing
+    _secretController
+        .clear(); // never pre-fill the secret; blank = keep existing
     _baseUrlController.text = credential.baseUrl ?? '';
     _modelController.text = credential.modelOverride ?? '';
     setState(() {

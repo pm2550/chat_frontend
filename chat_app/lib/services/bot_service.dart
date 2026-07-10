@@ -236,6 +236,22 @@ class ProviderCredential {
   }
 }
 
+class PickedBotAvatar {
+  const PickedBotAvatar({
+    required this.name,
+    this.path,
+    this.bytes,
+    this.size,
+    this.mimeType,
+  });
+
+  final String name;
+  final String? path;
+  final List<int>? bytes;
+  final int? size;
+  final String? mimeType;
+}
+
 class BotServiceException implements Exception {
   const BotServiceException(this.message);
 
@@ -292,6 +308,18 @@ class BotService {
       return BotConfig.fromJson(data['data'] as Map<String, dynamic>);
     }
     throw const BotServiceException('机器人更新成功但响应中没有数据');
+  }
+
+  Future<BotConfig> uploadBotAvatar(int botId, PickedBotAvatar avatar) async {
+    final response = await _requestMultipart(
+      ApiConstants.botAvatar(botId),
+      avatar: avatar,
+    );
+    final data = _decodeResponse(response);
+    if (data['data'] is Map<String, dynamic>) {
+      return BotConfig.fromJson(data['data'] as Map<String, dynamic>);
+    }
+    throw const BotServiceException('机器人头像上传成功但响应中没有数据');
   }
 
   Future<bool> addBotToRoom(int roomId, int botId,
@@ -539,6 +567,46 @@ class BotService {
   }) {
     final request = _authenticatedRequest ?? _authService.authenticatedRequest;
     return request(method, url, headers: headers, body: body);
+  }
+
+  Future<dynamic> _requestMultipart(
+    String url, {
+    required PickedBotAvatar avatar,
+  }) async {
+    Future<http.Response> send() async {
+      final request = http.MultipartRequest('POST', Uri.parse(url));
+      final token = _authService.accessToken;
+      if (token != null) {
+        request.headers['Authorization'] = 'Bearer $token';
+      }
+
+      final bytes = avatar.bytes;
+      if (bytes != null && bytes.isNotEmpty) {
+        request.files.add(http.MultipartFile.fromBytes(
+          'avatar',
+          bytes,
+          filename: avatar.name,
+        ));
+      } else if (avatar.path != null && avatar.path!.isNotEmpty) {
+        request.files.add(await http.MultipartFile.fromPath(
+          'avatar',
+          avatar.path!,
+          filename: avatar.name,
+        ));
+      } else {
+        throw const BotServiceException('请选择有效头像');
+      }
+
+      final streamedResponse =
+          await request.send().timeout(ApiConstants.uploadTimeout);
+      return http.Response.fromStream(streamedResponse);
+    }
+
+    var response = await send();
+    if (response.statusCode == 401 && await _authService.refreshAccessToken()) {
+      response = await send();
+    }
+    return response;
   }
 
   Map<String, dynamic> _decodeResponse(dynamic response) {

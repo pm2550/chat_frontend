@@ -271,6 +271,82 @@ extension _ChatScreenComposerParts on _ChatScreenState {
     );
   }
 
+  Future<void> _toggleVoiceRecording() async {
+    if (_isStoppingVoice || _isSendingAttachment) return;
+    if (_isRecordingVoice) {
+      await _stopAndSendVoiceRecording();
+    } else {
+      await _startVoiceRecording();
+    }
+  }
+
+  Future<void> _startVoiceRecording() async {
+    try {
+      await _voiceRecorder.start();
+      if (!mounted) return;
+      _voiceRecordingTimer?.cancel();
+      _voiceRecordingTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+        if (!mounted || !_isRecordingVoice) return;
+        _setViewState(() {
+          _voiceRecordingDuration += const Duration(seconds: 1);
+        });
+      });
+      _setViewState(() {
+        _isRecordingVoice = true;
+        _voiceRecordingDuration = Duration.zero;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('无法开始录音: $e'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    }
+  }
+
+  Future<void> _stopAndSendVoiceRecording() async {
+    _setViewState(() => _isStoppingVoice = true);
+    try {
+      final recorded = await _voiceRecorder.stop();
+      _voiceRecordingTimer?.cancel();
+      if (!mounted) return;
+      _setViewState(() {
+        _isRecordingVoice = false;
+        _voiceRecordingDuration = Duration.zero;
+      });
+      if (recorded == null || recorded.bytes.isEmpty) return;
+      await _sendPickedFile(
+        recorded.toPickedChatFile(),
+        messageType: MessageType.voice,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('语音发送失败: $e'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    } finally {
+      if (mounted) {
+        _setViewState(() => _isStoppingVoice = false);
+      }
+    }
+  }
+
+  Future<void> _cancelVoiceRecording() async {
+    await _voiceRecorder.cancel();
+    _voiceRecordingTimer?.cancel();
+    if (!mounted) return;
+    _setViewState(() {
+      _isRecordingVoice = false;
+      _isStoppingVoice = false;
+      _voiceRecordingDuration = Duration.zero;
+    });
+  }
+
   Future<void> _sendLocationMessage() async {
     final controller = TextEditingController();
     final location = await showDialog<String>(
@@ -335,6 +411,7 @@ extension _ChatScreenComposerParts on _ChatScreenState {
           _buildReplyPreviewStrip(),
           _buildMentionPickerPanel(),
           _buildAnonymousIdentityHint(),
+          _buildVoiceRecordingStrip(),
           Row(
             children: [
               _buildInputIconButton(
@@ -389,9 +466,10 @@ extension _ChatScreenComposerParts on _ChatScreenState {
                       filled: true,
                     )
                   : _buildInputIconButton(
-                      symbol: PMSymbol.mic,
-                      onPressed: _pickAndSendVoiceFile,
-                      tooltip: '语音消息',
+                      symbol: _isRecordingVoice ? PMSymbol.send : PMSymbol.mic,
+                      onPressed: _toggleVoiceRecording,
+                      tooltip: _isRecordingVoice ? '停止并发送语音' : '录音说话',
+                      filled: _isRecordingVoice,
                     ),
             ],
           ),
@@ -408,6 +486,81 @@ extension _ChatScreenComposerParts on _ChatScreenState {
       rerolling: _isRerollingAnonymous,
       onReroll: _rerollAnonymousIdentity,
     );
+  }
+
+  Widget _buildVoiceRecordingStrip() {
+    if (!_isRecordingVoice) return const SizedBox.shrink();
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: AppColors.error.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppColors.error.withValues(alpha: 0.18)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 8,
+            height: 8,
+            decoration: const BoxDecoration(
+              color: AppColors.error,
+              shape: BoxShape.circle,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              '正在录音 ${_formatVoiceRecordingDuration(_voiceRecordingDuration)}',
+              style: const TextStyle(
+                color: AppColors.textPrimary,
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          TextButton.icon(
+            onPressed: _cancelVoiceRecording,
+            icon: const PMSymbolIcon(
+              PMSymbol.close,
+              size: 14,
+              color: AppColors.error,
+            ),
+            label: const Text('取消'),
+            style: TextButton.styleFrom(
+              foregroundColor: AppColors.error,
+              minimumSize: const Size(0, 32),
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+            ),
+          ),
+          const SizedBox(width: 6),
+          FilledButton.icon(
+            onPressed: _isStoppingVoice ? null : _stopAndSendVoiceRecording,
+            icon: const PMSymbolIcon(
+              PMSymbol.send,
+              size: 14,
+              color: Colors.white,
+            ),
+            label: Text(_isStoppingVoice ? '发送中' : '发送'),
+            style: FilledButton.styleFrom(
+              backgroundColor: AppColors.primary,
+              foregroundColor: Colors.white,
+              minimumSize: const Size(0, 32),
+              padding: const EdgeInsets.symmetric(horizontal: 10),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _formatVoiceRecordingDuration(Duration duration) {
+    final minutes = duration.inMinutes.remainder(60).toString().padLeft(2, '0');
+    final seconds = duration.inSeconds.remainder(60).toString().padLeft(2, '0');
+    return '$minutes:$seconds';
   }
 
   Widget _buildMessageTextField({required String hintText}) {
@@ -874,6 +1027,15 @@ extension _ChatScreenComposerParts on _ChatScreenState {
                         label: '文件',
                         onTap: () {
                           final sendFuture = _pickAndSendFile();
+                          Navigator.pop(context);
+                          unawaited(sendFuture);
+                        },
+                      ),
+                      _buildInputOption(
+                        symbol: PMSymbol.mic,
+                        label: '语音文件',
+                        onTap: () {
+                          final sendFuture = _pickAndSendVoiceFile();
                           Navigator.pop(context);
                           unawaited(sendFuture);
                         },

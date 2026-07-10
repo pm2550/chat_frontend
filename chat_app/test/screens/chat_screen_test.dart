@@ -191,6 +191,46 @@ void main() {
       expect(find.text('1 条新消息'), findsNothing);
     });
 
+    testWidgets('initial long history stays anchored to the newest message',
+        (tester) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(() {
+        tester.view.resetPhysicalSize();
+        tester.view.resetDevicePixelRatio();
+      });
+
+      final messages = List<Message>.generate(
+        90,
+        (index) => Message(
+          id: 'history-$index',
+          content: '第 $index 条消息 ${'较长内容 ' * (index % 5 + 1)}',
+          senderId: index.isEven ? 'user2' : 'user1',
+          senderName: index.isEven ? '好友' : '我',
+          chatRoomId: 'chat1',
+          status: MessageStatus.sent,
+          timestamp: DateTime.parse('2024-01-01T10:00:00')
+              .add(Duration(minutes: index)),
+        ),
+      );
+
+      await tester.pumpWidget(buildTestWidget(
+        createTestChat(),
+        chatService: FakeChatDataService(messages: messages),
+      ));
+      await tester.pump();
+      for (var i = 0; i < 30; i++) {
+        await tester.pump(const Duration(milliseconds: 50));
+      }
+
+      final list = tester.widget<ListView>(
+        find.byKey(const ValueKey('chat-message-list')),
+      );
+      final position = list.controller!.position;
+      expect(position.maxScrollExtent - position.pixels, lessThanOrEqualTo(2));
+      expect(find.textContaining('第 89 条消息'), findsOneWidget);
+    });
+
     testWidgets('mobile composer moves above keyboard viewInsets',
         (tester) async {
       tester.view.physicalSize = const Size(390, 844);
@@ -278,6 +318,7 @@ void main() {
         '拍照',
         '相册',
         '文件',
+        '语音文件',
         '位置',
         '投票',
       ]) {
@@ -371,7 +412,7 @@ void main() {
       expect(service.sentTexts, isEmpty);
     });
 
-    testWidgets('375x812 composer more sheet exposes eight actions',
+    testWidgets('375x812 composer more sheet exposes expanded actions',
         (tester) async {
       tester.view.physicalSize = const Size(375, 812);
       tester.view.devicePixelRatio = 1;
@@ -400,6 +441,7 @@ void main() {
         '拍照',
         '相册',
         '文件',
+        '语音文件',
         '位置',
         '投票',
       ]) {
@@ -554,7 +596,7 @@ void main() {
       await tester.pump();
 
       // When no text is entered, should show mic button instead of send.
-      expect(find.byTooltip('语音消息'), findsOneWidget);
+      expect(find.byTooltip('录音说话'), findsOneWidget);
     });
 
     testWidgets('shows send button when text is typed', (tester) async {
@@ -569,7 +611,7 @@ void main() {
 
       // Now the send icon should appear.
       expect(find.byTooltip('发送'), findsOneWidget);
-      expect(find.byTooltip('语音消息'), findsNothing);
+      expect(find.byTooltip('录音说话'), findsNothing);
     });
 
     testWidgets('typing @ opens mention picker with keyboard selection',
@@ -1515,7 +1557,7 @@ void main() {
       await tester.pump();
 
       // Verify initial state has mic button.
-      expect(find.byTooltip('语音消息'), findsOneWidget);
+      expect(find.byTooltip('录音说话'), findsOneWidget);
 
       // Enter text.
       await tester.enterText(find.byType(TextField), '新消息');
@@ -1529,7 +1571,7 @@ void main() {
       await tester.pump();
 
       // Mic button should come back.
-      expect(find.byTooltip('语音消息'), findsOneWidget);
+      expect(find.byTooltip('录音说话'), findsOneWidget);
     });
 
     testWidgets('shows failed message when REST fallback send fails',

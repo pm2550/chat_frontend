@@ -151,6 +151,30 @@ void main() {
     expect(service.savedConfig!.systemPrompt, contains('generate_image'));
   });
 
+  testWidgets('Kimi Code provider selects the kimi-code default model',
+      (tester) async {
+    final service = _CapturingBotService();
+    final bot = BotConfig(
+      id: 9,
+      botName: 'kimi-bot',
+      llmProvider: 'OPENAI',
+    );
+    await pumpEditor(tester, bot, service);
+
+    await tester.ensureVisible(find.text('Kimi Code'));
+    await tester.tap(find.text('Kimi Code'));
+    await tester.pumpAndSettle();
+
+    final saveButton = find.text('保存 Bot').last;
+    await tester.ensureVisible(saveButton);
+    await tester.tap(saveButton);
+    await tester.pumpAndSettle();
+
+    expect(service.savedConfig, isNotNull);
+    expect(service.savedConfig!.llmProvider, 'KIMI');
+    expect(service.savedConfig!.modelName, 'kimi-code');
+  });
+
   testWidgets('saving chunked reply mode sends replyMode', (tester) async {
     final service = _CapturingBotService();
     final bot = BotConfig(

@@ -43,106 +43,116 @@ extension _ChatScreenMessageListParts on _ChatScreenState {
     final remoteTypingOffset = typingOffset + (_isSendingAttachment ? 1 : 0);
     final itemCount =
         remoteTypingOffset + (_typingUserNames.isNotEmpty ? 1 : 0);
-    return ListView.builder(
-      controller: _scrollController,
-      padding: const EdgeInsets.fromLTRB(16, 18, 16, 18),
-      itemCount: itemCount,
-      itemBuilder: (context, index) {
-        if (_isLoadingOlderMessages && index == 0) {
-          return const Padding(
-            padding: EdgeInsets.symmetric(vertical: 8),
-            child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
-          );
+    return NotificationListener<ScrollStartNotification>(
+      onNotification: (notification) {
+        if (notification.dragDetails != null && _initialBottomAnchorActive) {
+          _cancelInitialBottomAnchor();
         }
-        if (index == typingOffset && _isSendingAttachment) {
-          return const Align(
-            alignment: Alignment.centerLeft,
-            child: TypingIndicator(userName: '文件'),
-          );
-        }
-        if (index == remoteTypingOffset && _typingUserNames.isNotEmpty) {
-          return Align(
-            alignment: Alignment.centerLeft,
-            child: TypingIndicator(userNames: _typingUserNames),
-          );
-        }
-        final messageIndex = index - messageOffset;
-        final message = _messages[messageIndex];
-        final previousMessage =
-            messageIndex == 0 ? null : _messages[messageIndex - 1];
-        final isMe = message.isFromCurrentUser(currentUserId);
-        final authorKey = _messageAuthorKey(message);
-        final previousAuthorKey =
-            previousMessage == null ? null : _messageAuthorKey(previousMessage);
-        final startsNewGroup = previousMessage == null ||
-            previousAuthorKey != authorKey ||
-            message.timestamp
-                    .difference(previousMessage.timestamp)
-                    .inMinutes
-                    .abs() >
-                5;
-        final showDateSeparator = previousMessage == null ||
-            !_isSameMessageDate(previousMessage.timestamp, message.timestamp);
+        return false;
+      },
+      child: ListView.builder(
+        key: const ValueKey('chat-message-list'),
+        controller: _scrollController,
+        padding: const EdgeInsets.fromLTRB(16, 18, 16, 18),
+        itemCount: itemCount,
+        itemBuilder: (context, index) {
+          if (_isLoadingOlderMessages && index == 0) {
+            return const Padding(
+              padding: EdgeInsets.symmetric(vertical: 8),
+              child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+            );
+          }
+          if (index == typingOffset && _isSendingAttachment) {
+            return const Align(
+              alignment: Alignment.centerLeft,
+              child: TypingIndicator(userName: '文件'),
+            );
+          }
+          if (index == remoteTypingOffset && _typingUserNames.isNotEmpty) {
+            return Align(
+              alignment: Alignment.centerLeft,
+              child: TypingIndicator(userNames: _typingUserNames),
+            );
+          }
+          final messageIndex = index - messageOffset;
+          final message = _messages[messageIndex];
+          final previousMessage =
+              messageIndex == 0 ? null : _messages[messageIndex - 1];
+          final isMe = message.isFromCurrentUser(currentUserId);
+          final authorKey = _messageAuthorKey(message);
+          final previousAuthorKey = previousMessage == null
+              ? null
+              : _messageAuthorKey(previousMessage);
+          final startsNewGroup = previousMessage == null ||
+              previousAuthorKey != authorKey ||
+              message.timestamp
+                      .difference(previousMessage.timestamp)
+                      .inMinutes
+                      .abs() >
+                  5;
+          final showDateSeparator = previousMessage == null ||
+              !_isSameMessageDate(previousMessage.timestamp, message.timestamp);
 
-        return Column(
-          key: _messageKeyFor(message.id),
-          children: [
-            if (showDateSeparator)
-              _MessageDateSeparator(
-                label: _formatMessageDateLabel(message.timestamp),
-              ),
-            AnimatedContainer(
-              duration: const Duration(milliseconds: 180),
-              curve: Curves.easeOutCubic,
-              decoration: BoxDecoration(
-                color: _highlightedMessageId == message.id
-                    ? AppColors.warning.withValues(alpha: 0.18)
-                    : Colors.transparent,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              padding: EdgeInsets.only(top: startsNewGroup ? 8 : 2),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 2),
-                child: GestureDetector(
-                  onLongPress: () => _showMessageActions(message, isMe),
-                  onSecondaryTap: () => _showMessageActions(message, isMe),
-                  child: MessageBubble(
-                    message: message,
-                    isMe: isMe,
-                    showAvatar: message.isAnonymous ||
-                        message.isBotMessage ||
-                        (_chat.type == ChatType.group && startsNewGroup),
-                    onOpenAttachment: _openAttachment,
-                    onRetrySend: _retryFailedMessage,
-                    onOpenReply: () => _scrollToQuotedMessage(message),
-                    onMentionTap: _showMentionProfile,
-                    onAvatarMention: message.isAnonymous
-                        ? null
-                        : () {
-                            final participant =
-                                _participantForMessageSender(message);
-                            if (participant != null) {
-                              _insertMentionForUser(participant);
-                            }
-                          },
-                    currentUserId: currentUserId,
-                    onToggleReaction: _toggleReaction,
-                    pollLoader: _chatService.getPoll,
-                    onVotePoll: _chatService.votePoll,
-                    pollRefreshEpoch: _pollRefreshEpoch,
-                    linkPreviewLoader: _loadLinkPreview,
-                    bubbleStylePreset: isMe
-                        ? _appSettings.bubbleStylePreset
-                        : ChatCustomizationCatalog.defaultBubbleStyle,
-                    senderAvatarFramePreset:
-                        _avatarFramePresetForMessage(message, isMe),
+          return Column(
+            key: _messageKeyFor(message.id),
+            children: [
+              if (showDateSeparator)
+                _MessageDateSeparator(
+                  label: _formatMessageDateLabel(message.timestamp),
+                ),
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 180),
+                curve: Curves.easeOutCubic,
+                decoration: BoxDecoration(
+                  color: _highlightedMessageId == message.id
+                      ? AppColors.warning.withValues(alpha: 0.18)
+                      : Colors.transparent,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                padding: EdgeInsets.only(top: startsNewGroup ? 8 : 2),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 2),
+                  child: GestureDetector(
+                    onLongPress: () => _showMessageActions(message, isMe),
+                    onSecondaryTap: () => _showMessageActions(message, isMe),
+                    child: MessageBubble(
+                      message: message,
+                      isMe: isMe,
+                      showAvatar: message.isAnonymous ||
+                          message.isBotMessage ||
+                          (_chat.type == ChatType.group && startsNewGroup),
+                      onOpenAttachment: _openAttachment,
+                      onRetrySend: _retryFailedMessage,
+                      onOpenReply: () => _scrollToQuotedMessage(message),
+                      onMentionTap: _showMentionProfile,
+                      onAvatarMention: message.isAnonymous
+                          ? null
+                          : () {
+                              final participant =
+                                  _participantForMessageSender(message);
+                              if (participant != null) {
+                                _insertMentionForUser(participant);
+                              }
+                            },
+                      currentUserId: currentUserId,
+                      onToggleReaction: _toggleReaction,
+                      pollLoader: _chatService.getPoll,
+                      onVotePoll: _chatService.votePoll,
+                      pollRefreshEpoch: _pollRefreshEpoch,
+                      linkPreviewLoader: _loadLinkPreview,
+                      bubbleStylePreset: isMe
+                          ? _appSettings.bubbleStylePreset
+                          : ChatCustomizationCatalog.defaultBubbleStyle,
+                      senderAvatarFramePreset:
+                          _avatarFramePresetForMessage(message, isMe),
+                    ),
                   ),
                 ),
               ),
-            ),
-          ],
-        );
-      },
+            ],
+          );
+        },
+      ),
     );
   }
 
