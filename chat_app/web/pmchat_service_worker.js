@@ -1,20 +1,47 @@
 'use strict';
 
+// Replaced in the built release by tool/generate_web_release_manifest.dart.
+const BUILD_ID = '__PMCHAT_BUILD_ID__';
+const SHELL_CACHE = `pmchat-shell-${BUILD_ID}`;
+const RUNTIME_CACHE = `pmchat-runtime-${BUILD_ID}`;
+const BUILD_MANIFEST = '/pmchat_build_manifest.json';
+const SHELL_PREFIX = 'pmchat-shell-';
+const RUNTIME_PREFIX = 'pmchat-runtime-';
+
 self.addEventListener('install', (event) => {
-  event.waitUntil(self.skipWaiting());
+  event.waitUntil(installCompleteRelease());
 });
 
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    clearLegacyCaches()
+    retainCurrentAndPreviousRelease()
       .then(() => self.clients.claim())
-      .catch(() => self.clients.claim())
   );
 });
 
-// Keep this worker push-only. iOS Safari has repeatedly wedged the PWA when
-// app-shell fetches were intercepted and stale JS/WASM was mixed with fresh HTML.
-self.addEventListener('fetch', () => {});
+self.addEventListener('fetch', (event) => {
+  const request = event.request;
+  if (request.method !== 'GET') return;
+
+  const url = new URL(request.url);
+  if (url.origin !== self.location.origin ||
+      url.pathname.startsWith('/api/') ||
+      url.pathname.startsWith('/actuator/')) {
+    return;
+  }
+
+  if (request.mode === 'navigate') {
+    event.respondWith(cacheFirstNavigation(request));
+    return;
+  }
+  if (isMutableMetadata(url.pathname)) {
+    event.respondWith(networkFirst(request));
+    return;
+  }
+  if (isCacheableAsset(url.pathname)) {
+    event.respondWith(cacheFirstAsset(request));
+  }
+});
 
 self.addEventListener('push', (event) => {
   const payload = safePayload(event.data);
@@ -51,37 +78,130 @@ self.addEventListener('notificationclick', (event) => {
           }
           return client.focus();
         }
-        if (self.clients.openWindow) {
-          return self.clients.openWindow(targetUrl);
-        }
-        return undefined;
+        return self.clients.openWindow
+          ? self.clients.openWindow(targetUrl)
+          : undefined;
       })
   );
 });
+
+async function installCompleteRelease() {
+  const response = await fetch(`${BUILD_MANIFEST}?build=${encodeURIComponent(BUILD_ID)}`, {
+    cache: 'no-store',
+  });
+  if (!response.ok) throw new Error('PM chat build manifest unavailable');
+  const manifest = await response.json();
+  if (!manifest || manifest.buildId !== BUILD_ID || !Array.isArray(manifest.requiredAssets)) {
+    throw new Error('PM chat build manifest does not match this worker');
+  }
+
+  const cache = await caches.open(SHELL_CACHE);
+  for (const asset of manifest.requiredAssets) {
+    const assetResponse = await fetch(asset.url, { cache: 'reload' });
+    if (!assetResponse.ok) {
+      throw new Error(`Required PM chat asset failed: ${asset.url}`);
+    }
+    await cache.put(asset.url, assetResponse);
+  }
+  await cache.put(BUILD_MANIFEST, new Response(JSON.stringify(manifest), {
+    headers: { 'Content-Type': 'application/json' },
+  }));
+  await self.skipWaiting();
+}
+
+async function cacheFirstNavigation(request) {
+  const cache = await caches.open(SHELL_CACHE);
+  const cached = await cache.match('/index.html');
+  if (cached) return cached;
+  try {
+    return await fetch(request);
+  } catch (_) {
+    return Response.error();
+  }
+}
+
+async function networkFirst(request) {
+  try {
+    const response = await fetch(request, { cache: 'no-store' });
+    if (response.ok && request.url.indexOf('pmchat_service_worker.js') === -1) {
+      const cache = await caches.open(RUNTIME_CACHE);
+      await cache.put(request, response.clone());
+    }
+    return response;
+  } catch (_) {
+    const runtime = await caches.open(RUNTIME_CACHE);
+    const cached = await runtime.match(request, { ignoreSearch: true });
+    if (cached) return cached;
+    const shell = await caches.open(SHELL_CACHE);
+    return (await shell.match(new URL(request.url).pathname)) || Response.error();
+  }
+}
+
+async function cacheFirstAsset(request) {
+  const shell = await caches.open(SHELL_CACHE);
+  const path = new URL(request.url).pathname;
+  const cached = await shell.match(path);
+  if (cached) return cached;
+
+  const runtime = await caches.open(RUNTIME_CACHE);
+  const runtimeCached = await runtime.match(request, { ignoreSearch: true });
+  if (runtimeCached) return runtimeCached;
+  const response = await fetch(request);
+  if (response.ok) await runtime.put(path, response.clone());
+  return response;
+}
+
+async function retainCurrentAndPreviousRelease() {
+  const keys = await caches.keys();
+  const shellKeys = keys.filter((key) => key.startsWith(SHELL_PREFIX));
+  const previousShell = shellKeys
+    .filter((key) => key !== SHELL_CACHE)
+    .slice(-1)[0];
+  const keep = new Set([
+    SHELL_CACHE,
+    RUNTIME_CACHE,
+    previousShell,
+    previousShell ? previousShell.replace(SHELL_PREFIX, RUNTIME_PREFIX) : null,
+  ].filter(Boolean));
+
+  await Promise.all(keys
+    .filter((key) =>
+      (key.startsWith(SHELL_PREFIX) || key.startsWith(RUNTIME_PREFIX) ||
+       key.startsWith('flutter-app-cache') || key.startsWith('flutter-temp-cache') ||
+       key.startsWith('flutter-app-manifest')) && !keep.has(key))
+    .map((key) => caches.delete(key)));
+}
+
+function isMutableMetadata(pathname) {
+  return pathname === BUILD_MANIFEST ||
+    pathname === '/version.json' ||
+    pathname === '/manifest.json' ||
+    pathname === '/.last_build_id' ||
+    pathname === '/pmchat_service_worker.js';
+}
+
+function isCacheableAsset(pathname) {
+  return pathname === '/main.dart.js' ||
+    pathname === '/flutter.js' ||
+    pathname === '/flutter_bootstrap.js' ||
+    pathname === '/favicon.png' ||
+    pathname.startsWith('/canvaskit/') ||
+    pathname.startsWith('/assets/') ||
+    pathname.startsWith('/fonts/') ||
+    pathname.startsWith('/icons/');
+}
 
 function safePayload(data) {
   if (!data) return {};
   try {
     return data.json();
-  } catch (error) {
+  } catch (_) {
     return { body: data.text() };
   }
 }
 
 function notificationTag(data) {
-  if (data && data.chatRoomId) {
-    return 'pm-chat-room-' + data.chatRoomId;
-  }
-  return 'pm-chat-message';
-}
-
-function clearLegacyCaches() {
-  if (!self.caches) return Promise.resolve();
-  return self.caches.keys()
-    .then((keys) => Promise.all(keys
-      .filter((key) => key.startsWith('pmchat-shell-') ||
-        key.indexOf('flutter-app-cache') === 0 ||
-        key.indexOf('flutter-temp-cache') === 0 ||
-        key.indexOf('flutter-app-manifest') === 0)
-      .map((key) => self.caches.delete(key))));
+  return data && data.chatRoomId
+    ? `pm-chat-room-${data.chatRoomId}`
+    : 'pm-chat-message';
 }

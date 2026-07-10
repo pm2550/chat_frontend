@@ -192,7 +192,7 @@
   </script>
   <script>
     (function () {
-      var fallbackBuildStamp = 'pmchat-rescue-20260618-video-cache-p2';
+      var fallbackBuildStamp = '__PMCHAT_BUILD_ID__';
       var recoveryGeneration = '20260618-video-cache-p2';
       var currentBuildStamp = fallbackBuildStamp;
       var flutterLoadStarted = false;
@@ -295,11 +295,28 @@
 
       function fetchBuildStamp() {
         return Promise.all([
+          fetchBuildManifestStamp(),
           fetchAssetBuildStamp(),
           fetchBuildStampFile()
         ]).then(function (stamps) {
-          return stamps[0] || cachedAssetBuildStamp() || stamps[1] || fallbackBuildStamp;
+          return stamps[0] || stamps[2] || stamps[1] ||
+            cachedAssetBuildStamp() || fallbackBuildStamp;
         });
+      }
+
+      function fetchBuildManifestStamp() {
+        return fetchWithTimeout('/pmchat_build_manifest.json?ts=' + Date.now(), {
+          cache: 'no-store',
+          credentials: 'same-origin'
+        }, 2500)
+          .then(function (response) {
+            if (!response.ok) throw new Error('build manifest unavailable');
+            return response.json();
+          })
+          .then(function (manifest) {
+            return normalizeBuildStamp(manifest && manifest.buildId || '');
+          })
+          .catch(function () { return ''; });
       }
 
       function fetchBuildStampFile() {
@@ -408,24 +425,17 @@
           '&rescue=' + encodeURIComponent(recoveryGeneration);
       }
 
-      function pmchatShellCacheName(buildStamp) {
-        return 'pmchat-shell-' + buildStamp;
-      }
-
       function isCurrentPmchatWorker(scriptUrl, buildStamp) {
         return scriptUrl.indexOf('pmchat_service_worker.js') !== -1 &&
           scriptUrl.indexOf('build=' + encodeURIComponent(buildStamp)) !== -1;
       }
 
-      function clearLegacyCaches(buildStamp, forceAll) {
+      function clearLegacyCaches() {
         if (!('caches' in window)) return Promise.resolve();
-        var currentShell = pmchatShellCacheName(buildStamp);
         return caches.keys()
           .then(function (keys) {
             return Promise.all(keys
               .filter(function (key) {
-                if (forceAll) return true;
-                if (key.indexOf('pmchat-shell-') === 0) return key !== currentShell;
                 return key.indexOf('flutter-app-cache') === 0 ||
                   key.indexOf('flutter-temp-cache') === 0 ||
                   key.indexOf('flutter-app-manifest') === 0;
@@ -481,23 +491,21 @@
 
       function preparePmchatServiceWorker(buildStamp) {
         if (!('serviceWorker' in navigator)) {
-          return clearLegacyCaches(buildStamp, false)
+          return clearLegacyCaches()
             .then(function () { return { reloading: false }; });
         }
         var hadStaleWorker = false;
         return navigator.serviceWorker.getRegistrations()
           .then(function (registrations) {
-            return Promise.all(registrations.map(function (registration) {
+            registrations.forEach(function (registration) {
               var scriptUrl = workerScriptUrl(registration);
-              if (isCurrentPmchatWorker(scriptUrl, buildStamp)) {
-                return registration.update().catch(function () {});
+              if (scriptUrl && !isCurrentPmchatWorker(scriptUrl, buildStamp)) {
+                hadStaleWorker = true;
               }
-              hadStaleWorker = true;
-              return registration.unregister().catch(function () {});
-            }));
+            });
           })
           .then(function () {
-            return clearLegacyCaches(buildStamp, hadStaleWorker);
+            return clearLegacyCaches();
           })
           .then(function () {
             return navigator.serviceWorker.register(pmchatWorkerUrl(buildStamp), {
@@ -518,9 +526,8 @@
             return { reloading: false };
           })
           .catch(function (error) {
-            console.warn('PM chat service worker recovery failed:', error);
-            return clearLegacyCaches(buildStamp, true)
-              .then(function () { return { reloading: false }; });
+            console.warn('PM chat service worker update failed; current complete release stays active:', error);
+            return { reloading: false };
           });
       }
 
