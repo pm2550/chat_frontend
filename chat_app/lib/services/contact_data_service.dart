@@ -69,6 +69,20 @@ class FriendshipRequest {
     );
   }
 
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'status': status,
+        'statusDescription': statusDescription,
+        'user': user.toJson(),
+        'friend': friend.toJson(),
+        'friendAlias': friendAlias,
+        'isBlocked': isBlocked,
+        'isPinned': isPinned,
+        'createdAt': createdAt?.toIso8601String(),
+        'updatedAt': updatedAt?.toIso8601String(),
+        'acceptedAt': acceptedAt?.toIso8601String(),
+      };
+
   static Map<String, dynamic> _asMap(dynamic value) {
     if (value is Map<String, dynamic>) {
       return value;

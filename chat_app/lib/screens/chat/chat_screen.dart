@@ -284,7 +284,7 @@ class _ChatScreenState extends State<ChatScreen> {
     unawaited(_loadAnonymousModePreference());
     unawaited(_prepareAnnouncementBanner());
     _attachDropPasteHandlers();
-    _loadInitialMessages(showBlockingLoader: !_restoredMessagesFromCache);
+    unawaited(_bootstrapMessages());
     unawaited(_loadMentionMembers());
     _loadRoomBots();
     _loadFriendshipState();
@@ -398,6 +398,71 @@ class _ChatScreenState extends State<ChatScreen> {
     _errorMessage = null;
     _restoredMessagesFromCache = true;
     _startInitialBottomAnchor();
+  }
+
+  Future<void> _bootstrapMessages() async {
+    if (!_restoredMessagesFromCache && widget.chatService == null) {
+      final persisted = await _chatService.loadPersistedMessages(_chat.id);
+      if (mounted && persisted != null && persisted.isNotEmpty) {
+        setState(() {
+          _messages = List<Message>.from(persisted);
+          _hasMoreMessages = persisted.length >= 50;
+          _nextMessagePage = 1;
+          _isLoadingMessages = false;
+          _errorMessage = null;
+          _restoredMessagesFromCache = true;
+        });
+        _startInitialBottomAnchor();
+      }
+    }
+
+    if (_restoredMessagesFromCache) {
+      await _loadMessageDelta();
+      return;
+    }
+    await _loadInitialMessages();
+  }
+
+  Future<void> _loadMessageDelta() async {
+    final newestNumericId = _messages
+        .map((message) => int.tryParse(message.id))
+        .whereType<int>()
+        .fold<int?>(null, (current, id) {
+      if (current == null || id > current) return id;
+      return current;
+    });
+    if (newestNumericId == null) {
+      await _loadInitialMessages(showBlockingLoader: false);
+      return;
+    }
+
+    try {
+      final delta = await _chatService.getMessageDelta(
+        _chat.id,
+        afterMessageId: newestNumericId.toString(),
+      );
+      if (!mounted) return;
+      final wasNearBottom = _isNearBottom();
+      if (delta.isNotEmpty) {
+        setState(() {
+          final byId = <String, Message>{
+            for (final message in _messages) message.id: message,
+            for (final message in delta) message.id: message,
+          };
+          _messages = byId.values.toList()
+            ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
+        });
+        _saveMessageCache();
+      }
+      if (wasNearBottom) _jumpToBottom();
+      unawaited(_markAllRead());
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _isLoadingMessages = false;
+        _errorMessage = null;
+      });
+    }
   }
 
   Future<void> _loadInitialMessages({bool showBlockingLoader = true}) async {
@@ -782,6 +847,7 @@ class _ChatScreenState extends State<ChatScreen> {
       hasMoreMessages: _hasMoreMessages,
       nextMessagePage: _nextMessagePage,
     );
+    unawaited(_chatService.persistMessages(_chat.id, _messages));
     _syncAgentClientToolState();
   }
 

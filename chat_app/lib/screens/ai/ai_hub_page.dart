@@ -101,7 +101,7 @@ class _AiHubPageState extends State<AiHubPage>
     _chatDataService = widget.chatDataService ?? ChatDataService();
     _selectedIndex = _indexForSection(widget.initialSection);
     _restoreSnapshotIfFresh();
-    _load(showLoading: _bots.isEmpty && _rooms.isEmpty);
+    unawaited(_bootstrapData());
   }
 
   @override
@@ -139,6 +139,29 @@ class _AiHubPageState extends State<AiHubPage>
     }
     _selectedImageRoom = restoredImageRoom ?? _resolveSelectedImageRoom(_rooms);
     _loading = false;
+  }
+
+  Future<void> _bootstrapData() async {
+    if (_canUseSnapshot && _loading) {
+      final results = await Future.wait<dynamic>([
+        _botService.loadPersistedMyBots(),
+        _chatDataService.loadPersistedChatRooms(includeDetails: false),
+      ]);
+      if (mounted) {
+        final cachedBots = results[0] as List<BotConfig>?;
+        final cachedRooms = results[1] as List<Chat>?;
+        if ((cachedBots?.isNotEmpty ?? false) ||
+            (cachedRooms?.isNotEmpty ?? false)) {
+          setState(() {
+            _bots = cachedBots ?? const [];
+            _rooms = cachedRooms ?? const [];
+            _selectedImageRoom = _resolveSelectedImageRoom(_rooms);
+            _loading = false;
+          });
+        }
+      }
+    }
+    await _load(showLoading: _loading);
   }
 
   int _indexForSection(String section) {

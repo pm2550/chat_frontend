@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../constants/api_constants.dart';
 import '../models/user.dart';
 import 'crypto/password_hasher.dart';
+import 'persistent_data_cache.dart';
 
 class AuthService extends ChangeNotifier {
   static final AuthService _instance = AuthService._internal();
@@ -571,6 +572,7 @@ class AuthService extends ChangeNotifier {
 
   /// Clear auth data from SharedPreferences
   Future<void> _clearAuthData() async {
+    final previousUserId = _currentUser?.id;
     _accessToken = null;
     _refreshToken = null;
     _currentUser = null;
@@ -578,6 +580,9 @@ class AuthService extends ChangeNotifier {
     await prefs.remove(_keyAccessToken);
     await prefs.remove(_keyRefreshToken);
     await prefs.remove(_keyUserData);
+    if (previousUserId != null) {
+      await PersistentDataCache.clearUser(previousUserId);
+    }
   }
 
   Future<void> clearLocalSession() async {

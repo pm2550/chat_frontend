@@ -1807,6 +1807,18 @@ class FakeChatDataService extends ChatDataService {
   }
 
   @override
+  Future<List<Message>> getMessageDelta(
+    String chatRoomId, {
+    required String afterMessageId,
+    int size = 50,
+  }) async {
+    final cursor = int.tryParse(afterMessageId) ?? -1;
+    return messages
+        .where((message) => (int.tryParse(message.id) ?? -1) > cursor)
+        .toList();
+  }
+
+  @override
   Future<List<Message>> getMessages(
     String chatRoomId, {
     int page = 0,

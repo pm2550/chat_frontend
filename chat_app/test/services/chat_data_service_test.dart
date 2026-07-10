@@ -111,7 +111,8 @@ void main() {
                     'chatRoomId': id,
                     'content': 'last $id',
                     'messageStatus': 'SENT',
-                    'createdAt': '2024-01-01T10:${id.toString().padLeft(2, '0')}:00',
+                    'createdAt':
+                        '2024-01-01T10:${id.toString().padLeft(2, '0')}:00',
                     'senderId': 7,
                     'sender': {'id': 7, 'displayName': 'Sender'},
                   },
@@ -415,6 +416,40 @@ void main() {
       expect(page.totalElements, 51);
       expect(page.hasNext, isTrue);
       expect(page.hasPrevious, isTrue);
+    });
+
+    test('getMessageDelta sends the cached cursor and sorts new messages',
+        () async {
+      String? capturedUrl;
+      final service = ChatDataService(
+        authenticatedRequest: (method, url, {headers, body}) async {
+          capturedUrl = url;
+          return jsonResponse({
+            'messages': [
+              {
+                'id': 12,
+                'content': 'second delta',
+                'messageType': 'TEXT',
+                'createdAt': '2024-01-01T10:02:00',
+              },
+              {
+                'id': 11,
+                'content': 'first delta',
+                'messageType': 'TEXT',
+                'createdAt': '2024-01-01T10:01:00',
+              },
+            ],
+          });
+        },
+      );
+
+      final messages = await service.getMessageDelta(
+        '42',
+        afterMessageId: '10',
+      );
+
+      expect(Uri.parse(capturedUrl!).queryParameters['afterMessageId'], '10');
+      expect(messages.map((message) => message.id), ['11', '12']);
     });
 
     test('getMentionedMessages calls @me endpoint and parses mention ids',

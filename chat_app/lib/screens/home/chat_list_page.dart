@@ -53,6 +53,7 @@ class _ChatListPageState extends State<ChatListPage>
   bool _isLoading = true;
   bool _showMentionsOnly = false;
   bool _isLoadingMentions = false;
+  bool _isShowingCachedData = false;
   String? _errorMessage;
   String? _mentionErrorMessage;
 
@@ -72,8 +73,24 @@ class _ChatListPageState extends State<ChatListPage>
       _isLoading = false;
     }
     _requestMobileNotificationPermission();
-    _loadChats();
+    unawaited(_bootstrapChats(cachedChats != null));
     _connectRealtime();
+  }
+
+  Future<void> _bootstrapChats(bool hasMemorySnapshot) async {
+    if (!hasMemorySnapshot && widget.chatService == null) {
+      final persisted = await _chatService.loadPersistedChatRooms();
+      if (mounted && persisted != null && persisted.isNotEmpty) {
+        setState(() {
+          _chats = List<Chat>.from(persisted);
+          _sortChatsInPlace();
+          _isLoading = false;
+          _isShowingCachedData = true;
+        });
+        _syncDesktopUnreadBadge();
+      }
+    }
+    await _loadChats(showLoading: _chats.isEmpty);
   }
 
   Future<void> _loadChats({bool showLoading = true}) async {
@@ -81,6 +98,7 @@ class _ChatListPageState extends State<ChatListPage>
       setState(() {
         _isLoading = true;
         _errorMessage = null;
+        _isShowingCachedData = false;
       });
     } else if (mounted && showLoading) {
       setState(() {
@@ -116,6 +134,14 @@ class _ChatListPageState extends State<ChatListPage>
           '/login',
           (route) => false,
         );
+        return;
+      }
+      if (_chats.isNotEmpty) {
+        setState(() {
+          _isLoading = false;
+          _errorMessage = null;
+          _isShowingCachedData = true;
+        });
         return;
       }
       if (!showLoading) return;
@@ -735,6 +761,7 @@ class _ChatListPageState extends State<ChatListPage>
                 ),
               ),
             ),
+            if (_isShowingCachedData) _buildCachedDataIndicator(),
             Expanded(
               child: _isLoading
                   ? const Center(child: CircularProgressIndicator())
@@ -845,6 +872,10 @@ class _ChatListPageState extends State<ChatListPage>
                   ],
                 ),
                 const SizedBox(height: 18),
+                if (_isShowingCachedData) ...[
+                  _buildCachedDataIndicator(),
+                  const SizedBox(height: 10),
+                ],
                 Expanded(
                   child: PMDesktopCard(
                     padding: EdgeInsets.zero,
@@ -913,6 +944,33 @@ class _ChatListPageState extends State<ChatListPage>
             ),
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildCachedDataIndicator() {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.symmetric(horizontal: 16),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+      decoration: BoxDecoration(
+        color: AppColors.warning.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: const Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.cloud_off, size: 16, color: AppColors.warning),
+          SizedBox(width: 7),
+          Text(
+            '正在显示上次同步的数据',
+            style: TextStyle(
+              color: AppColors.textSecondary,
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
       ),
     );
   }

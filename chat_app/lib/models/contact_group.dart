@@ -22,6 +22,14 @@ class ContactGroup {
       updatedAt: _parseDate(json['updatedAt'] ?? json['updated_at']),
     );
   }
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'name': name,
+        'sortOrder': sortOrder,
+        'createdAt': createdAt?.toIso8601String(),
+        'updatedAt': updatedAt?.toIso8601String(),
+      };
 }
 
 class ContactGroupAssignment {
@@ -51,6 +59,13 @@ class ContactGroupAssignment {
       updatedAt: _parseDate(json['updatedAt'] ?? json['updated_at']),
     );
   }
+
+  Map<String, dynamic> toJson() => {
+        'groupId': groupId,
+        'targetType': targetType.wireName,
+        'targetId': targetId,
+        'updatedAt': updatedAt?.toIso8601String(),
+      };
 }
 
 class ContactGroupBundle {
@@ -74,6 +89,12 @@ class ContactGroupBundle {
           .toList(),
     );
   }
+
+  Map<String, dynamic> toJson() => {
+        'groups': groups.map((group) => group.toJson()).toList(),
+        'assignments':
+            assignments.map((assignment) => assignment.toJson()).toList(),
+      };
 }
 
 enum ContactGroupTargetType {

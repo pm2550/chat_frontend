@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
@@ -13,6 +14,7 @@ import '../models/read_receipt.dart';
 import '../models/sticker.dart';
 import '../models/user.dart';
 import 'auth_service.dart';
+import 'persistent_data_cache.dart';
 import 'request_coordinator.dart';
 
 typedef AuthenticatedRequest = Future<dynamic> Function(
@@ -244,8 +246,72 @@ class ChatDataService {
     if (useSharedCache) {
       _cacheChatRooms(sortedRooms, page: page, size: size);
     }
+    final userId = _authService.currentUser?.id;
+    if (_authenticatedRequest == null && userId != null) {
+      unawaited(PersistentDataCache.write(
+        userId: userId,
+        namespace: _roomCacheNamespace(
+          page: page,
+          size: size,
+          includeDetails: includeDetails,
+          includeHidden: includeHidden,
+          includeBlocked: includeBlocked,
+          type: type,
+        ),
+        payload: {
+          'rooms': sortedRooms.map((room) => room.toJson()).toList(),
+        },
+      ));
+    }
     return sortedRooms;
   }
+
+  Future<List<Chat>?> loadPersistedChatRooms({
+    int page = 0,
+    int size = 30,
+    bool includeDetails = true,
+    bool includeHidden = false,
+    bool includeBlocked = false,
+    ChatType? type,
+  }) async {
+    final userId = _authService.currentUser?.id;
+    if (_authenticatedRequest != null || userId == null) return null;
+    final record = await PersistentDataCache.read(
+      userId: userId,
+      namespace: _roomCacheNamespace(
+        page: page,
+        size: size,
+        includeDetails: includeDetails,
+        includeHidden: includeHidden,
+        includeBlocked: includeBlocked,
+        type: type,
+      ),
+    );
+    final rawRooms = record?['payload']?['rooms'];
+    if (rawRooms is! List<dynamic>) return null;
+    final rooms = rawRooms
+        .whereType<Map<String, dynamic>>()
+        .map(Chat.fromJson)
+        .toList(growable: false);
+    if (includeDetails &&
+        page == 0 &&
+        !includeHidden &&
+        !includeBlocked &&
+        type == null) {
+      _cacheChatRooms(rooms, page: page, size: size);
+    }
+    return _sortChats(rooms);
+  }
+
+  static String _roomCacheNamespace({
+    required int page,
+    required int size,
+    required bool includeDetails,
+    required bool includeHidden,
+    required bool includeBlocked,
+    required ChatType? type,
+  }) =>
+      'rooms:$page:$size:$includeDetails:$includeHidden:$includeBlocked:${type?.name ?? 'all'}';
 
   bool _canUseSharedChatRoomsCache({
     required bool includeDetails,
@@ -623,6 +689,23 @@ class ChatDataService {
     int page = 0,
     int size = 50,
   }) async {
+    Future<MessagePage> load() => _loadMessagePage(
+          chatRoomId,
+          page: page,
+          size: size,
+        );
+    if (_authenticatedRequest != null) return load();
+    return RequestCoordinator.run<MessagePage>(
+      'messages:${_authService.currentUser?.id ?? 'anonymous'}:$chatRoomId:$page:$size',
+      load,
+    );
+  }
+
+  Future<MessagePage> _loadMessagePage(
+    String chatRoomId, {
+    required int page,
+    required int size,
+  }) async {
     final roomId = _parseRoomId(chatRoomId);
     final uri = Uri.parse(ApiConstants.chatRoomMessages(roomId)).replace(
       queryParameters: {
@@ -635,6 +718,65 @@ class ChatDataService {
     final messages = _extractMessages(data, chatRoomId);
     messages.sort((a, b) => a.timestamp.compareTo(b.timestamp));
     return _messagePageFromData(data, messages);
+  }
+
+  Future<List<Message>> getMessageDelta(
+    String chatRoomId, {
+    required String afterMessageId,
+    int size = 50,
+  }) async {
+    final roomId = _parseRoomId(chatRoomId);
+    final uri = Uri.parse(ApiConstants.chatRoomMessages(roomId)).replace(
+      queryParameters: {
+        'afterMessageId': afterMessageId,
+        'size': size.toString(),
+      },
+    );
+    final response = await _request('GET', uri.toString());
+    final data = _decodeResponse(response);
+    final messages = _extractMessages(data, chatRoomId);
+    messages.sort((a, b) => a.timestamp.compareTo(b.timestamp));
+    return messages;
+  }
+
+  Future<List<Message>?> loadPersistedMessages(String chatRoomId) async {
+    final userId = _authService.currentUser?.id;
+    if (_authenticatedRequest != null || userId == null) return null;
+    final record = await PersistentDataCache.read(
+      userId: userId,
+      namespace: 'messages:$chatRoomId',
+    );
+    final rawMessages = record?['payload']?['messages'];
+    if (rawMessages is! List<dynamic>) return null;
+    return rawMessages
+        .whereType<Map<String, dynamic>>()
+        .map((json) => Message.fromJson(
+              json,
+              fallbackChatRoomId: chatRoomId,
+            ))
+        .toList(growable: false)
+      ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
+  }
+
+  Future<void> persistMessages(
+    String chatRoomId,
+    List<Message> messages, {
+    int limit = 50,
+  }) async {
+    final userId = _authService.currentUser?.id;
+    if (_authenticatedRequest != null || userId == null) return;
+    final sorted = List<Message>.from(messages)
+      ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
+    final retained =
+        sorted.length <= limit ? sorted : sorted.sublist(sorted.length - limit);
+    await PersistentDataCache.write(
+      userId: userId,
+      namespace: 'messages:$chatRoomId',
+      payload: {
+        'messages': retained.map((message) => message.toJson()).toList(),
+        'newestMessageId': retained.isEmpty ? null : retained.last.id,
+      },
+    );
   }
 
   Future<List<Message>> getRecentMessages(

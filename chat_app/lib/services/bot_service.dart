@@ -1,8 +1,10 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import '../constants/api_constants.dart';
 import 'auth_service.dart';
+import 'persistent_data_cache.dart';
 import 'request_coordinator.dart';
 
 typedef BotAuthenticatedRequest = Future<dynamic> Function(
@@ -143,6 +145,10 @@ class BotConfig {
               .map(BotAllowedUser.fromJson)
               .toList(growable: false) ??
           const [],
+      allowedUsernames: (json['allowedUsernames'] as List<dynamic>?)
+              ?.map((item) => item.toString())
+              .toList(growable: false) ??
+          const [],
       inboundTokenLast4: json['inboundTokenLast4']?.toString(),
       inboundTokenScopes: (json['inboundTokenScopes'] as List<dynamic>?)
               ?.map((item) => item.toString())
@@ -168,6 +174,31 @@ class BotConfig {
         'allowedUsernames': allowedUsernames,
         if (providerCredentialId != null)
           'providerCredentialId': providerCredentialId,
+      };
+
+  Map<String, dynamic> toCacheJson() => {
+        ...toJson(),
+        'id': id,
+        'isActive': isActive,
+        'triggerMode': triggerMode,
+        'triggerKeywords': triggerKeywords,
+        'roomNickname': roomNickname,
+        'roomPromptSuffix': roomPromptSuffix,
+        'enabledInRoom': enabledInRoom,
+        'moderationGrant': moderationGrant,
+        'providerCredentialLabel': providerCredentialLabel,
+        'providerCredentialLast4': providerCredentialLast4,
+        'hasCredential': hasCredential,
+        'createdById': createdById,
+        'hasCharacterCard': hasCharacterCard,
+        'characterPersona': characterPersona,
+        'characterScenario': characterScenario,
+        'characterFirstMes': characterFirstMes,
+        'characterAlternateGreetings': characterAlternateGreetings,
+        'characterBookEntryCount': characterBookEntryCount,
+        'allowedUsers': allowedUsers.map((user) => user.toJson()).toList(),
+        'inboundTokenLast4': inboundTokenLast4,
+        'inboundTokenScopes': inboundTokenScopes,
       };
 
   Map<String, dynamic> toRoomJson() => {
@@ -199,6 +230,12 @@ class BotAllowedUser {
       displayName: json['displayName']?.toString(),
     );
   }
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'username': username,
+        'displayName': displayName,
+      };
 }
 
 class ProviderCredential {
@@ -302,7 +339,33 @@ class BotService {
   Future<List<BotConfig>> _loadMyBots() async {
     final response = await _request('GET', ApiConstants.myBots);
     final data = _decodeResponse(response);
-    return _extractBots(data);
+    final bots = _extractBots(data);
+    final userId = _authService.currentUser?.id;
+    if (_authenticatedRequest == null && userId != null) {
+      unawaited(PersistentDataCache.write(
+        userId: userId,
+        namespace: 'bots',
+        payload: {
+          'bots': bots.map((bot) => bot.toCacheJson()).toList(),
+        },
+      ));
+    }
+    return bots;
+  }
+
+  Future<List<BotConfig>?> loadPersistedMyBots() async {
+    final userId = _authService.currentUser?.id;
+    if (_authenticatedRequest != null || userId == null) return null;
+    final record = await PersistentDataCache.read(
+      userId: userId,
+      namespace: 'bots',
+    );
+    final rawBots = record?['payload']?['bots'];
+    if (rawBots is! List<dynamic>) return null;
+    return rawBots
+        .whereType<Map<String, dynamic>>()
+        .map(BotConfig.fromJson)
+        .toList(growable: false);
   }
 
   Future<BotConfig> updateBot(int botId, BotConfig config,

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -8,7 +10,9 @@ import '../../models/chat.dart';
 import '../../models/contact_group.dart';
 import '../../models/user.dart';
 import '../../services/chat_data_service.dart';
+import '../../services/auth_service.dart';
 import '../../services/contact_data_service.dart';
+import '../../services/persistent_data_cache.dart';
 import '../../widgets/pm_brand.dart';
 import '../../widgets/pm_responsive.dart';
 import '../chat/chat_screen.dart';
@@ -44,6 +48,53 @@ class _ContactsSnapshot {
   final List<ContactGroup> contactGroups;
   final Map<String, ContactGroupAssignment> groupAssignmentsByTarget;
   final Map<String, bool> groupCollapsed;
+
+  Map<String, dynamic> toJson() => {
+        'contacts': contacts.map((contact) => contact.toJson()).toList(),
+        'receivedRequests':
+            receivedRequests.map((request) => request.toJson()).toList(),
+        'groupChats': groupChats.map((chat) => chat.toJson()).toList(),
+        'privateChats': privateChats.map((chat) => chat.toJson()).toList(),
+        'contactGroups': contactGroups.map((group) => group.toJson()).toList(),
+        'groupAssignments': groupAssignmentsByTarget.values
+            .map((assignment) => assignment.toJson())
+            .toList(),
+        'groupCollapsed': groupCollapsed,
+      };
+
+  factory _ContactsSnapshot.fromJson(Map<String, dynamic> json) {
+    final assignments = (json['groupAssignments'] as List<dynamic>? ?? const [])
+        .whereType<Map<String, dynamic>>()
+        .map(ContactGroupAssignment.fromJson)
+        .toList();
+    return _ContactsSnapshot(
+      contacts: (json['contacts'] as List<dynamic>? ?? const [])
+          .whereType<Map<String, dynamic>>()
+          .map(User.fromJson)
+          .toList(),
+      receivedRequests: (json['receivedRequests'] as List<dynamic>? ?? const [])
+          .whereType<Map<String, dynamic>>()
+          .map(FriendshipRequest.fromJson)
+          .toList(),
+      groupChats: (json['groupChats'] as List<dynamic>? ?? const [])
+          .whereType<Map<String, dynamic>>()
+          .map(Chat.fromJson)
+          .toList(),
+      privateChats: (json['privateChats'] as List<dynamic>? ?? const [])
+          .whereType<Map<String, dynamic>>()
+          .map(Chat.fromJson)
+          .toList(),
+      contactGroups: (json['contactGroups'] as List<dynamic>? ?? const [])
+          .whereType<Map<String, dynamic>>()
+          .map(ContactGroup.fromJson)
+          .toList(),
+      groupAssignmentsByTarget: {
+        for (final assignment in assignments) assignment.targetKey: assignment,
+      },
+      groupCollapsed: (json['groupCollapsed'] as Map? ?? const {})
+          .map((key, value) => MapEntry(key.toString(), value == true)),
+    );
+  }
 }
 
 class _ContactsPageState extends State<ContactsPage>
@@ -144,7 +195,7 @@ class _ContactsPageState extends State<ContactsPage>
     _chatService = widget.chatService ?? ChatDataService();
     _restoreSnapshotIfFresh();
     _loadCollapsedSections();
-    _loadContacts(showLoading: _contacts.isEmpty);
+    unawaited(_bootstrapContacts());
   }
 
   bool get _canUseSnapshot =>
@@ -168,6 +219,39 @@ class _ContactsPageState extends State<ContactsPage>
         snapshot.groupAssignmentsByTarget);
     _groupCollapsed = Map<String, bool>.from(snapshot.groupCollapsed);
     _isLoading = false;
+  }
+
+  Future<void> _bootstrapContacts() async {
+    if (_canUseSnapshot && _isLoading) {
+      final userId = AuthService().currentUser?.id;
+      if (userId != null) {
+        final record = await PersistentDataCache.read(
+          userId: userId,
+          namespace: 'contacts-directory',
+        );
+        final payload = record?['payload'];
+        if (mounted && payload is Map<String, dynamic>) {
+          final snapshot = _ContactsSnapshot.fromJson(payload);
+          setState(() {
+            _applySnapshot(snapshot);
+            _isLoading = false;
+          });
+        }
+      }
+    }
+    await _loadContacts(showLoading: _isLoading);
+  }
+
+  void _applySnapshot(_ContactsSnapshot snapshot) {
+    _contacts = List<User>.from(snapshot.contacts);
+    _receivedRequests = List<FriendshipRequest>.from(snapshot.receivedRequests);
+    _groupChats = List<Chat>.from(snapshot.groupChats);
+    _privateChats = List<Chat>.from(snapshot.privateChats);
+    _contactGroups = List<ContactGroup>.from(snapshot.contactGroups);
+    _groupAssignmentsByTarget = Map<String, ContactGroupAssignment>.from(
+      snapshot.groupAssignmentsByTarget,
+    );
+    _groupCollapsed = Map<String, bool>.from(snapshot.groupCollapsed);
   }
 
   Future<void> _loadCollapsedSections() async {
@@ -252,16 +336,18 @@ class _ContactsPageState extends State<ContactsPage>
       if (_canUseSnapshot) {
         _cachedSnapshot = snapshot;
         _cachedSnapshotAt = DateTime.now();
+        final userId = AuthService().currentUser?.id;
+        if (userId != null) {
+          unawaited(PersistentDataCache.write(
+            userId: userId,
+            namespace: 'contacts-directory',
+            payload: snapshot.toJson(),
+          ));
+        }
       }
       if (!mounted) return;
       setState(() {
-        _contacts = snapshot.contacts;
-        _receivedRequests = snapshot.receivedRequests;
-        _groupChats = snapshot.groupChats;
-        _privateChats = snapshot.privateChats;
-        _contactGroups = snapshot.contactGroups;
-        _groupAssignmentsByTarget = snapshot.groupAssignmentsByTarget;
-        _groupCollapsed = snapshot.groupCollapsed;
+        _applySnapshot(snapshot);
         _isLoading = false;
       });
     } catch (e) {
