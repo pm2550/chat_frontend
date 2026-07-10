@@ -490,7 +490,7 @@ class _AiHubPageState extends State<AiHubPage>
               ),
               title: Text(room.name.isEmpty ? '未命名会话' : room.name),
               subtitle: Text(
-                '${room.type.description} · ${room.participants.length} 人 · ${room.anonymousEnabled ? '匿名已启用' : '匿名未启用'}',
+                '${room.type.description} · ${room.effectiveMemberCount} 人 · ${room.anonymousEnabled ? '匿名已启用' : '匿名未启用'}',
               ),
               badge: room.anonymousEnabled ? '匿名' : null,
               badgeColor: const Color(0xFF7C3AED),
@@ -817,7 +817,7 @@ class _AiHubPageState extends State<AiHubPage>
                         ),
                         title: Text(room.name.isEmpty ? '未命名会话' : room.name),
                         subtitle: Text(
-                          '${room.type.description} · ${room.participants.length} 人',
+                          '${room.type.description} · ${room.effectiveMemberCount} 人',
                         ),
                         badge: room.id == _selectedImageRoom?.id ? '当前' : null,
                         onTap: () => Navigator.pop(context, room),

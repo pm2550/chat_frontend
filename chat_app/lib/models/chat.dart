@@ -12,6 +12,7 @@ class Chat {
   final ChatType type;
   final String? avatarUrl;
   final List<User> participants;
+  final int memberCount;
   final Message? lastMessage;
   final int unreadCount;
   final bool isPinned;
@@ -41,6 +42,7 @@ class Chat {
     this.type = ChatType.private,
     this.avatarUrl,
     this.participants = const [],
+    this.memberCount = 0,
     this.lastMessage,
     this.unreadCount = 0,
     this.isPinned = false,
@@ -64,6 +66,11 @@ class Chat {
   factory Chat.fromJson(Map<String, dynamic> json) {
     final typeValue =
         json['type'] ?? json['roomType'] ?? json['room_type'] ?? 'PRIVATE';
+    final participants = (json['participants'] as List<dynamic>?)
+            ?.whereType<Map<String, dynamic>>()
+            .map(User.fromJson)
+            .toList() ??
+        const <User>[];
     return Chat(
       id: json['id']?.toString() ?? '',
       name: json['name'] ?? '',
@@ -81,11 +88,9 @@ class Chat {
         orElse: () => ChatType.private,
       ),
       avatarUrl: json['avatarUrl'] ?? json['avatar_url'],
-      participants: (json['participants'] as List<dynamic>?)
-              ?.map(
-                  (userJson) => User.fromJson(userJson as Map<String, dynamic>))
-              .toList() ??
-          [],
+      participants: participants,
+      memberCount: (json['memberCount'] ?? json['member_count']) as int? ??
+          participants.length,
       createdBy:
           json['createdBy']?.toString() ?? json['created_by']?.toString(),
       isActive: json['isActive'] ?? json['is_active'] ?? true,
@@ -111,7 +116,7 @@ class Chat {
           ? Message.fromJson(json['lastMessage'] as Map<String, dynamic>)
           : null,
       unreadCount: json['unreadCount'] ?? json['unread_count'] ?? 0,
-      isPinned: json['isPinned'] ?? json['is_pinned'] ?? false,
+      isPinned: json['isPinned'] ?? json['pinned'] ?? json['is_pinned'] ?? false,
       isMuted: json['isMuted'] ?? json['muted'] ?? json['is_muted'] ?? false,
       hiddenAt: json['hiddenAt'] != null || json['hidden_at'] != null
           ? parseServerDateTime(json['hiddenAt'] ?? json['hidden_at'])
@@ -135,6 +140,7 @@ class Chat {
       'type': type.name.toUpperCase(),
       'avatarUrl': avatarUrl,
       'participants': participants.map((user) => user.toJson()).toList(),
+      'memberCount': memberCount,
       'createdBy': createdBy,
       'isActive': isActive,
       'isPrivate': isPrivate,
@@ -165,6 +171,7 @@ class Chat {
     ChatType? type,
     String? avatarUrl,
     List<User>? participants,
+    int? memberCount,
     String? createdBy,
     bool? isActive,
     bool? isPrivate,
@@ -195,6 +202,7 @@ class Chat {
       type: type ?? this.type,
       avatarUrl: avatarUrl ?? this.avatarUrl,
       participants: participants ?? this.participants,
+      memberCount: memberCount ?? this.memberCount,
       createdBy: createdBy ?? this.createdBy,
       isActive: isActive ?? this.isActive,
       isPrivate: isPrivate ?? this.isPrivate,
@@ -269,6 +277,9 @@ class Chat {
         .length;
   }
 
+  int get effectiveMemberCount =>
+      memberCount > 0 ? memberCount : participants.length;
+
   // 是否有未读消息
   bool get hasUnreadMessages => unreadCount > 0;
 
@@ -285,7 +296,7 @@ class Chat {
 
   @override
   String toString() {
-    return 'Chat(id: $id, name: $name, type: $type, participants: ${participants.length})';
+    return 'Chat(id: $id, name: $name, type: $type, memberCount: $effectiveMemberCount)';
   }
 }
 

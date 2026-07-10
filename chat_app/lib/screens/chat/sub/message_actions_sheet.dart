@@ -385,7 +385,7 @@ extension _ChatScreenActionSheetParts on _ChatScreenState {
   }
 
   Future<void> _showReadReceipts(Message message) async {
-    final memberCount = _chat.participants.length;
+    final memberCount = _chat.effectiveMemberCount;
     if (_chat.type == ChatType.group && memberCount > 20) {
       if (!mounted) return;
       showModalBottomSheet(

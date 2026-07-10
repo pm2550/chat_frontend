@@ -73,266 +73,99 @@ void main() {
       expect(rooms.single.name, 'Hidden Group');
     });
 
-    test('getChatRooms enriches every room with bounded detail concurrency',
+    test('getChatRooms gets 30 complete summaries with one HTTP request',
         () async {
-      final recentRoomIds = <String>[];
-      final unreadRoomIds = <String>[];
-      final memberRoomIds = <String>[];
-      final settingsRoomIds = <String>[];
+      var calls = 0;
       final service = ChatDataService(
         authenticatedRequest: (method, url, {headers, body}) async {
           expect(method, 'GET');
-          final uri = Uri.parse(url);
-          final path = uri.path;
-          final roomIdMatch = RegExp(r'/chat-rooms/(\d+)').firstMatch(path) ??
-              RegExp(r'/messages/chat-room/(\d+)').firstMatch(path);
-          final roomId = roomIdMatch?.group(1);
-
-          if (path.endsWith('/chat-rooms')) {
-            return jsonResponse({
-              'chatRooms': [
-                for (final id in [10, 11, 12])
-                  {
-                    'id': id,
-                    'name': 'Room $id',
-                    'roomType': 'GROUP',
-                    'isPrivate': false,
-                    'createdAt': '2024-01-01T10:00:00',
-                    'updatedAt': '2024-01-01T10:00:00',
-                  },
-              ],
-            });
-          }
-
-          if (path.contains('/messages/chat-room/') &&
-              path.endsWith('/recent')) {
-            recentRoomIds.add(roomId!);
-            return jsonResponse({
-              'messages': [
+          calls += 1;
+          expect(Uri.parse(url).path, endsWith('/chat-rooms/summaries'));
+          return jsonResponse({
+            'chatRooms': [
+              for (var id = 1; id <= 30; id++)
                 {
-                  'id': int.parse(roomId),
-                  'content': 'last $roomId',
-                  'messageStatus': 'SENT',
-                  'createdAt': '2024-01-01T10:0${int.parse(roomId) - 9}:00',
-                  'senderId': 7,
-                  'sender': {'id': 7, 'displayName': 'Sender'},
-                },
-              ],
-            });
-          }
-
-          if (path.endsWith('/messages/unread-count')) {
-            final id = uri.queryParameters['chatRoomId']!;
-            unreadRoomIds.add(id);
-            return jsonResponse({'unreadCount': int.parse(id) - 9});
-          }
-
-          if (path.endsWith('/members')) {
-            memberRoomIds.add(roomId!);
-            return jsonResponse({
-              'members': [
-                {
-                  'id': int.parse(roomId),
-                  'userId': 1,
-                  'role': 'MEMBER',
-                  'joinedAt': '2024-01-01T10:00:00',
-                  'user': {
-                    'id': 1,
-                    'username': 'member$roomId',
-                    'email': 'member$roomId@test.com',
-                    'displayName': 'Member $roomId',
-                    'createdAt': '2024-01-01T10:00:00',
+                  'id': id,
+                  'name': 'Room $id',
+                  'roomType': id == 1 ? 'PRIVATE' : 'GROUP',
+                  'isPrivate': id == 1,
+                  'createdAt': '2024-01-01T10:00:00',
+                  'updatedAt': '2024-01-01T10:00:00',
+                  'memberCount': id == 1 ? 2 : 7,
+                  'unreadCount': id,
+                  'pinned': id == 1,
+                  'muted': id == 2,
+                  'participants': id == 1
+                      ? [
+                          {
+                            'id': 9,
+                            'username': 'peer',
+                            'displayName': 'Peer',
+                            'onlineStatus': 'ONLINE',
+                            'createdAt': '2024-01-01T10:00:00',
+                          },
+                        ]
+                      : [],
+                  'lastMessage': {
+                    'id': id * 10,
+                    'chatRoomId': id,
+                    'content': 'last $id',
+                    'messageStatus': 'SENT',
+                    'createdAt': '2024-01-01T10:${id.toString().padLeft(2, '0')}:00',
+                    'senderId': 7,
+                    'sender': {'id': 7, 'displayName': 'Sender'},
                   },
                 },
-              ],
-            });
-          }
-
-          if (path.endsWith('/notification-settings')) {
-            settingsRoomIds.add(roomId!);
-            return jsonResponse({'pinned': false, 'muted': false});
-          }
-
-          fail('Unexpected request: $url');
+            ],
+          });
         },
       );
 
-      final rooms = await service.getChatRooms(detailLimit: 1);
+      final rooms = await service.getChatRooms();
 
-      expect(rooms, hasLength(3));
-      expect(rooms.map((room) => room.id).toSet(), {'10', '11', '12'});
-      expect(rooms.every((room) => room.lastMessage != null), isTrue);
-      expect(recentRoomIds.toSet(), {'10', '11', '12'});
-      expect(unreadRoomIds.toSet(), {'10', '11', '12'});
-      expect(memberRoomIds.toSet(), {'10', '11', '12'});
-      expect(settingsRoomIds.toSet(), {'10', '11', '12'});
+      expect(calls, 1);
+      expect(rooms, hasLength(30));
+      expect(rooms.first.lastMessage, isNotNull);
+      expect(rooms.first.effectiveMemberCount, greaterThan(0));
+      final direct = rooms.singleWhere((room) => room.id == '1');
+      expect(direct.participants.single.displayName, 'Peer');
+      expect(direct.isPinned, isTrue);
     });
 
-    test('getChatRooms preserves cached last messages when recent lookup fails',
+    test('getChatRooms preserves cached last messages if a summary is sparse',
         () async {
-      var recentFails = false;
+      var call = 0;
       final service = ChatDataService(
         authenticatedRequest: (method, url, {headers, body}) async {
           expect(method, 'GET');
-          final uri = Uri.parse(url);
-          final path = uri.path;
-          final roomIdMatch =
-              RegExp(r'/messages/chat-room/(\d+)').firstMatch(path);
-          final roomId = roomIdMatch?.group(1);
-
-          if (path.endsWith('/chat-rooms')) {
-            return jsonResponse({
-              'chatRooms': [
-                for (final id in [10, 11])
-                  {
-                    'id': id,
-                    'name': 'Room $id',
-                    'roomType': 'GROUP',
-                    'isPrivate': false,
-                    'createdAt': '2024-01-01T10:00:00',
-                    'updatedAt': '2024-01-01T10:00:00',
-                  },
-              ],
-            });
-          }
-
-          if (path.contains('/messages/chat-room/') &&
-              path.endsWith('/recent')) {
-            if (recentFails) {
-              return jsonResponse({'error': 'temporary'}, statusCode: 503);
-            }
-            return jsonResponse({
-              'messages': [
-                {
-                  'id': int.parse(roomId!),
-                  'content': roomId == '10' ? 'newer cached' : 'older cached',
-                  'messageStatus': 'SENT',
-                  'createdAt': roomId == '10'
-                      ? '2024-01-01T10:05:00'
-                      : '2024-01-01T10:01:00',
-                  'senderId': 7,
-                  'sender': {'id': 7, 'displayName': 'Sender'},
-                },
-              ],
-            });
-          }
-
-          if (path.endsWith('/messages/unread-count')) {
-            return jsonResponse({'unreadCount': 0});
-          }
-          if (path.endsWith('/members')) {
-            return jsonResponse({'members': []});
-          }
-          if (path.endsWith('/notification-settings')) {
-            return jsonResponse({'pinned': false, 'muted': false});
-          }
-
-          fail('Unexpected request: $url');
-        },
-      );
-
-      final first = await service.getChatRooms(includeHidden: true);
-      expect(first.map((room) => room.id), ['10', '11']);
-      expect(first.first.lastMessage?.content, 'newer cached');
-
-      recentFails = true;
-      final second = await service.getChatRooms(includeHidden: true);
-      expect(second.map((room) => room.id), ['10', '11']);
-      expect(second.first.lastMessage?.content, 'newer cached');
-      expect(second.last.lastMessage?.content, 'older cached');
-    });
-
-    test('getChatRooms falls back to message page for private room summaries',
-        () async {
-      final pageRequests = <String>[];
-      final service = ChatDataService(
-        authenticatedRequest: (method, url, {headers, body}) async {
-          expect(method, 'GET');
-          final uri = Uri.parse(url);
-          final path = uri.path;
-          final roomIdMatch =
-              RegExp(r'/messages/chat-room/(\d+)').firstMatch(path);
-          final roomId = roomIdMatch?.group(1);
-
-          if (path.endsWith('/chat-rooms')) {
-            return jsonResponse({
-              'chatRooms': [
-                {
-                  'id': 20,
-                  'name': 'No Summary',
-                  'roomType': 'PRIVATE',
-                  'isPrivate': true,
-                  'createdAt': '2024-01-01T08:00:00',
-                  'updatedAt': '2024-01-01T08:00:00',
-                },
-                {
-                  'id': 21,
-                  'name': 'Has Page Summary',
-                  'roomType': 'PRIVATE',
-                  'isPrivate': true,
-                  'createdAt': '2024-01-01T08:00:00',
-                  'updatedAt': '2024-01-01T08:00:00',
-                },
-              ],
-            });
-          }
-
-          if (path.contains('/messages/chat-room/') &&
-              path.endsWith('/recent')) {
-            return jsonResponse({'error': 'forbidden'}, statusCode: 403);
-          }
-
-          if (path.contains('/messages/chat-room/') &&
-              !path.endsWith('/recent')) {
-            pageRequests.add(url);
-            if (roomId == '21') {
-              return jsonResponse({
-                'messages': [
-                  {
+          call += 1;
+          return jsonResponse({
+            'chatRooms': [
+              {
+                'id': 20,
+                'name': 'Cached Summary',
+                'roomType': 'PRIVATE',
+                'createdAt': '2024-01-01T08:00:00',
+                if (call == 1)
+                  'lastMessage': {
                     'id': 210,
-                    'content': '真正最新消息',
+                    'chatRoomId': 20,
+                    'content': 'last known good',
                     'messageStatus': 'SENT',
                     'createdAt': '2024-01-01T12:00:00',
                     'senderId': 7,
                     'sender': {'id': 7, 'displayName': 'Sender'},
                   },
-                ],
-                'currentPage': 0,
-                'totalPages': 1,
-                'totalElements': 1,
-              });
-            }
-            return jsonResponse({
-              'messages': [],
-              'currentPage': 0,
-              'totalPages': 0,
-              'totalElements': 0,
-            });
-          }
-
-          if (path.endsWith('/messages/unread-count')) {
-            return jsonResponse({'unreadCount': 0});
-          }
-          if (path.endsWith('/members')) {
-            return jsonResponse({'members': []});
-          }
-          if (path.endsWith('/notification-settings')) {
-            return jsonResponse({'pinned': false, 'muted': false});
-          }
-
-          fail('Unexpected request: $url');
+              },
+            ],
+          });
         },
       );
 
-      final rooms = await service.getChatRooms(detailLimit: 1);
-
-      expect(rooms.map((room) => room.id), ['21', '20']);
-      expect(rooms.first.lastMessage?.content, '真正最新消息');
-      expect(rooms.first.updatedAt, DateTime.parse('2024-01-01T12:00:00'));
-      expect(
-        pageRequests,
-        everyElement(contains('size=1')),
-      );
+      final first = await service.getChatRooms(includeHidden: true);
+      final second = await service.getChatRooms(includeHidden: true);
+      expect(first.single.lastMessage?.content, 'last known good');
+      expect(second.single.lastMessage?.content, 'last known good');
     });
 
     test('getChatRoom reads backend chatRoom detail response', () async {

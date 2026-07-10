@@ -897,7 +897,7 @@ class _ChatScreenState extends State<ChatScreen> {
                           )
                         else if (_chat.type == ChatType.group)
                           Text(
-                            '${_chat.participants.length}人',
+                            '${_chat.effectiveMemberCount}人',
                             style: const TextStyle(
                               fontSize: 12,
                               color: AppColors.textSecondary,

@@ -783,10 +783,13 @@ extension _ChatScreenComposerParts on _ChatScreenState {
       final members = await _chatService.getChatRoomMembers(_chat.id);
       if (!mounted) return;
       _setViewState(() {
-        _mentionMembers = members
-            .map((member) => member.user)
-            .where(_isMentionableUser)
-            .toList(growable: false);
+        final users = members.map((member) => member.user).toList(growable: false);
+        _chat = _chat.copyWith(
+          participants: users,
+          memberCount: users.length,
+        );
+        _mentionMembers =
+            users.where(_isMentionableUser).toList(growable: false);
       });
     } catch (_) {
       if (!mounted) return;

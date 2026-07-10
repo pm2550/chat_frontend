@@ -174,7 +174,9 @@ class ChatDataService {
       }
     }
 
-    final uri = Uri.parse(ApiConstants.chatRooms).replace(
+    final endpoint =
+        includeDetails ? ApiConstants.chatRoomSummaries : ApiConstants.chatRooms;
+    final uri = Uri.parse(endpoint).replace(
       queryParameters: {
         'page': page.toString(),
         'size': size.toString(),
@@ -194,17 +196,7 @@ class ChatDataService {
             .map(_mergeCachedLastMessage)
             .toList();
 
-    if (!includeDetails || rooms.isEmpty) {
-      final sortedRooms = _sortChats(rooms);
-      _rememberLastMessages(sortedRooms);
-      return sortedRooms;
-    }
-
-    final enrichedRooms = await _enrichChatsWithLimit(
-      rooms,
-      concurrency: detailLimit.clamp(1, 8),
-    );
-    final sortedRooms = _sortChats(enrichedRooms);
+    final sortedRooms = _sortChats(rooms);
     _rememberLastMessages(sortedRooms);
     if (useSharedCache) {
       _cacheChatRooms(sortedRooms, page: page, size: size);
@@ -279,32 +271,6 @@ class ChatDataService {
         _cachedLastMessagesByRoomId[room.id] = lastMessage;
       }
     }
-  }
-
-  Future<List<Chat>> _enrichChatsWithLimit(
-    List<Chat> rooms, {
-    required int concurrency,
-  }) async {
-    if (rooms.isEmpty) {
-      return const <Chat>[];
-    }
-    final enriched = List<Chat?>.filled(rooms.length, null);
-    var nextIndex = 0;
-
-    Future<void> worker() async {
-      while (true) {
-        final index = nextIndex;
-        nextIndex += 1;
-        if (index >= rooms.length) {
-          return;
-        }
-        enriched[index] = await _enrichChat(rooms[index]);
-      }
-    }
-
-    final workerCount = rooms.length < concurrency ? rooms.length : concurrency;
-    await Future.wait(List.generate(workerCount, (_) => worker()));
-    return enriched.map((chat) => chat!).toList(growable: false);
   }
 
   Future<Chat> getChatRoom(

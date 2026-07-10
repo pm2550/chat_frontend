@@ -306,7 +306,7 @@ extension _ChatScreenChromeParts on _ChatScreenState {
       return '离线';
     }
     if (_chat.type == ChatType.group) {
-      return '${_chat.participants.length}人';
+      return '${_chat.effectiveMemberCount}人';
     }
     return '会话';
   }

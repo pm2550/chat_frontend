@@ -76,6 +76,7 @@ class ApiConstants {
 
   // Chat room endpoints
   static const String chatRooms = '$apiBaseUrl/chat-rooms';
+  static const String chatRoomSummaries = '$apiBaseUrl/chat-rooms/summaries';
   static String createPrivateChat(int friendId) =>
       '$apiBaseUrl/chat-rooms/private/$friendId';
   static const String createGroupChat = '$apiBaseUrl/chat-rooms/group';
