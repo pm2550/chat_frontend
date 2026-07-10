@@ -7,6 +7,7 @@ import '../models/chat.dart';
 import '../models/contact_group.dart';
 import '../models/user.dart';
 import 'auth_service.dart';
+import 'request_coordinator.dart';
 
 typedef ContactAuthenticatedRequest = Future<http.Response> Function(
   String method,
@@ -97,6 +98,16 @@ class ContactDataService {
   final ContactAuthenticatedRequest? _authenticatedRequest;
 
   Future<List<User>> getFriends() async {
+    if (_authenticatedRequest == null) {
+      return RequestCoordinator.run<List<User>>(
+        'contacts:${_authService.currentUser?.id ?? 'anonymous'}:friends',
+        _loadFriends,
+      );
+    }
+    return _loadFriends();
+  }
+
+  Future<List<User>> _loadFriends() async {
     final response = await _request('GET', ApiConstants.friends);
     final data = _decodeResponse(response);
     return _extractList(data, keys: const ['friends', 'data', 'content'])
@@ -106,6 +117,16 @@ class ContactDataService {
   }
 
   Future<List<FriendshipRequest>> getReceivedFriendRequests() async {
+    if (_authenticatedRequest == null) {
+      return RequestCoordinator.run<List<FriendshipRequest>>(
+        'contacts:${_authService.currentUser?.id ?? 'anonymous'}:received',
+        _loadReceivedFriendRequests,
+      );
+    }
+    return _loadReceivedFriendRequests();
+  }
+
+  Future<List<FriendshipRequest>> _loadReceivedFriendRequests() async {
     final response = await _request('GET', ApiConstants.receivedFriendRequests);
     final data = _decodeResponse(response);
     return _extractList(data, keys: const ['requests', 'data', 'content'])
@@ -175,6 +196,16 @@ class ContactDataService {
   }
 
   Future<ContactGroupBundle> getContactGroups() async {
+    if (_authenticatedRequest == null) {
+      return RequestCoordinator.run<ContactGroupBundle>(
+        'contacts:${_authService.currentUser?.id ?? 'anonymous'}:groups',
+        _loadContactGroups,
+      );
+    }
+    return _loadContactGroups();
+  }
+
+  Future<ContactGroupBundle> _loadContactGroups() async {
     final response = await _request('GET', ApiConstants.contactGroups);
     return ContactGroupBundle.fromJson(_decodeResponse(response));
   }

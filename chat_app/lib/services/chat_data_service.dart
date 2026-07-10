@@ -13,6 +13,7 @@ import '../models/read_receipt.dart';
 import '../models/sticker.dart';
 import '../models/user.dart';
 import 'auth_service.dart';
+import 'request_coordinator.dart';
 
 typedef AuthenticatedRequest = Future<dynamic> Function(
   String method,
@@ -120,7 +121,10 @@ class ChatDataService {
     _cachedLastMessagesByRoomId.clear();
   }
 
-  static void clearChatRoomsCacheForTesting() => clearChatRoomsCache();
+  static void clearChatRoomsCacheForTesting() {
+    clearChatRoomsCache();
+    RequestCoordinator.clearForTesting();
+  }
 
   static List<Chat>? cachedChatRoomsSnapshot({
     int page = 0,
@@ -174,8 +178,47 @@ class ChatDataService {
       }
     }
 
-    final endpoint =
-        includeDetails ? ApiConstants.chatRoomSummaries : ApiConstants.chatRooms;
+    Future<List<Chat>> load() => _loadChatRooms(
+          page: page,
+          size: size,
+          includeDetails: includeDetails,
+          includeHidden: includeHidden,
+          includeBlocked: includeBlocked,
+          type: type,
+          useSharedCache: useSharedCache,
+        );
+    if (_authenticatedRequest != null ||
+        _multipartRequest != null ||
+        _multipartFilesRequest != null) {
+      return load();
+    }
+
+    final userKey = _authService.currentUser?.id ?? 'anonymous';
+    final requestKey = <Object?>[
+      'chat-rooms',
+      userKey,
+      page,
+      size,
+      includeDetails,
+      includeHidden,
+      includeBlocked,
+      type?.name,
+    ].join(':');
+    return RequestCoordinator.run<List<Chat>>(requestKey, load);
+  }
+
+  Future<List<Chat>> _loadChatRooms({
+    required int page,
+    required int size,
+    required bool includeDetails,
+    required bool includeHidden,
+    required bool includeBlocked,
+    required ChatType? type,
+    required bool useSharedCache,
+  }) async {
+    final endpoint = includeDetails
+        ? ApiConstants.chatRoomSummaries
+        : ApiConstants.chatRooms;
     final uri = Uri.parse(endpoint).replace(
       queryParameters: {
         'page': page.toString(),

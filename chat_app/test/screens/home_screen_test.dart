@@ -4,6 +4,26 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   group('HomeScreen tab cache', () {
+    testWidgets('defers hidden cache warming until after the first frame',
+        (tester) async {
+      var warmCalls = 0;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: HomeScreen(
+            cacheWarmupDelay: const Duration(milliseconds: 500),
+            cacheWarmer: () async => warmCalls += 1,
+            pageBuilder: (_, index, __) => Text('tab-$index'),
+          ),
+        ),
+      );
+
+      expect(warmCalls, 0);
+      await tester.pump(const Duration(milliseconds: 499));
+      expect(warmCalls, 0);
+      await tester.pump(const Duration(milliseconds: 1));
+      expect(warmCalls, 1);
+    });
+
     testWidgets('keeps visited tabs alive when switching on mobile',
         (tester) async {
       final view = tester.view;

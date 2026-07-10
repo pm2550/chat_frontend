@@ -3,6 +3,7 @@ import 'package:http/http.dart' as http;
 
 import '../constants/api_constants.dart';
 import 'auth_service.dart';
+import 'request_coordinator.dart';
 
 typedef BotAuthenticatedRequest = Future<dynamic> Function(
   String method,
@@ -289,6 +290,16 @@ class BotService {
   }
 
   Future<List<BotConfig>> getMyBots() async {
+    if (_authenticatedRequest == null) {
+      return RequestCoordinator.run<List<BotConfig>>(
+        'bots:${_authService.currentUser?.id ?? 'anonymous'}:mine',
+        _loadMyBots,
+      );
+    }
+    return _loadMyBots();
+  }
+
+  Future<List<BotConfig>> _loadMyBots() async {
     final response = await _request('GET', ApiConstants.myBots);
     final data = _decodeResponse(response);
     return _extractBots(data);

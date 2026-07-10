@@ -8,7 +8,6 @@ import '../../design/pm_symbol_icon.dart';
 import '../../widgets/pm_brand.dart';
 import '../../widgets/pm_responsive.dart';
 import '../../services/auth_service.dart';
-import '../../services/chat_data_service.dart';
 import 'chat_list_page.dart';
 import 'contacts_page.dart';
 import 'profile_page.dart';
@@ -16,15 +15,23 @@ import '../ai/ai_hub_page.dart';
 import '../settings/settings_screen.dart';
 import '../workspace/workspace_page.dart';
 
+typedef HomeCacheWarmer = Future<void> Function();
+
 class HomeScreen extends StatefulWidget {
   const HomeScreen({
     super.key,
     @visibleForTesting this.pageBuilder,
+    @visibleForTesting this.cacheWarmer,
+    this.cacheWarmupDelay = const Duration(milliseconds: 1200),
   });
 
   @visibleForTesting
   final Widget Function(BuildContext context, int index, String aiSection)?
       pageBuilder;
+
+  @visibleForTesting
+  final HomeCacheWarmer? cacheWarmer;
+  final Duration cacheWarmupDelay;
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -38,23 +45,39 @@ class _HomeScreenState extends State<HomeScreen> {
   final PageStorageBucket _pageStorageBucket = PageStorageBucket();
   late final List<Widget?> _pageCache =
       List<Widget?>.filled(_tabs.length, null);
+  Timer? _cacheWarmupTimer;
 
   @override
   void initState() {
     super.initState();
-    unawaited(_warmHomeCaches());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _cacheWarmupTimer = Timer(widget.cacheWarmupDelay, () {
+        unawaited((widget.cacheWarmer ?? _warmHiddenHomeCaches)());
+      });
+    });
   }
 
-  Future<void> _warmHomeCaches() async {
+  Future<void> _warmHiddenHomeCaches() async {
+    await _warmSafely(ContactsPage.warmDirectoryCache);
+    if (!mounted) return;
+    await Future<void>.delayed(const Duration(milliseconds: 350));
+    if (!mounted) return;
+    await _warmSafely(AiHubPage.warmCache);
+  }
+
+  Future<void> _warmSafely(Future<void> Function() warmer) async {
     try {
-      await Future.wait<void>([
-        ChatDataService().getChatRooms().then((_) {}),
-        ContactsPage.warmDirectoryCache(),
-        AiHubPage.warmCache(),
-      ]);
+      await warmer();
     } catch (_) {
-      // Cache warming is a latency optimization; visible pages still load normally.
+      // Visible pages remain usable when background warming fails.
     }
+  }
+
+  @override
+  void dispose() {
+    _cacheWarmupTimer?.cancel();
+    super.dispose();
   }
 
   static const List<_HomeTabSpec> _tabs = [
