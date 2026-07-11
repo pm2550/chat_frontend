@@ -7,10 +7,19 @@
 
   if (buildConfig && Array.isArray(buildConfig.builds)) {
     buildConfig.builds = buildConfig.builds.map(function (build) {
-      if (!build || build.mainJsPath !== 'main.dart.js') return build;
-      return Object.assign({}, build, {
-        mainJsPath: 'main.dart.js?v=' + encodeURIComponent(stamp),
-      });
+      if (!build) return build;
+      var versioned = Object.assign({}, build);
+      if (build.mainJsPath === 'main.dart.js') {
+        versioned.mainJsPath = 'main.dart.js?v=' + encodeURIComponent(stamp);
+      }
+      if (build.mainWasmPath === 'main.dart.wasm') {
+        versioned.mainWasmPath = 'main.dart.wasm?v=' + encodeURIComponent(stamp);
+      }
+      if (build.jsSupportRuntimePath === 'main.dart.mjs') {
+        versioned.jsSupportRuntimePath = 'main.dart.mjs?v=' +
+          encodeURIComponent(stamp);
+      }
+      return versioned;
     });
   }
 

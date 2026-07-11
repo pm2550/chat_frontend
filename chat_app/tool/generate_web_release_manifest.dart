@@ -13,11 +13,10 @@ Future<void> main(List<String> arguments) async {
     return;
   }
 
-  final requiredPaths = <String>[
+  final commonPaths = <String>[
     'index.html',
     'flutter.js',
     'flutter_bootstrap.js',
-    'main.dart.js',
     'manifest.json',
     'version.json',
     'favicon.png',
@@ -30,10 +29,28 @@ Future<void> main(List<String> arguments) async {
     'assets/FontManifest.json',
     'assets/fonts/MaterialIcons-Regular.otf',
     'pmchat_service_worker.js',
+  ];
+  final jsPaths = <String>[
+    'main.dart.js',
     'canvaskit/canvaskit.js',
     'canvaskit/canvaskit.wasm',
     'canvaskit/chromium/canvaskit.js',
     'canvaskit/chromium/canvaskit.wasm',
+  ];
+  final wasmPaths = <String>[
+    'main.dart.mjs',
+    'main.dart.wasm',
+    'canvaskit/skwasm.js',
+    'canvaskit/skwasm.wasm',
+    'canvaskit/skwasm_heavy.js',
+    'canvaskit/skwasm_heavy.wasm',
+    'canvaskit/wimp.js',
+    'canvaskit/wimp.wasm',
+  ];
+  final requiredPaths = <String>[
+    ...commonPaths,
+    ...jsPaths,
+    ...wasmPaths,
   ];
   _requireFiles(root, requiredPaths);
   final seed = StringBuffer();
@@ -50,19 +67,37 @@ Future<void> main(List<String> arguments) async {
     await file.writeAsString(content.replaceAll(_buildIdMarker, buildId));
   }
 
-  final assets = <Map<String, Object>>[];
-  for (final path in requiredPaths) {
-    final file = File('${root.path}/$path');
-    assets.add({
-      'url': '/$path',
-      'sha256': await _digest(file),
-      'bytes': await file.length(),
-    });
+  Future<List<Map<String, Object>>> describe(List<String> paths) async {
+    final assets = <Map<String, Object>>[];
+    for (final path in paths) {
+      final file = File('${root.path}/$path');
+      assets.add({
+        'url': '/$path',
+        'sha256': await _digest(file),
+        'bytes': await file.length(),
+      });
+    }
+    return assets;
   }
+
+  final commonAssets = await describe(commonPaths);
+  final jsAssets = await describe(jsPaths);
+  final wasmAssets = await describe(wasmPaths);
+  final assets = <Map<String, Object>>[
+    ...commonAssets,
+    ...jsAssets,
+    ...wasmAssets,
+  ];
   final manifest = <String, Object>{
-    'schemaVersion': 1,
+    'schemaVersion': 2,
     'buildId': buildId,
     'generatedAt': DateTime.now().toUtc().toIso8601String(),
+    'assetGroups': {
+      'common': commonAssets,
+      'js': jsAssets,
+      'wasm': wasmAssets,
+    },
+    // Kept for rollback compatibility with workers from schema version 1.
     'requiredAssets': assets,
   };
   const encoder = JsonEncoder.withIndent('  ');

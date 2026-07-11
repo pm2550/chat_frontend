@@ -6,7 +6,7 @@ FLUTTER_BIN="${FLUTTER_BIN:-/data2/chat_project/flutter_sdk/flutter/bin/flutter}
 RELEASES_DIR="${PMCHAT_WEB_RELEASES_DIR:-$APP_DIR/releases}"
 
 cd "$APP_DIR"
-"$FLUTTER_BIN" build web --release --no-web-resources-cdn \
+"$FLUTTER_BIN" build web --release --wasm --no-web-resources-cdn \
   --dart-define=API_BASE_URL=https://gateway.chat.pm2550.com \
   --dart-define=WS_BASE_URL=wss://gateway.chat.pm2550.com
 
@@ -14,6 +14,8 @@ BUILD_ID="$($FLUTTER_BIN pub run tool/generate_web_release_manifest.dart build/w
 test -n "$BUILD_ID"
 test -f "build/web/pmchat_build_manifest.json"
 test -f "build/web/main.dart.js"
+test -f "build/web/main.dart.wasm"
+test -f "build/web/main.dart.mjs"
 test -f "build/web/canvaskit/canvaskit.wasm"
 
 mkdir -p "$RELEASES_DIR"

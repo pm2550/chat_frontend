@@ -96,7 +96,8 @@ async function installCompleteRelease() {
   }
 
   const cache = await caches.open(SHELL_CACHE);
-  for (const asset of manifest.requiredAssets) {
+  const assets = assetsForThisBrowser(manifest);
+  for (const asset of assets) {
     const assetResponse = await fetch(asset.url, { cache: 'reload' });
     if (!assetResponse.ok) {
       throw new Error(`Required PM chat asset failed: ${asset.url}`);
@@ -107,6 +108,27 @@ async function installCompleteRelease() {
     headers: { 'Content-Type': 'application/json' },
   }));
   await self.skipWaiting();
+}
+
+function assetsForThisBrowser(manifest) {
+  const groups = manifest.assetGroups;
+  if (!groups || !Array.isArray(groups.common)) {
+    return manifest.requiredAssets;
+  }
+  const variant = supportsWasmGc() && Array.isArray(groups.wasm)
+    ? groups.wasm
+    : groups.js;
+  return groups.common.concat(Array.isArray(variant) ? variant : []);
+}
+
+function supportsWasmGc() {
+  try {
+    return WebAssembly.validate(new Uint8Array([
+      0, 97, 115, 109, 1, 0, 0, 0, 1, 5, 1, 95, 1, 120, 0
+    ]));
+  } catch (_) {
+    return false;
+  }
 }
 
 async function cacheFirstNavigation(request) {
@@ -182,6 +204,8 @@ function isMutableMetadata(pathname) {
 
 function isCacheableAsset(pathname) {
   return pathname === '/main.dart.js' ||
+    pathname === '/main.dart.mjs' ||
+    pathname === '/main.dart.wasm' ||
     pathname === '/flutter.js' ||
     pathname === '/flutter_bootstrap.js' ||
     pathname === '/favicon.png' ||
