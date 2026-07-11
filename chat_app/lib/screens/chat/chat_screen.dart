@@ -123,7 +123,7 @@ class ChatScreen extends StatefulWidget {
   State<ChatScreen> createState() => _ChatScreenState();
 }
 
-class _ChatScreenState extends State<ChatScreen> {
+class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   late Chat _chat;
   late final ChatDataService _chatService;
   late final WebSocketService _webSocketService;
@@ -202,6 +202,8 @@ class _ChatScreenState extends State<ChatScreen> {
   int _dragUploadFileCount = 0;
   UserAppSettings _appSettings = const UserAppSettings();
   bool _restoredMessagesFromCache = false;
+  bool _wasBackgrounded = false;
+  bool _isRefreshingAfterResume = false;
 
   @override
   void initState() {
@@ -222,6 +224,7 @@ class _ChatScreenState extends State<ChatScreen> {
           authService: _authService,
         );
     _scrollController.addListener(_handleScroll);
+    WidgetsBinding.instance.addObserver(this);
   }
 
   @override
@@ -361,6 +364,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _messageSubscription?.cancel();
     _statusSubscription?.cancel();
     _typingSubscription?.cancel();
@@ -378,6 +382,40 @@ class _ChatScreenState extends State<ChatScreen> {
     _scrollController.dispose();
     _focusNode.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      if (_wasBackgrounded) {
+        _wasBackgrounded = false;
+        unawaited(_refreshAfterResume());
+      }
+      return;
+    }
+    if (state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.hidden ||
+        state == AppLifecycleState.paused ||
+        state == AppLifecycleState.detached) {
+      _wasBackgrounded = true;
+    }
+  }
+
+  Future<void> _refreshAfterResume() async {
+    if (_isRefreshingAfterResume ||
+        !_didInitialize ||
+        _chat.id.trim().isEmpty) {
+      return;
+    }
+    _isRefreshingAfterResume = true;
+    try {
+      await Future.wait<void>([
+        _webSocketService.reconnect(),
+        _loadMessageDelta(),
+      ]);
+    } finally {
+      _isRefreshingAfterResume = false;
+    }
   }
 
   void _setViewState(VoidCallback fn) {

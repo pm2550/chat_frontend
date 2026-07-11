@@ -42,6 +42,7 @@ class WebSocketService extends ChangeNotifier implements ChatRealtimeService {
   Timer? _heartbeatTimer;
   Timer? _reconnectTimer;
   int _reconnectAttempts = 0;
+  int _connectionGeneration = 0;
   static const int _maxReconnectAttempts = 10;
 
   @override
@@ -86,12 +87,18 @@ class WebSocketService extends ChangeNotifier implements ChatRealtimeService {
 
     try {
       final uri = Uri.parse('${ApiConstants.wsEndpoint}?token=$token');
-      _channel = WebSocketChannel.connect(uri);
+      final generation = ++_connectionGeneration;
+      final channel = WebSocketChannel.connect(uri);
+      _channel = channel;
 
-      _channel!.stream.listen(
+      channel.stream.listen(
         (data) => _handleMessage(data),
-        onDone: () => _handleDisconnect(),
-        onError: (error) => _handleError(error),
+        onDone: () {
+          if (generation == _connectionGeneration) _handleDisconnect();
+        },
+        onError: (error) {
+          if (generation == _connectionGeneration) _handleError(error);
+        },
       );
 
       _isConnected = true;
@@ -109,11 +116,22 @@ class WebSocketService extends ChangeNotifier implements ChatRealtimeService {
   /// Disconnect from WebSocket server
   @override
   void disconnect() {
+    _connectionGeneration += 1;
     _heartbeatTimer?.cancel();
     _reconnectTimer?.cancel();
     _channel?.sink.close();
+    _channel = null;
     _isConnected = false;
     notifyListeners();
+  }
+
+  /// Replaces a socket that may have gone stale while a browser/PWA was
+  /// suspended. The normal reconnect budget is reset because foregrounding is
+  /// an explicit signal that network access should be tried again.
+  Future<void> reconnect() async {
+    disconnect();
+    _reconnectAttempts = 0;
+    await connect();
   }
 
   /// Send a message via WebSocket

@@ -231,6 +231,36 @@ void main() {
       expect(find.textContaining('第 89 条消息'), findsOneWidget);
     });
 
+    testWidgets('resume reconnects and fetches messages missed while suspended',
+        (tester) async {
+      final messages = <Message>[...testMessages];
+      final service = FakeChatDataService(messages: messages);
+
+      await tester.pumpWidget(buildTestWidget(
+        createTestChat(),
+        chatService: service,
+      ));
+      await tester.pumpAndSettle();
+      expect(find.text('后台期间的新消息'), findsNothing);
+
+      messages.add(Message(
+        id: '3',
+        content: '后台期间的新消息',
+        senderId: 'user2',
+        senderName: '好友',
+        chatRoomId: 'chat1',
+        status: MessageStatus.sent,
+        timestamp: DateTime.parse('2024-01-01T10:02:00'),
+      ));
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      await tester.pump();
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pumpAndSettle();
+
+      expect(service.deltaRequestCount, 1);
+      expect(find.text('后台期间的新消息'), findsOneWidget);
+    });
+
     testWidgets('mobile composer moves above keyboard viewInsets',
         (tester) async {
       tester.view.physicalSize = const Size(390, 844);
@@ -1762,6 +1792,7 @@ class FakeChatDataService extends ChatDataService {
   final List<String> loadedChatRoomIds = [];
   final List<String> readMessageIds = [];
   bool markAllReadCalled = false;
+  int deltaRequestCount = 0;
 
   static Future<http.Response> _unusedRequest(
     String method,
@@ -1812,6 +1843,7 @@ class FakeChatDataService extends ChatDataService {
     required String afterMessageId,
     int size = 50,
   }) async {
+    deltaRequestCount += 1;
     final cursor = int.tryParse(afterMessageId) ?? -1;
     return messages
         .where((message) => (int.tryParse(message.id) ?? -1) > cursor)
