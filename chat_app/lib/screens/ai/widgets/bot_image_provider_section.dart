@@ -126,7 +126,7 @@ class BotImageProviderSection extends StatelessWidget {
                     : '图片 API Base URL / Endpoint',
                 prefixIcon: const Icon(Icons.link),
                 hintText: provider == 'NOVELAI'
-                    ? 'https://api.novelai.net/ai/generate-image'
+                    ? 'https://image.novelai.net/ai/generate-image'
                     : 'https://example.com/v1',
               ),
             ),

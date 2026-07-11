@@ -196,7 +196,7 @@ void main() {
     expect(service.savedImageApiKey, 'novel-secret');
     expect(
       service.savedImageBaseUrl,
-      'https://api.novelai.net/ai/generate-image',
+      'https://image.novelai.net/ai/generate-image',
     );
   });
 

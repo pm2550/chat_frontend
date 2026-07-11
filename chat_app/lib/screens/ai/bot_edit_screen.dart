@@ -1404,7 +1404,7 @@ class _BotEditScreenState extends State<BotEditScreen> {
       _imageCredentials = const [];
       if (provider == 'NOVELAI') {
         _imageEndpointController.text =
-            'https://api.novelai.net/ai/generate-image';
+            'https://image.novelai.net/ai/generate-image';
         if (_imageModelController.text.trim().isEmpty ||
             _imageModelController.text == 'gpt-image-1') {
           _imageModelController.text = 'nai-diffusion-3';
