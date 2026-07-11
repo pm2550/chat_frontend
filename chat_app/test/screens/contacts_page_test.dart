@@ -616,6 +616,7 @@ class FakeChatDirectoryService extends ChatDataService {
     bool includeHidden = false,
     bool includeBlocked = false,
     ChatType? type,
+    bool forceRefresh = false,
   }) async {
     expect(includeHidden, isTrue);
     expect(includeBlocked, isTrue);

@@ -39,7 +39,7 @@ class ChatListPage extends StatefulWidget {
 }
 
 class _ChatListPageState extends State<ChatListPage>
-    with AutomaticKeepAliveClientMixin<ChatListPage> {
+    with AutomaticKeepAliveClientMixin<ChatListPage>, WidgetsBindingObserver {
   final TextEditingController _searchController = TextEditingController();
   final FocusNode _searchFocusNode = FocusNode();
   late final ChatDataService _chatService;
@@ -56,10 +56,13 @@ class _ChatListPageState extends State<ChatListPage>
   bool _isShowingCachedData = false;
   String? _errorMessage;
   String? _mentionErrorMessage;
+  bool _wasBackgrounded = false;
+  bool _isRefreshingAfterResume = false;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     timeago.setLocaleMessages('zh', timeago.ZhMessages());
     _chatService = widget.chatService ?? ChatDataService();
     _realtimeService = widget.realtimeService ?? WebSocketService();
@@ -93,7 +96,10 @@ class _ChatListPageState extends State<ChatListPage>
     await _loadChats(showLoading: _chats.isEmpty);
   }
 
-  Future<void> _loadChats({bool showLoading = true}) async {
+  Future<void> _loadChats({
+    bool showLoading = true,
+    bool forceRefresh = false,
+  }) async {
     if (mounted && showLoading && _chats.isEmpty) {
       setState(() {
         _isLoading = true;
@@ -107,13 +113,16 @@ class _ChatListPageState extends State<ChatListPage>
     }
 
     try {
-      final chats = await _chatService.getChatRooms();
+      final chats = await _chatService.getChatRooms(
+        forceRefresh: forceRefresh,
+      );
       if (!mounted) return;
       setState(() {
         _chats = List<Chat>.from(chats);
         _sortChatsInPlace();
         _isLoading = false;
         _errorMessage = null;
+        _isShowingCachedData = false;
       });
       _syncDesktopUnreadBadge();
       if (_showMentionsOnly) {
@@ -193,6 +202,7 @@ class _ChatListPageState extends State<ChatListPage>
             : original.unreadCount;
 
     setState(() {
+      _isShowingCachedData = false;
       _chats[index] = original.copyWith(
         lastMessage: shouldPromoteToLast ? message : currentLastMessage,
         unreadCount: nextUnreadCount,
@@ -215,6 +225,39 @@ class _ChatListPageState extends State<ChatListPage>
             orElse: () => original,
           ),
           mentionOverride: mentionsMe);
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      if (_wasBackgrounded) {
+        _wasBackgrounded = false;
+        unawaited(_refreshAfterResume());
+      }
+      return;
+    }
+    if (state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.hidden ||
+        state == AppLifecycleState.paused ||
+        state == AppLifecycleState.detached) {
+      _wasBackgrounded = true;
+    }
+  }
+
+  Future<void> _refreshAfterResume() async {
+    if (_isRefreshingAfterResume) return;
+    _isRefreshingAfterResume = true;
+    try {
+      final reconnect = _realtimeService is WebSocketService
+          ? _realtimeService.reconnect()
+          : Future<void>.value();
+      await Future.wait<void>([
+        reconnect,
+        _loadChats(showLoading: false, forceRefresh: true),
+      ]);
+    } finally {
+      _isRefreshingAfterResume = false;
     }
   }
 
@@ -1444,6 +1487,7 @@ class _ChatListPageState extends State<ChatListPage>
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _messageSubscription?.cancel();
     _statusSubscription?.cancel();
     _searchController.dispose();

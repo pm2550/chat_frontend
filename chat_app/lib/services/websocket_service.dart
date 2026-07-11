@@ -36,6 +36,8 @@ class WebSocketService extends ChangeNotifier implements ChatRealtimeService {
       : _authService = authService;
 
   WebSocketChannel? _channel;
+  Future<void>? _connectFuture;
+  Future<void>? _reconnectFuture;
   final AuthService _authService;
   AgentClientToolRegistry _agentClientToolRegistry = AgentClientToolRegistry();
   bool _isConnected = false;
@@ -72,22 +74,39 @@ class WebSocketService extends ChangeNotifier implements ChatRealtimeService {
 
   /// Connect to WebSocket server
   @override
-  Future<void> connect() async {
+  Future<void> connect() {
+    if (_isConnected) return Future<void>.value();
+    final pending = _connectFuture;
+    if (pending != null) return pending;
+
+    late final Future<void> operation;
+    operation = _connectInternal().whenComplete(() {
+      if (identical(_connectFuture, operation)) {
+        _connectFuture = null;
+      }
+    });
+    _connectFuture = operation;
+    return operation;
+  }
+
+  Future<void> _connectInternal() async {
     if (_isConnected) return;
+    final generation = ++_connectionGeneration;
 
     await _authService.ensureAuthenticated();
+    if (generation != _connectionGeneration) return;
     if (_authService.accessToken == null) return;
 
     // A mobile app may reconnect long after the cached access token expired.
     // Refresh before opening the socket so app updates/restarts do not fall
     // into a stale-token reconnect loop that looks like a forced logout.
     await _authService.refreshAccessToken();
+    if (generation != _connectionGeneration) return;
     final token = _authService.accessToken;
     if (token == null) return;
 
     try {
       final uri = Uri.parse('${ApiConstants.wsEndpoint}?token=$token');
-      final generation = ++_connectionGeneration;
       final channel = WebSocketChannel.connect(uri);
       _channel = channel;
 
@@ -129,7 +148,25 @@ class WebSocketService extends ChangeNotifier implements ChatRealtimeService {
   /// suspended. The normal reconnect budget is reset because foregrounding is
   /// an explicit signal that network access should be tried again.
   Future<void> reconnect() async {
+    final pending = _reconnectFuture;
+    if (pending != null) return pending;
+
+    late final Future<void> operation;
+    operation = _reconnectInternal().whenComplete(() {
+      if (identical(_reconnectFuture, operation)) {
+        _reconnectFuture = null;
+      }
+    });
+    _reconnectFuture = operation;
+    return operation;
+  }
+
+  Future<void> _reconnectInternal() async {
     disconnect();
+    final connecting = _connectFuture;
+    if (connecting != null) {
+      await connecting.catchError((_) {});
+    }
     _reconnectAttempts = 0;
     await connect();
   }

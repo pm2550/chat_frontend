@@ -164,6 +164,7 @@ class ChatDataService {
     bool includeHidden = false,
     bool includeBlocked = false,
     ChatType? type,
+    bool forceRefresh = false,
   }) async {
     final useSharedCache = _canUseSharedChatRoomsCache(
       includeDetails: includeDetails,
@@ -173,7 +174,7 @@ class ChatDataService {
       includeBlocked: includeBlocked,
       type: type,
     );
-    if (useSharedCache) {
+    if (useSharedCache && !forceRefresh) {
       final cached = cachedChatRoomsSnapshot(page: page, size: size);
       if (cached != null) {
         return cached;
@@ -189,7 +190,8 @@ class ChatDataService {
           type: type,
           useSharedCache: useSharedCache,
         );
-    if (_authenticatedRequest != null ||
+    if (forceRefresh ||
+        _authenticatedRequest != null ||
         _multipartRequest != null ||
         _multipartFilesRequest != null) {
       return load();

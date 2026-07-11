@@ -190,6 +190,29 @@ void main() {
       expect(realtime.connectCalls, 1);
     });
 
+    testWidgets('foreground resume forces a fresh room summary request',
+        (tester) async {
+      final service = FakeChatListService(chats: [
+        Chat(
+          id: '1',
+          name: '恢复测试群聊',
+          type: ChatType.group,
+          createdAt: DateTime.parse('2024-01-01T10:00:00'),
+        ),
+      ]);
+
+      await tester.pumpWidget(buildTestWidget(service));
+      await tester.pump();
+      expect(service.forceRefreshRequests, [false]);
+
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      await tester.pump();
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pumpAndSettle();
+
+      expect(service.forceRefreshRequests, [false, true]);
+    });
+
     testWidgets('syncs favicon unread badge and desktop notification state',
         (tester) async {
       final realtime = FakeRealtimeService();
@@ -513,6 +536,7 @@ class FakeChatListService extends ChatDataService {
   final List<String> hiddenRoomIds = [];
   final List<String> blockedRoomIds = [];
   final List<String> pinnedRoomIds = [];
+  final List<bool> forceRefreshRequests = [];
 
   static Future<dynamic> _unusedRequest(
     String method,
@@ -532,7 +556,9 @@ class FakeChatListService extends ChatDataService {
     bool includeHidden = false,
     bool includeBlocked = false,
     ChatType? type,
+    bool forceRefresh = false,
   }) async {
+    forceRefreshRequests.add(forceRefresh);
     final err = error;
     if (err != null) {
       throw err;

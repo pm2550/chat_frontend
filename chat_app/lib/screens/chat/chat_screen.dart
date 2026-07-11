@@ -146,6 +146,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   Timer? _messageHighlightTimer;
   Timer? _voiceRecordingTimer;
   Timer? _initialBottomAnchorTimer;
+  Timer? _messageReconciliationTimer;
   int _initialBottomAnchorGeneration = 0;
   bool _initialBottomAnchorActive = false;
   final VoiceRecorder _voiceRecorder = VoiceRecorder();
@@ -204,6 +205,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   bool _restoredMessagesFromCache = false;
   bool _wasBackgrounded = false;
   bool _isRefreshingAfterResume = false;
+  bool _isReconcilingMessages = false;
 
   @override
   void initState() {
@@ -292,6 +294,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     _loadRoomBots();
     _loadFriendshipState();
     _connectRealtime();
+    _startMessageReconciliation();
     final startCall = _pendingStartCall;
     if (startCall != null) {
       _pendingStartCall = null;
@@ -300,6 +303,30 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           unawaited(_startCall(startCall));
         }
       });
+    }
+  }
+
+  void _startMessageReconciliation() {
+    _messageReconciliationTimer?.cancel();
+    _messageReconciliationTimer = Timer.periodic(
+      const Duration(seconds: 15),
+      (_) => unawaited(_reconcileMessages()),
+    );
+  }
+
+  Future<void> _reconcileMessages() async {
+    if (!mounted ||
+        _wasBackgrounded ||
+        _isReconcilingMessages ||
+        !_didInitialize ||
+        _chat.id.trim().isEmpty) {
+      return;
+    }
+    _isReconcilingMessages = true;
+    try {
+      await _loadMessageDelta();
+    } finally {
+      _isReconcilingMessages = false;
     }
   }
 
@@ -371,6 +398,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     _callSubscription?.cancel();
     _messageHighlightTimer?.cancel();
     _voiceRecordingTimer?.cancel();
+    _messageReconciliationTimer?.cancel();
     _cancelInitialBottomAnchor();
     _voiceRecorder.dispose();
     _dropPasteController?.dispose();
@@ -411,7 +439,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     try {
       await Future.wait<void>([
         _webSocketService.reconnect(),
-        _loadMessageDelta(),
+        _reconcileMessages(),
       ]);
     } finally {
       _isRefreshingAfterResume = false;

@@ -261,6 +261,33 @@ void main() {
       expect(find.text('后台期间的新消息'), findsOneWidget);
     });
 
+    testWidgets('visible chat periodically reconciles a missed websocket frame',
+        (tester) async {
+      final messages = <Message>[...testMessages];
+      final service = FakeChatDataService(messages: messages);
+
+      await tester.pumpWidget(buildTestWidget(
+        createTestChat(),
+        chatService: service,
+      ));
+      await tester.pumpAndSettle();
+      messages.add(Message(
+        id: '3',
+        content: '校准补回的新消息',
+        senderId: 'user2',
+        senderName: '好友',
+        chatRoomId: 'chat1',
+        status: MessageStatus.sent,
+        timestamp: DateTime.parse('2024-01-01T10:02:00'),
+      ));
+
+      await tester.pump(const Duration(seconds: 15));
+      await tester.pumpAndSettle();
+
+      expect(service.deltaRequestCount, 1);
+      expect(find.text('校准补回的新消息'), findsOneWidget);
+    });
+
     testWidgets('mobile composer moves above keyboard viewInsets',
         (tester) async {
       tester.view.physicalSize = const Size(390, 844);

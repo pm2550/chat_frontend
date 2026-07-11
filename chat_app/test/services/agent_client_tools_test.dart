@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:chat_app/models/message.dart';
 import 'package:chat_app/services/agent_client_tools.dart';
 import 'package:chat_app/services/auth_service.dart';
@@ -183,6 +185,50 @@ void main() {
     expect(authService.refreshAccessTokenCalls, 1);
     expect(service.isConnected, isFalse);
   });
+
+  test('concurrent websocket connect calls share one authentication flight',
+      () async {
+    final authService = _BlockingAuthService();
+    final service = WebSocketService.forTesting(authService: authService);
+
+    final first = service.connect();
+    final second = service.connect();
+    await Future<void>.delayed(Duration.zero);
+
+    expect(authService.ensureAuthenticatedCalls, 1);
+    authService.release();
+    await Future.wait([first, second]);
+    expect(authService.refreshAccessTokenCalls, 1);
+    expect(service.isConnected, isFalse);
+  });
+}
+
+class _BlockingAuthService extends AuthService {
+  _BlockingAuthService() : super.test();
+
+  final Completer<void> _gate = Completer<void>();
+  int ensureAuthenticatedCalls = 0;
+  int refreshAccessTokenCalls = 0;
+  String? _token = 'temporary-token';
+
+  void release() => _gate.complete();
+
+  @override
+  String? get accessToken => _token;
+
+  @override
+  Future<bool> ensureAuthenticated() async {
+    ensureAuthenticatedCalls += 1;
+    await _gate.future;
+    return true;
+  }
+
+  @override
+  Future<bool> refreshAccessToken() async {
+    refreshAccessTokenCalls += 1;
+    _token = null;
+    return false;
+  }
 }
 
 class _RefreshingAuthService extends AuthService {
