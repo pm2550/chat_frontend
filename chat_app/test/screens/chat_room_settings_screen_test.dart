@@ -26,6 +26,7 @@ void main() {
       expect(find.text('Alice'), findsWidgets);
       expect(find.text('Bob'), findsWidgets);
       expect(find.text('邀请好友'), findsOneWidget);
+      expect(find.text('房间外观'), findsNothing);
     });
 
     testWidgets('private settings show peer name and hide group controls',
@@ -530,9 +531,8 @@ ChatRoomMember member(
     userId: id,
     user: user(id, username, displayName),
     role: resolvedRole,
-    roleDescription: isOwner
-        ? '群主'
-        : (resolvedRole == 'ADMIN' ? '管理员' : '普通成员'),
+    roleDescription:
+        isOwner ? '群主' : (resolvedRole == 'ADMIN' ? '管理员' : '普通成员'),
     isAdmin: isAdmin || isOwner || resolvedRole == 'ADMIN',
   );
 }

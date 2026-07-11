@@ -5,7 +5,6 @@ import 'package:flutter/material.dart';
 import '../../constants/api_constants.dart';
 import '../../constants/app_colors.dart';
 import '../../design/design.dart';
-import '../../models/chat_customization.dart';
 import '../../models/chat_room_member.dart';
 import '../../models/user.dart';
 import '../../services/anonymous_service.dart';
@@ -67,8 +66,6 @@ class _ChatRoomSettingsScreenState extends State<ChatRoomSettingsScreen> {
   String? _roomDescription;
   String? _roomAnnouncement;
   String? _roomAvatarUrl;
-  String? _roomBackgroundPreset;
-  String? _roomBackgroundUrl;
   DateTime? _announcementUpdatedAt;
   String? _announcementUpdatedBy;
   List<ChatRoomMember> _members = [];
@@ -115,8 +112,6 @@ class _ChatRoomSettingsScreenState extends State<ChatRoomSettingsScreen> {
         _roomDescription = room.description;
         _roomAnnouncement = room.announcement;
         _roomAvatarUrl = room.avatarUrl;
-        _roomBackgroundPreset = room.customBackgroundPreset;
-        _roomBackgroundUrl = room.customBackgroundUrl;
         _announcementUpdatedAt = room.announcementUpdatedAt;
         _announcementUpdatedBy = room.announcementUpdatedBy;
         _anonymousEnabled = room.anonymousEnabled;
@@ -218,67 +213,6 @@ class _ChatRoomSettingsScreenState extends State<ChatRoomSettingsScreen> {
     }
   }
 
-  Future<void> _setRoomBackgroundPreset(String preset) async {
-    if (!_currentUserIsAdmin) return;
-    setState(() => _isSavingRoom = true);
-    try {
-      final room = await _chatService.updateRoomBackgroundPreset(
-        widget.chatRoomId.toString(),
-        preset,
-      );
-      if (!mounted) return;
-      setState(() {
-        _roomBackgroundPreset = room.customBackgroundPreset;
-        _roomBackgroundUrl = room.customBackgroundUrl;
-        _isSavingRoom = false;
-      });
-      _showSnackBar('房间背景已更新');
-    } catch (error) {
-      if (!mounted) return;
-      setState(() => _isSavingRoom = false);
-      _showSnackBar('房间背景更新失败: $error', isError: true);
-    }
-  }
-
-  Future<void> _pickAndUploadRoomBackground() async {
-    if (!_currentUserIsAdmin) return;
-    final result = await FilePicker.platform.pickFiles(
-      type: FileType.image,
-      allowMultiple: false,
-      withData: kIsWeb,
-    );
-    if (result == null || result.files.isEmpty) return;
-    final file = result.files.single;
-    if (file.size > 2 * 1024 * 1024) {
-      _showSnackBar('背景图片不能超过 2MB', isError: true);
-      return;
-    }
-
-    setState(() => _isSavingRoom = true);
-    try {
-      final room = await _chatService.uploadRoomBackground(
-        widget.chatRoomId.toString(),
-        PickedChatFile(
-          name: file.name,
-          path: file.path,
-          size: file.size,
-          bytes: file.bytes,
-        ),
-      );
-      if (!mounted) return;
-      setState(() {
-        _roomBackgroundPreset = room.customBackgroundPreset;
-        _roomBackgroundUrl = room.customBackgroundUrl;
-        _isSavingRoom = false;
-      });
-      _showSnackBar('房间背景已上传');
-    } catch (error) {
-      if (!mounted) return;
-      setState(() => _isSavingRoom = false);
-      _showSnackBar('房间背景上传失败: $error', isError: true);
-    }
-  }
-
   Future<void> _pickAndUploadRoomAvatar() async {
     if (!_currentUserIsAdmin || !widget.isGroup) return;
     final result = await FilePicker.platform.pickFiles(
@@ -311,27 +245,6 @@ class _ChatRoomSettingsScreenState extends State<ChatRoomSettingsScreen> {
       if (!mounted) return;
       setState(() => _isSavingRoom = false);
       _showSnackBar('群头像上传失败: $error', isError: true);
-    }
-  }
-
-  Future<void> _clearRoomBackground() async {
-    if (!_currentUserIsAdmin) return;
-    setState(() => _isSavingRoom = true);
-    try {
-      final room = await _chatService.clearRoomBackground(
-        widget.chatRoomId.toString(),
-      );
-      if (!mounted) return;
-      setState(() {
-        _roomBackgroundPreset = room.customBackgroundPreset;
-        _roomBackgroundUrl = room.customBackgroundUrl;
-        _isSavingRoom = false;
-      });
-      _showSnackBar('已恢复成员个人背景');
-    } catch (error) {
-      if (!mounted) return;
-      setState(() => _isSavingRoom = false);
-      _showSnackBar('恢复失败: $error', isError: true);
     }
   }
 
@@ -745,9 +658,6 @@ class _ChatRoomSettingsScreenState extends State<ChatRoomSettingsScreen> {
             const SizedBox(height: PMSpacing.l),
             _buildMembersSection(currentUserId),
             if (widget.isGroup) ...[
-              const SizedBox(height: PMSpacing.l),
-              _buildRoomBackgroundSection(),
-              const SizedBox(height: PMSpacing.l),
               _buildFilesSection(),
               const SizedBox(height: PMSpacing.l),
               _buildBotsSection(),
@@ -958,119 +868,6 @@ class _ChatRoomSettingsScreenState extends State<ChatRoomSettingsScreen> {
                 const Icon(Icons.chevron_right, color: AppColors.textTertiary),
             onTap: () => _showMemberProfileSheet(currentMember),
           ),
-      ],
-    );
-  }
-
-  Widget _buildRoomBackgroundSection() {
-    final customUrl = _roomBackgroundUrl?.trim();
-    final activePreset = _roomBackgroundPreset?.trim();
-    final hasOverride = (customUrl != null && customUrl.isNotEmpty) ||
-        (activePreset != null && activePreset.isNotEmpty);
-    return PMSectionCard(
-      title: '房间外观',
-      subtitle: hasOverride ? '管理员设置的背景会覆盖成员个人聊天背景' : '未设置房间背景时，成员会看到自己的聊天偏好背景',
-      trailing: Wrap(
-        spacing: PMSpacing.s,
-        children: [
-          PMButton(
-            label: '上传',
-            icon: Icons.upload,
-            compact: true,
-            variant: PMButtonVariant.secondary,
-            onPressed: _currentUserIsAdmin && !_isSavingRoom
-                ? _pickAndUploadRoomBackground
-                : null,
-          ),
-          PMButton(
-            label: '恢复个人',
-            icon: Icons.layers_clear,
-            compact: true,
-            variant: PMButtonVariant.secondary,
-            onPressed: _currentUserIsAdmin && hasOverride && !_isSavingRoom
-                ? _clearRoomBackground
-                : null,
-          ),
-        ],
-      ),
-      children: [
-        if (customUrl != null && customUrl.isNotEmpty)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(
-              PMSpacing.l,
-              PMSpacing.m,
-              PMSpacing.l,
-              0,
-            ),
-            child: SizedBox(
-              height: 112,
-              child: PMBackgroundPreview(
-                preset: activePreset == null || activePreset.isEmpty
-                    ? ChatCustomizationCatalog.defaultBackground
-                    : activePreset,
-                customUrl: customUrl,
-                selected: true,
-              ),
-            ),
-          ),
-        Padding(
-          padding: const EdgeInsets.all(PMSpacing.l),
-          child: GridView.builder(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            itemCount: ChatCustomizationCatalog.backgrounds.length,
-            gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-              maxCrossAxisExtent: 210,
-              mainAxisExtent: 166,
-              crossAxisSpacing: PMSpacing.m,
-              mainAxisSpacing: PMSpacing.m,
-            ),
-            itemBuilder: (context, index) {
-              final option = ChatCustomizationCatalog.backgrounds[index];
-              final selected = option.id == activePreset &&
-                  (customUrl == null || customUrl.isEmpty);
-              return PMCard(
-                padding: const EdgeInsets.all(PMSpacing.s),
-                elevated: selected,
-                interactive: _currentUserIsAdmin,
-                onTap: _currentUserIsAdmin && !_isSavingRoom
-                    ? () => _setRoomBackgroundPreset(option.id)
-                    : null,
-                background: selected ? AppColors.pixelBlue : Colors.white,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                      child: PMBackgroundPreview(
-                        preset: option.id,
-                        selected: selected,
-                      ),
-                    ),
-                    const SizedBox(height: PMSpacing.s),
-                    Text(
-                      option.label,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: AppColors.textPrimary,
-                        fontWeight: FontWeight.w900,
-                      ),
-                    ),
-                    Text(
-                      option.description,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: AppColors.textSecondary,
-                        fontSize: 12,
-                      ),
-                    ),
-                  ],
-                ),
-              );
-            },
-          ),
-        ),
       ],
     );
   }

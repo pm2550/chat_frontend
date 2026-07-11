@@ -1,10 +1,12 @@
 import 'dart:math' as math;
 
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
 import '../constants/api_constants.dart';
 import '../constants/app_colors.dart';
 import '../models/chat_customization.dart';
+import '../services/auth_service.dart';
 import 'tokens.dart';
 
 class PMChatBackgroundLayer extends StatelessWidget {
@@ -25,14 +27,23 @@ class PMChatBackgroundLayer extends StatelessWidget {
     return Stack(
       fit: StackFit.expand,
       children: [
+        _PresetBackground(preset: preset),
         if (url != null && url.isNotEmpty)
-          Image.network(
-            ApiConstants.resolveFileUrl(url),
+          CachedNetworkImage(
+            imageUrl: ApiConstants.resolveFileUrl(url),
+            cacheKey:
+                'pmchat-wallpaper:${AuthService().currentUser?.id ?? 'guest'}:$url',
+            httpHeaders: {
+              if (AuthService().accessToken case final token?)
+                'Authorization': 'Bearer $token',
+            },
             fit: BoxFit.cover,
-            errorBuilder: (_, __, ___) => _PresetBackground(preset: preset),
-          )
-        else
-          _PresetBackground(preset: preset),
+            fadeInDuration: Duration.zero,
+            fadeOutDuration: Duration.zero,
+            useOldImageOnUrlChange: true,
+            placeholder: (_, __) => const SizedBox.expand(),
+            errorWidget: (_, __, ___) => const SizedBox.expand(),
+          ),
         Container(color: Colors.white.withValues(alpha: 0.30)),
         child,
       ],

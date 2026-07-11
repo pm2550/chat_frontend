@@ -881,14 +881,10 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   String get _effectiveBackgroundPreset {
-    final roomPreset = _chat.customBackgroundPreset?.trim();
-    if (roomPreset != null && roomPreset.isNotEmpty) return roomPreset;
     return _appSettings.chatBackgroundPreset;
   }
 
   String? get _effectiveBackgroundUrl {
-    final roomUrl = _chat.customBackgroundUrl?.trim();
-    if (roomUrl != null && roomUrl.isNotEmpty) return roomUrl;
     final userUrl = _appSettings.chatBackgroundCustomUrl?.trim();
     return userUrl == null || userUrl.isEmpty ? null : userUrl;
   }
