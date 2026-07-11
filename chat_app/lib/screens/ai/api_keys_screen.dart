@@ -27,6 +27,8 @@ class _ApiKeysScreenState extends State<ApiKeysScreen> {
     'HERMES',
     'DASHSCOPE',
     'KIMI',
+    'IMAGE_API',
+    'NOVELAI',
   ];
 
   late final BotService _botService;

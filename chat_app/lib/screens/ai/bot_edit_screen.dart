@@ -9,6 +9,7 @@ import '../../constants/app_colors.dart';
 import '../../design/design.dart';
 import '../../services/bot_service.dart';
 import '../../widgets/pm_brand.dart';
+import 'widgets/bot_image_provider_section.dart';
 
 class BotEditScreen extends StatefulWidget {
   const BotEditScreen({
@@ -91,6 +92,10 @@ class _BotEditScreenState extends State<BotEditScreen> {
   late final TextEditingController _promptController;
   late final TextEditingController _apiKeyController;
   late final TextEditingController _allowedUsersController;
+  late final TextEditingController _imageApiKeyController;
+  late final TextEditingController _imageEndpointController;
+  late final TextEditingController _imageModelController;
+  late final TextEditingController _imageNegativePromptController;
 
   final _formKey = GlobalKey<FormState>();
   double _temperature = 0.7;
@@ -105,7 +110,11 @@ class _BotEditScreenState extends State<BotEditScreen> {
   bool _loadingCredentials = false;
   bool _characterBusy = false;
   List<ProviderCredential> _credentials = const [];
+  List<ProviderCredential> _imageCredentials = const [];
   int? _selectedCredentialId;
+  int? _selectedImageCredentialId;
+  String _imageProvider = 'HERMES';
+  bool _loadingImageCredentials = false;
   bool _hasCharacterCard = false;
   String? _characterPersona;
   String? _characterScenario;
@@ -129,6 +138,11 @@ class _BotEditScreenState extends State<BotEditScreen> {
     _modelController = TextEditingController(text: bot?.modelName ?? '');
     _promptController = TextEditingController(text: bot?.systemPrompt ?? '');
     _apiKeyController = TextEditingController();
+    _imageApiKeyController = TextEditingController();
+    _imageEndpointController = TextEditingController();
+    _imageModelController = TextEditingController(text: bot?.imageModel ?? '');
+    _imageNegativePromptController =
+        TextEditingController(text: bot?.imageNegativePrompt ?? '');
     _allowedUsersController = TextEditingController(
       text: bot?.allowedUsers
               .map((user) =>
@@ -140,6 +154,8 @@ class _BotEditScreenState extends State<BotEditScreen> {
     _webSearchEnabled = bot?.enabledTools.contains('web_search') ?? false;
     _imageGenerationEnabled =
         bot?.enabledTools.contains('generate_image') ?? false;
+    _imageProvider = bot?.imageGenerationProvider ?? 'HERMES';
+    _selectedImageCredentialId = bot?.imageProviderCredentialId;
     _replyMode = (bot?.replyMode ?? 'SINGLE').toUpperCase();
     _accessPolicy = bot?.accessPolicy ?? 'PRIVATE';
     _providerController.addListener(_loadCredentialsForProvider);
@@ -156,6 +172,7 @@ class _BotEditScreenState extends State<BotEditScreen> {
     _bookEntryCount = bot?.characterBookEntryCount ?? 0;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _loadCredentialsForProvider();
+      _loadImageCredentials();
     });
   }
 
@@ -167,6 +184,10 @@ class _BotEditScreenState extends State<BotEditScreen> {
     _promptController.dispose();
     _apiKeyController.dispose();
     _allowedUsersController.dispose();
+    _imageApiKeyController.dispose();
+    _imageEndpointController.dispose();
+    _imageModelController.dispose();
+    _imageNegativePromptController.dispose();
     super.dispose();
   }
 
@@ -311,6 +332,26 @@ class _BotEditScreenState extends State<BotEditScreen> {
                           _buildContextSection(),
                           const SizedBox(height: PMSpacing.l),
                           _buildToolTogglesSection(),
+                          if (_imageGenerationEnabled) ...[
+                            const SizedBox(height: PMSpacing.l),
+                            BotImageProviderSection(
+                              provider: _imageProvider,
+                              credentials: _imageCredentials,
+                              selectedCredentialId: _selectedImageCredentialId,
+                              loadingCredentials: _loadingImageCredentials,
+                              apiKeyController: _imageApiKeyController,
+                              endpointController: _imageEndpointController,
+                              modelController: _imageModelController,
+                              negativePromptController:
+                                  _imageNegativePromptController,
+                              currentCredentialLabel:
+                                  widget.bot?.imageProviderCredentialLabel,
+                              currentCredentialLast4:
+                                  widget.bot?.imageProviderCredentialLast4,
+                              onProviderChanged: _setImageProvider,
+                              onCredentialChanged: _selectImageCredential,
+                            ),
+                          ],
                           const SizedBox(height: PMSpacing.l),
                           _buildAccessPolicySection(),
                           const SizedBox(height: PMSpacing.xl),
@@ -679,7 +720,7 @@ class _BotEditScreenState extends State<BotEditScreen> {
             icon: Icons.image_outlined,
             title: 'AI 画图',
             subtitle:
-                'generate_image · 调 Hermes /draw，扣发起人的 AI 图片点数，图片以 Bot 身份发回会话。',
+                'generate_image · 可选平台 Hermes 或 Bot 自己的图片 API，图片以 Bot 身份发回会话。',
             value: _imageGenerationEnabled,
             key: const Key('bot-edit-image-generation-switch'),
             onChanged: (value) =>
@@ -1061,6 +1102,26 @@ class _BotEditScreenState extends State<BotEditScreen> {
 
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
+    if (_imageGenerationEnabled &&
+        _imageProvider != 'HERMES' &&
+        _selectedImageCredentialId == null &&
+        _imageApiKeyController.text.trim().isEmpty &&
+        widget.bot?.hasImageProviderCredential != true) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('请选择画图凭据或填写图片 API Key')),
+      );
+      return;
+    }
+    if (_imageGenerationEnabled &&
+        _imageProvider == 'OPENAI_COMPATIBLE' &&
+        _selectedImageCredentialId == null &&
+        _imageEndpointController.text.trim().isEmpty &&
+        widget.bot?.hasImageProviderCredential != true) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('请填写 OpenAI 兼容图片 API 的 Base URL')),
+      );
+      return;
+    }
     setState(() => _saving = true);
     final config = BotConfig(
       id: widget.bot?.id,
@@ -1084,6 +1145,14 @@ class _BotEditScreenState extends State<BotEditScreen> {
       allowedUsernames:
           _accessPolicy == 'ALLOWLIST' ? _parseAllowedUsers() : const [],
       providerCredentialId: _selectedCredentialId,
+      imageGenerationProvider: _imageProvider,
+      imageProviderCredentialId: _selectedImageCredentialId,
+      imageModel: _imageModelController.text.trim().isEmpty
+          ? null
+          : _imageModelController.text.trim(),
+      imageNegativePrompt: _imageNegativePromptController.text.trim().isEmpty
+          ? null
+          : _imageNegativePromptController.text.trim(),
     );
 
     try {
@@ -1095,6 +1164,12 @@ class _BotEditScreenState extends State<BotEditScreen> {
           apiKey: _apiKeyController.text.trim().isEmpty
               ? null
               : _apiKeyController.text.trim(),
+          imageApiKey: _imageApiKeyController.text.trim().isEmpty
+              ? null
+              : _imageApiKeyController.text.trim(),
+          imageBaseUrl: _imageEndpointController.text.trim().isEmpty
+              ? null
+              : _imageEndpointController.text.trim(),
         );
       } else {
         saved = await _botService.createBot(
@@ -1102,6 +1177,12 @@ class _BotEditScreenState extends State<BotEditScreen> {
           apiKey: _apiKeyController.text.trim().isEmpty
               ? null
               : _apiKeyController.text.trim(),
+          imageApiKey: _imageApiKeyController.text.trim().isEmpty
+              ? null
+              : _imageApiKeyController.text.trim(),
+          imageBaseUrl: _imageEndpointController.text.trim().isEmpty
+              ? null
+              : _imageEndpointController.text.trim(),
         );
       }
       final avatar = _selectedAvatar;
@@ -1313,6 +1394,80 @@ class _BotEditScreenState extends State<BotEditScreen> {
       setState(() => _credentials = const []);
     } finally {
       if (mounted) setState(() => _loadingCredentials = false);
+    }
+  }
+
+  void _setImageProvider(String provider) {
+    setState(() {
+      _imageProvider = provider;
+      _selectedImageCredentialId = null;
+      _imageCredentials = const [];
+      if (provider == 'NOVELAI') {
+        _imageEndpointController.text =
+            'https://api.novelai.net/ai/generate-image';
+        if (_imageModelController.text.trim().isEmpty ||
+            _imageModelController.text == 'gpt-image-1') {
+          _imageModelController.text = 'nai-diffusion-3';
+        }
+      } else if (provider == 'OPENAI_COMPATIBLE') {
+        _imageEndpointController.clear();
+        if (_imageModelController.text.trim().isEmpty ||
+            _imageModelController.text == 'nai-diffusion-3') {
+          _imageModelController.text = 'gpt-image-1';
+        }
+      }
+    });
+    _loadImageCredentials();
+  }
+
+  void _selectImageCredential(int? credentialId) {
+    setState(() {
+      _selectedImageCredentialId = credentialId;
+      if (credentialId == null) return;
+      ProviderCredential? credential;
+      for (final item in _imageCredentials) {
+        if (item.id == credentialId) {
+          credential = item;
+          break;
+        }
+      }
+      if (credential == null) return;
+      _imageEndpointController.text = credential.baseUrl ?? '';
+      if (credential.modelOverride?.isNotEmpty == true) {
+        _imageModelController.text = credential.modelOverride!;
+      }
+      _imageApiKeyController.clear();
+    });
+  }
+
+  Future<void> _loadImageCredentials() async {
+    if (!mounted || _imageProvider == 'HERMES') {
+      if (mounted) setState(() => _imageCredentials = const []);
+      return;
+    }
+    setState(() => _loadingImageCredentials = true);
+    try {
+      final providers = _imageProvider == 'NOVELAI'
+          ? const ['NOVELAI']
+          : const ['IMAGE_API', 'OPENAI'];
+      final batches = await Future.wait(
+        providers.map(
+          (provider) => _botService.getProviderCredentials(provider: provider),
+        ),
+      );
+      if (!mounted) return;
+      final credentials = batches.expand((items) => items).toList();
+      setState(() {
+        _imageCredentials = credentials;
+        if (_selectedImageCredentialId != null &&
+            !credentials.any((item) => item.id == _selectedImageCredentialId)) {
+          _selectedImageCredentialId = null;
+        }
+      });
+    } catch (_) {
+      if (mounted) setState(() => _imageCredentials = const []);
+    } finally {
+      if (mounted) setState(() => _loadingImageCredentials = false);
     }
   }
 }

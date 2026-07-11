@@ -11,6 +11,8 @@ class _CapturingBotService extends BotService {
   _CapturingBotService() : super();
 
   BotConfig? savedConfig;
+  String? savedImageApiKey;
+  String? savedImageBaseUrl;
 
   @override
   Future<List<ProviderCredential>> getProviderCredentials(
@@ -18,15 +20,29 @@ class _CapturingBotService extends BotService {
       const [];
 
   @override
-  Future<BotConfig> updateBot(int botId, BotConfig config,
-      {String? apiKey}) async {
+  Future<BotConfig> updateBot(
+    int botId,
+    BotConfig config, {
+    String? apiKey,
+    String? imageApiKey,
+    String? imageBaseUrl,
+  }) async {
     savedConfig = config;
+    savedImageApiKey = imageApiKey;
+    savedImageBaseUrl = imageBaseUrl;
     return config;
   }
 
   @override
-  Future<BotConfig?> createBot(BotConfig config, {String? apiKey}) async {
+  Future<BotConfig?> createBot(
+    BotConfig config, {
+    String? apiKey,
+    String? imageApiKey,
+    String? imageBaseUrl,
+  }) async {
     savedConfig = config;
+    savedImageApiKey = imageApiKey;
+    savedImageBaseUrl = imageBaseUrl;
     return config;
   }
 }
@@ -149,6 +165,39 @@ void main() {
     expect(service.savedConfig!.modelName, 'grok-4.3');
     expect(service.savedConfig!.enabledTools, contains('generate_image'));
     expect(service.savedConfig!.systemPrompt, contains('generate_image'));
+  });
+
+  testWidgets('custom NovelAI image provider saves encrypted-key inputs',
+      (tester) async {
+    final service = _CapturingBotService();
+    final bot = BotConfig(
+      id: 10,
+      botName: 'novel-draw-bot',
+      llmProvider: 'HERMES',
+      enabledTools: const ['generate_image'],
+    );
+    await pumpEditor(tester, bot, service);
+
+    await tester.ensureVisible(find.text('NovelAI'));
+    await tester.tap(find.text('NovelAI'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.widgetWithText(TextField, '图片 API Key'),
+      'novel-secret',
+    );
+
+    final saveButton = find.text('保存 Bot').last;
+    await tester.ensureVisible(saveButton);
+    await tester.tap(saveButton);
+    await tester.pumpAndSettle();
+
+    expect(service.savedConfig!.imageGenerationProvider, 'NOVELAI');
+    expect(service.savedConfig!.imageModel, 'nai-diffusion-3');
+    expect(service.savedImageApiKey, 'novel-secret');
+    expect(
+      service.savedImageBaseUrl,
+      'https://api.novelai.net/ai/generate-image',
+    );
   });
 
   testWidgets('Kimi Code provider selects the kimi-code default model',

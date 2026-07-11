@@ -13,7 +13,8 @@ class _FakeBotService extends BotService {
   int? updatedId;
 
   @override
-  Future<List<ProviderCredential>> getProviderCredentials({String? provider}) async {
+  Future<List<ProviderCredential>> getProviderCredentials(
+      {String? provider}) async {
     return _credentials;
   }
 
@@ -63,7 +64,8 @@ class _FakeBotService extends BotService {
 }
 
 void main() {
-  testWidgets('shows empty state when there are no credentials', (tester) async {
+  testWidgets('shows empty state when there are no credentials',
+      (tester) async {
     await tester.pumpWidget(MaterialApp(
       home: ApiKeysScreen(botService: _FakeBotService(const [])),
     ));
@@ -73,7 +75,8 @@ void main() {
     expect(find.text('添加密钥'), findsOneWidget);
   });
 
-  testWidgets('reveals the add form with provider chips on tap', (tester) async {
+  testWidgets('reveals the add form with provider chips on tap',
+      (tester) async {
     await tester.pumpWidget(MaterialApp(
       home: ApiKeysScreen(botService: _FakeBotService(const [])),
     ));
@@ -84,10 +87,13 @@ void main() {
 
     expect(find.text('保存密钥'), findsOneWidget);
     expect(find.text('DASHSCOPE'), findsOneWidget);
+    expect(find.text('NOVELAI'), findsOneWidget);
+    expect(find.text('IMAGE_API'), findsOneWidget);
     expect(find.text('OPENAI'), findsWidgets);
   });
 
-  testWidgets('lists existing credentials with provider and base_url', (tester) async {
+  testWidgets('lists existing credentials with provider and base_url',
+      (tester) async {
     final service = _FakeBotService(const [
       ProviderCredential(
         id: 5,
@@ -98,7 +104,8 @@ void main() {
         modelOverride: 'anthropic/claude',
       ),
     ]);
-    await tester.pumpWidget(MaterialApp(home: ApiKeysScreen(botService: service)));
+    await tester
+        .pumpWidget(MaterialApp(home: ApiKeysScreen(botService: service)));
     await tester.pumpAndSettle();
 
     expect(find.text('my-openrouter'), findsOneWidget);
@@ -111,7 +118,8 @@ void main() {
       ProviderCredential(
           id: 5, llmProvider: 'OPENAI', label: 'my-key', secretLast4: 'abcd'),
     ]);
-    await tester.pumpWidget(MaterialApp(home: ApiKeysScreen(botService: service)));
+    await tester
+        .pumpWidget(MaterialApp(home: ApiKeysScreen(botService: service)));
     await tester.pumpAndSettle();
 
     // Tapping delete opens a confirm dialog — it must NOT delete immediately.
@@ -145,7 +153,8 @@ void main() {
         baseUrl: 'https://api.example.com/v1',
       ),
     ]);
-    await tester.pumpWidget(MaterialApp(home: ApiKeysScreen(botService: service)));
+    await tester
+        .pumpWidget(MaterialApp(home: ApiKeysScreen(botService: service)));
     await tester.pumpAndSettle();
 
     await tester.tap(find.byTooltip('编辑'));

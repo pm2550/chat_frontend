@@ -27,6 +27,13 @@ class BotConfig {
   final bool includeRoomMetadata;
   final String replyMode;
   final String workflowMode;
+  final String imageGenerationProvider;
+  final int? imageProviderCredentialId;
+  final String? imageProviderCredentialLabel;
+  final String? imageProviderCredentialLast4;
+  final bool hasImageProviderCredential;
+  final String? imageModel;
+  final String? imageNegativePrompt;
   final bool isActive;
   final String? triggerMode;
   final String? triggerKeywords;
@@ -67,6 +74,13 @@ class BotConfig {
     this.includeRoomMetadata = true,
     this.replyMode = 'SINGLE',
     this.workflowMode = 'SINGLE_PASS',
+    this.imageGenerationProvider = 'HERMES',
+    this.imageProviderCredentialId,
+    this.imageProviderCredentialLabel,
+    this.imageProviderCredentialLast4,
+    this.hasImageProviderCredential = false,
+    this.imageModel,
+    this.imageNegativePrompt,
     this.isActive = true,
     this.triggerMode,
     this.triggerKeywords,
@@ -108,6 +122,18 @@ class BotConfig {
       includeRoomMetadata: json['includeRoomMetadata'] != false,
       replyMode: json['replyMode']?.toString() ?? 'SINGLE',
       workflowMode: json['workflowMode']?.toString() ?? 'SINGLE_PASS',
+      imageGenerationProvider:
+          json['imageGenerationProvider']?.toString() ?? 'HERMES',
+      imageProviderCredentialId: json['imageProviderCredentialId'] is int
+          ? json['imageProviderCredentialId'] as int
+          : int.tryParse(json['imageProviderCredentialId']?.toString() ?? ''),
+      imageProviderCredentialLabel:
+          json['imageProviderCredentialLabel']?.toString(),
+      imageProviderCredentialLast4:
+          json['imageProviderCredentialLast4']?.toString(),
+      hasImageProviderCredential: json['hasImageProviderCredential'] == true,
+      imageModel: json['imageModel']?.toString(),
+      imageNegativePrompt: json['imageNegativePrompt']?.toString(),
       isActive: json['isActive'] ?? true,
       triggerMode: json['triggerMode']?.toString(),
       triggerKeywords: json['triggerKeywords']?.toString(),
@@ -169,6 +195,12 @@ class BotConfig {
         'includeRoomMetadata': includeRoomMetadata,
         'replyMode': replyMode,
         'workflowMode': workflowMode,
+        'imageGenerationProvider': imageGenerationProvider,
+        if (imageProviderCredentialId != null)
+          'imageProviderCredentialId': imageProviderCredentialId,
+        if (imageModel != null) 'imageModel': imageModel,
+        if (imageNegativePrompt != null)
+          'imageNegativePrompt': imageNegativePrompt,
         'enabledTools': enabledTools,
         'accessPolicy': accessPolicy,
         'allowedUsernames': allowedUsernames,
@@ -188,6 +220,9 @@ class BotConfig {
         'moderationGrant': moderationGrant,
         'providerCredentialLabel': providerCredentialLabel,
         'providerCredentialLast4': providerCredentialLast4,
+        'imageProviderCredentialLabel': imageProviderCredentialLabel,
+        'imageProviderCredentialLast4': imageProviderCredentialLast4,
+        'hasImageProviderCredential': hasImageProviderCredential,
         'hasCredential': hasCredential,
         'createdById': createdById,
         'hasCharacterCard': hasCharacterCard,
@@ -309,9 +344,20 @@ class BotService {
   final AuthService _authService;
   final BotAuthenticatedRequest? _authenticatedRequest;
 
-  Future<BotConfig?> createBot(BotConfig config, {String? apiKey}) async {
+  Future<BotConfig?> createBot(
+    BotConfig config, {
+    String? apiKey,
+    String? imageApiKey,
+    String? imageBaseUrl,
+  }) async {
     final body = config.toJson();
     if (apiKey != null && apiKey.isNotEmpty) body['apiKey'] = apiKey;
+    if (imageApiKey != null && imageApiKey.isNotEmpty) {
+      body['imageApiKey'] = imageApiKey;
+    }
+    if (imageBaseUrl != null && imageBaseUrl.isNotEmpty) {
+      body['imageBaseUrl'] = imageBaseUrl;
+    }
 
     final response = await _request(
       'POST',
@@ -368,10 +414,21 @@ class BotService {
         .toList(growable: false);
   }
 
-  Future<BotConfig> updateBot(int botId, BotConfig config,
-      {String? apiKey}) async {
+  Future<BotConfig> updateBot(
+    int botId,
+    BotConfig config, {
+    String? apiKey,
+    String? imageApiKey,
+    String? imageBaseUrl,
+  }) async {
     final body = config.toJson();
     if (apiKey != null && apiKey.isNotEmpty) body['apiKey'] = apiKey;
+    if (imageApiKey != null && imageApiKey.isNotEmpty) {
+      body['imageApiKey'] = imageApiKey;
+    }
+    if (imageBaseUrl != null && imageBaseUrl.isNotEmpty) {
+      body['imageBaseUrl'] = imageBaseUrl;
+    }
     final response = await _request(
       'PUT',
       ApiConstants.botDetail(botId),
