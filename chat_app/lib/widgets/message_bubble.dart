@@ -19,6 +19,12 @@ typedef ImageBytesLoader = Future<Uint8List> Function(String fileUrl);
 typedef LinkPreviewLoader = Future<LinkPreview?> Function(String url);
 
 class MessageBubble extends StatelessWidget {
+  static const int _maxCachedChatImages = 24;
+  static final Map<String, Future<_LoadedChatImage>> _chatImageCache = {};
+
+  @visibleForTesting
+  static void clearImageCacheForTesting() => _chatImageCache.clear();
+
   final Message message;
   final bool isMe;
   final bool showAvatar;
@@ -1063,10 +1069,14 @@ class MessageBubble extends StatelessWidget {
 
     final resolvedUrl = ApiConstants.resolveFileUrl(fileUrl);
     final response = ApiConstants.requiresAuthHeaderForFile(fileUrl)
-        ? await AuthService().authenticatedRequest('GET', resolvedUrl)
+        ? await AuthService().authenticatedRequest(
+            'GET',
+            resolvedUrl,
+            timeout: const Duration(seconds: 120),
+          )
         : await http
             .get(Uri.parse(resolvedUrl))
-            .timeout(ApiConstants.requestTimeout);
+            .timeout(const Duration(seconds: 120));
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw Exception('Image load failed: ${response.statusCode}');
     }
@@ -1074,6 +1084,28 @@ class MessageBubble extends StatelessWidget {
   }
 
   Future<_LoadedChatImage> _loadChatImage(String fileUrl) async {
+    final userId = AuthService().currentUser?.id ?? 'anonymous';
+    final loaderId =
+        imageLoader == null ? 'network' : identityHashCode(imageLoader);
+    final cacheKey = '$userId:$loaderId:$fileUrl';
+    final cached = _chatImageCache[cacheKey];
+    if (cached != null) return cached;
+
+    late final Future<_LoadedChatImage> operation;
+    operation = _loadChatImageUncached(fileUrl).catchError((Object error) {
+      if (identical(_chatImageCache[cacheKey], operation)) {
+        _chatImageCache.remove(cacheKey);
+      }
+      throw error;
+    });
+    _chatImageCache[cacheKey] = operation;
+    while (_chatImageCache.length > _maxCachedChatImages) {
+      _chatImageCache.remove(_chatImageCache.keys.first);
+    }
+    return operation;
+  }
+
+  Future<_LoadedChatImage> _loadChatImageUncached(String fileUrl) async {
     if (imageLoader != null) {
       return _LoadedChatImage(
         bytes: await imageLoader!(fileUrl),

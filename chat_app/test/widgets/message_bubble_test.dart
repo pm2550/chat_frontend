@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -8,6 +9,8 @@ import 'package:chat_app/widgets/chat_video_thumbnail.dart';
 import 'package:chat_app/models/message.dart';
 
 void main() {
+  setUp(MessageBubble.clearImageCacheForTesting);
+
   // Helper to create a Message for testing.
   Message createMessage({
     String id = '1',
@@ -673,6 +676,43 @@ void main() {
       final imageSize = tester.getSize(find.byType(Image));
       expect(imageSize.width, greaterThan(220));
       expect(imageSize.height, greaterThan(110));
+    });
+
+    testWidgets('reuses authenticated image bytes across bubble rebuilds',
+        (tester) async {
+      final message = createMessage(
+        content: 'cached-photo.png',
+        type: MessageType.image,
+        fileUrl: '/api/files/chat/cached-photo.png',
+        fileName: 'cached-photo.png',
+        fileType: 'image/png',
+      );
+      var loadCount = 0;
+      Future<Uint8List> loader(String _) async {
+        loadCount += 1;
+        return base64Decode(
+          'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwC'
+          'AAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+        );
+      }
+
+      Widget bubble() => buildTestWidget(MessageBubble(
+            message: message,
+            isMe: false,
+            imageLoader: loader,
+          ));
+
+      await tester.pumpWidget(bubble());
+      await tester.pumpAndSettle();
+      expect(loadCount, 1);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump();
+      await tester.pumpWidget(bubble());
+      await tester.pumpAndSettle();
+
+      expect(loadCount, 1);
+      expect(find.byType(Image), findsOneWidget);
     });
 
     testWidgets('tapping image attachment opens attachment action',

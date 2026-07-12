@@ -400,6 +400,7 @@ class AuthService extends ChangeNotifier {
     String url, {
     Map<String, String>? headers,
     Object? body,
+    Duration timeout = ApiConstants.requestTimeout,
   }) async {
     headers ??= {};
     headers['Authorization'] = 'Bearer $_accessToken';
@@ -409,24 +410,24 @@ class AuthService extends ChangeNotifier {
 
     switch (method.toUpperCase()) {
       case 'GET':
-        response = await _get(Uri.parse(url), headers: headers)
-            .timeout(ApiConstants.requestTimeout);
+        response =
+            await _get(Uri.parse(url), headers: headers).timeout(timeout);
         break;
       case 'POST':
         response = await _post(Uri.parse(url),
                 headers: headers,
                 body: body is String ? body : jsonEncode(body))
-            .timeout(ApiConstants.requestTimeout);
+            .timeout(timeout);
         break;
       case 'PUT':
         response = await _put(Uri.parse(url),
                 headers: headers,
                 body: body is String ? body : jsonEncode(body))
-            .timeout(ApiConstants.requestTimeout);
+            .timeout(timeout);
         break;
       case 'DELETE':
-        response = await _delete(Uri.parse(url), headers: headers)
-            .timeout(ApiConstants.requestTimeout);
+        response =
+            await _delete(Uri.parse(url), headers: headers).timeout(timeout);
         break;
       default:
         throw Exception('Unsupported HTTP method: $method');
@@ -440,24 +441,24 @@ class AuthService extends ChangeNotifier {
         headers['Authorization'] = 'Bearer $_accessToken';
         switch (method.toUpperCase()) {
           case 'GET':
-            response = await _get(Uri.parse(url), headers: headers)
-                .timeout(ApiConstants.requestTimeout);
+            response =
+                await _get(Uri.parse(url), headers: headers).timeout(timeout);
             break;
           case 'POST':
             response = await _post(Uri.parse(url),
                     headers: headers,
                     body: body is String ? body : jsonEncode(body))
-                .timeout(ApiConstants.requestTimeout);
+                .timeout(timeout);
             break;
           case 'PUT':
             response = await _put(Uri.parse(url),
                     headers: headers,
                     body: body is String ? body : jsonEncode(body))
-                .timeout(ApiConstants.requestTimeout);
+                .timeout(timeout);
             break;
           case 'DELETE':
             response = await _delete(Uri.parse(url), headers: headers)
-                .timeout(ApiConstants.requestTimeout);
+                .timeout(timeout);
             break;
         }
       }
