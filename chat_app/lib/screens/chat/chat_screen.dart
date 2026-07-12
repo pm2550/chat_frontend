@@ -483,7 +483,13 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     }
 
     if (_restoredMessagesFromCache) {
-      await _loadMessageDelta();
+      // Cached messages are only a fast first paint. Always reconcile them
+      // with the authoritative latest page so a bad/missed delta cursor can
+      // never strand the room on an old snapshot.
+      await _loadInitialMessages(
+        showBlockingLoader: false,
+        anchorToLatest: true,
+      );
       return;
     }
     await _loadInitialMessages();
@@ -528,10 +534,17 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         _isLoadingMessages = false;
         _errorMessage = null;
       });
+      // The cursor endpoint is an optimization. A transient cursor failure or
+      // malformed cached cursor must not leave the visible room permanently
+      // stale, so fall back to the authoritative newest page.
+      await _loadInitialMessages(showBlockingLoader: false);
     }
   }
 
-  Future<void> _loadInitialMessages({bool showBlockingLoader = true}) async {
+  Future<void> _loadInitialMessages({
+    bool showBlockingLoader = true,
+    bool anchorToLatest = false,
+  }) async {
     setState(() {
       if (showBlockingLoader) {
         _isLoadingMessages = true;
@@ -551,7 +564,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         _errorMessage = null;
       });
       _saveMessageCache();
-      if (showBlockingLoader) {
+      if (showBlockingLoader || anchorToLatest) {
         _startInitialBottomAnchor();
       } else if (wasNearBottom) {
         _jumpToBottom();

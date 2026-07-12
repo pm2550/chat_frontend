@@ -96,7 +96,11 @@ async function installCompleteRelease() {
   }
 
   const cache = await caches.open(SHELL_CACHE);
-  const assets = assetsForThisBrowser(manifest);
+  // Activate from a small, coherent bootstrap shell. Large Wasm/CanvasKit
+  // files are cached by cacheFirstAsset as the app actually loads them. This
+  // lets a weak-network client escape an old cache-first worker instead of
+  // waiting for tens of megabytes before the new worker can take control.
+  const assets = activationAssets(manifest);
   for (const asset of assets) {
     const assetResponse = await fetch(asset.url, { cache: 'reload' });
     if (!assetResponse.ok) {
@@ -110,25 +114,22 @@ async function installCompleteRelease() {
   await self.skipWaiting();
 }
 
-function assetsForThisBrowser(manifest) {
-  const groups = manifest.assetGroups;
-  if (!groups || !Array.isArray(groups.common)) {
-    return manifest.requiredAssets;
-  }
-  const variant = supportsWasmGc() && Array.isArray(groups.wasm)
-    ? groups.wasm
-    : groups.js;
-  return groups.common.concat(Array.isArray(variant) ? variant : []);
-}
-
-function supportsWasmGc() {
-  try {
-    return WebAssembly.validate(new Uint8Array([
-      0, 97, 115, 109, 1, 0, 0, 0, 1, 5, 1, 95, 1, 120, 0
-    ]));
-  } catch (_) {
-    return false;
-  }
+function activationAssets(manifest) {
+  const activationPaths = new Set([
+    '/index.html',
+    '/flutter.js',
+    '/flutter_bootstrap.js',
+    '/manifest.json',
+    '/version.json',
+    '/favicon.png',
+  ]);
+  return manifest.requiredAssets.filter((asset) => {
+    try {
+      return activationPaths.has(new URL(asset.url, self.location.origin).pathname);
+    } catch (_) {
+      return false;
+    }
+  });
 }
 
 async function cacheFirstNavigation(request) {

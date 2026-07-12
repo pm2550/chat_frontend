@@ -1207,6 +1207,114 @@ void main() {
       expect(find.text('重试'), findsNothing);
     });
 
+    testWidgets('re-enter replaces a stale cache with the latest server page',
+        (tester) async {
+      final chat = createTestChat(id: 'stale-cache-room');
+      final cachedMessage = Message(
+        id: '100',
+        content: '缓存里的旧消息',
+        senderId: 'user2',
+        senderName: '好友',
+        chatRoomId: chat.id,
+        status: MessageStatus.sent,
+        timestamp: DateTime.parse('2024-01-01T10:00:00'),
+      );
+
+      await tester.pumpWidget(buildTestWidget(
+        chat,
+        chatService: FakeChatDataService(messages: [cachedMessage]),
+      ));
+      await tester.pumpAndSettle();
+      expect(find.text('缓存里的旧消息'), findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump();
+      final latestService = FakeChatDataService(messages: [
+        cachedMessage,
+        Message(
+          id: '101',
+          content: '服务端最新消息',
+          senderId: 'user2',
+          senderName: '好友',
+          chatRoomId: chat.id,
+          status: MessageStatus.sent,
+          timestamp: DateTime.parse('2024-01-01T10:01:00'),
+        ),
+      ]);
+
+      await tester.pumpWidget(buildTestWidget(
+        chat,
+        chatService: latestService,
+      ));
+      await tester.pumpAndSettle();
+
+      expect(latestService.messagePageRequestCount, 1);
+      expect(latestService.deltaRequestCount, 0);
+      expect(find.text('服务端最新消息'), findsOneWidget);
+    });
+
+    testWidgets('re-enter anchors refreshed long history to the latest message',
+        (tester) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(() {
+        tester.view.resetPhysicalSize();
+        tester.view.resetDevicePixelRatio();
+      });
+      final chat = createTestChat(id: 'stale-long-room');
+      final cachedMessages = List<Message>.generate(
+        48,
+        (index) => Message(
+          id: '${200 + index}',
+          content: '缓存历史 $index ${'较长内容 ' * 3}',
+          senderId: index.isEven ? 'user2' : 'user1',
+          senderName: index.isEven ? '好友' : '我',
+          chatRoomId: chat.id,
+          status: MessageStatus.sent,
+          timestamp: DateTime.parse('2024-01-01T10:00:00')
+              .add(Duration(minutes: index)),
+        ),
+      );
+
+      await tester.pumpWidget(buildTestWidget(
+        chat,
+        chatService: FakeChatDataService(messages: cachedMessages),
+      ));
+      await tester.pumpAndSettle();
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump();
+
+      await tester.pumpWidget(buildTestWidget(
+        chat,
+        chatService: FakeChatDataService(messages: [
+          ...cachedMessages,
+          Message(
+            id: '248',
+            content: '重新进入后的真正最新消息',
+            senderId: 'user2',
+            senderName: '好友',
+            chatRoomId: chat.id,
+            status: MessageStatus.sent,
+            timestamp: DateTime.parse('2024-01-01T10:48:00'),
+          ),
+        ]),
+      ));
+      await tester.pump();
+      for (var i = 0; i < 35; i++) {
+        await tester.pump(const Duration(milliseconds: 50));
+      }
+
+      final list = tester.widget<ListView>(
+        find.byKey(const ValueKey('chat-message-list')),
+      );
+      expect(
+        list.controller!.position.maxScrollExtent -
+            list.controller!.position.pixels,
+        lessThanOrEqualTo(2),
+      );
+      expect(find.text('重新进入后的真正最新消息'), findsOneWidget);
+    });
+
     testWidgets('announcement banner dismiss persists seen state',
         (tester) async {
       final updatedAt = DateTime.now();
@@ -1820,6 +1928,7 @@ class FakeChatDataService extends ChatDataService {
   final List<String> readMessageIds = [];
   bool markAllReadCalled = false;
   int deltaRequestCount = 0;
+  int messagePageRequestCount = 0;
 
   static Future<http.Response> _unusedRequest(
     String method,
@@ -1851,6 +1960,7 @@ class FakeChatDataService extends ChatDataService {
     int page = 0,
     int size = 50,
   }) async {
+    messagePageRequestCount += 1;
     if (messagePageError != null) {
       throw messagePageError!;
     }
