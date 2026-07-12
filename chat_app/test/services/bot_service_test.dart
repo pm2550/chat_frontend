@@ -26,6 +26,8 @@ void main() {
       expect(config.systemPrompt, isNull);
       expect(config.temperature, equals(0.7));
       expect(config.maxTokens, equals(2048));
+      expect(config.visionInputEnabled, isTrue);
+      expect(config.historyImageInspectionEnabled, isTrue);
       expect(config.replyMode, equals('SINGLE'));
       expect(config.isActive, isTrue);
     });
@@ -65,6 +67,8 @@ void main() {
           'temperature': 0.5,
           'maxTokens': 1024,
           'replyMode': 'CHUNKED',
+          'visionInputEnabled': false,
+          'historyImageInspectionEnabled': false,
           'isActive': true,
         };
 
@@ -78,6 +82,8 @@ void main() {
         expect(config.temperature, equals(0.5));
         expect(config.maxTokens, equals(1024));
         expect(config.replyMode, equals('CHUNKED'));
+        expect(config.visionInputEnabled, isFalse);
+        expect(config.historyImageInspectionEnabled, isFalse);
         expect(config.isActive, isTrue);
       });
 
@@ -94,6 +100,8 @@ void main() {
         expect(config.temperature, equals(0.7));
         expect(config.maxTokens, equals(2048));
         expect(config.isActive, isTrue);
+        expect(config.visionInputEnabled, isTrue);
+        expect(config.historyImageInspectionEnabled, isTrue);
       });
 
       test('handles integer temperature by converting to double', () {
@@ -153,6 +161,8 @@ void main() {
         expect(json['temperature'], equals(0.3));
         expect(json['maxTokens'], equals(512));
         expect(json['replyMode'], equals('CHUNKED'));
+        expect(json['visionInputEnabled'], isTrue);
+        expect(json['historyImageInspectionEnabled'], isTrue);
       });
 
       test('does not include id in toJson', () {

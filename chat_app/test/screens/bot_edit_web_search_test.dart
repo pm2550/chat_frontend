@@ -86,8 +86,12 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(service.savedConfig, isNotNull);
-    expect(service.savedConfig!.enabledTools.toSet(),
-        {'code_interpreter', 'file_search', 'web_search'});
+    expect(service.savedConfig!.enabledTools.toSet(), {
+      'code_interpreter',
+      'file_search',
+      'web_search',
+      'inspect_room_image'
+    });
   });
 
   testWidgets('toggling web_search OFF removes only web_search',
@@ -113,7 +117,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(service.savedConfig!.enabledTools.toSet(),
-        {'code_interpreter', 'file_search'});
+        {'code_interpreter', 'file_search', 'inspect_room_image'});
   });
 
   testWidgets('toggling image generation ON preserves other tools',
@@ -138,7 +142,34 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(service.savedConfig!.enabledTools.toSet(),
-        {'lookup_my_points_balance', 'generate_image'});
+        {'lookup_my_points_balance', 'generate_image', 'inspect_room_image'});
+  });
+
+  testWidgets('vision switches persist and control inspect_room_image',
+      (tester) async {
+    final service = _CapturingBotService();
+    final bot = BotConfig(
+      id: 12,
+      botName: 'vision-bot',
+      llmProvider: 'OPENAI',
+      enabledTools: const ['inspect_room_image'],
+    );
+    await pumpEditor(tester, bot, service);
+
+    final visionSwitch = find.byKey(const Key('bot-edit-vision-input-switch'));
+    await tester.ensureVisible(visionSwitch);
+    await tester.tap(visionSwitch);
+    await tester.pumpAndSettle();
+
+    final saveButton = find.text('保存 Bot').last;
+    await tester.ensureVisible(saveButton);
+    await tester.tap(saveButton);
+    await tester.pumpAndSettle();
+
+    expect(service.savedConfig!.visionInputEnabled, isFalse);
+    expect(service.savedConfig!.historyImageInspectionEnabled, isFalse);
+    expect(service.savedConfig!.enabledTools,
+        isNot(contains('inspect_room_image')));
   });
 
   testWidgets('image bot preset selects Hermes Grok and enables draw tool',

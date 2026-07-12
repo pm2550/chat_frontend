@@ -102,6 +102,8 @@ class _BotEditScreenState extends State<BotEditScreen> {
   int _maxTokens = 2048;
   int _maxHistoryMessages = 20;
   bool _includeRoomMetadata = true;
+  bool _visionInputEnabled = true;
+  bool _historyImageInspectionEnabled = true;
   bool _webSearchEnabled = false;
   bool _imageGenerationEnabled = false;
   String _replyMode = 'SINGLE';
@@ -163,6 +165,8 @@ class _BotEditScreenState extends State<BotEditScreen> {
     _maxTokens = bot?.maxTokens ?? 2048;
     _maxHistoryMessages = bot?.maxHistoryMessages ?? 20;
     _includeRoomMetadata = bot?.includeRoomMetadata ?? true;
+    _visionInputEnabled = bot?.visionInputEnabled ?? true;
+    _historyImageInspectionEnabled = bot?.historyImageInspectionEnabled ?? true;
     _selectedCredentialId = bot?.providerCredentialId;
     _hasCharacterCard = bot?.hasCharacterCard ?? false;
     _characterPersona = bot?.characterPersona;
@@ -717,6 +721,31 @@ class _BotEditScreenState extends State<BotEditScreen> {
           ),
           const Divider(height: PMSpacing.l),
           _buildToolRow(
+            icon: Icons.visibility_outlined,
+            title: '允许视觉输入',
+            subtitle: '图片始终交给这个 Bot 自己配置的模型，不会切换到其他视觉模型。',
+            value: _visionInputEnabled,
+            key: const Key('bot-edit-vision-input-switch'),
+            onChanged: (value) => setState(() {
+              _visionInputEnabled = value;
+              if (!value) _historyImageInspectionEnabled = false;
+            }),
+          ),
+          const Divider(height: PMSpacing.l),
+          _buildToolRow(
+            icon: Icons.image_search_outlined,
+            title: '主动查看历史图片',
+            subtitle:
+                'inspect_room_image · Bot 可按消息 ID 或最近顺序读取本房间图片，再由自己的模型分析。',
+            value: _visionInputEnabled && _historyImageInspectionEnabled,
+            key: const Key('bot-edit-history-image-switch'),
+            onChanged: _visionInputEnabled
+                ? (value) =>
+                    setState(() => _historyImageInspectionEnabled = value)
+                : (_) {},
+          ),
+          const Divider(height: PMSpacing.l),
+          _buildToolRow(
             icon: Icons.image_outlined,
             title: 'AI 画图',
             subtitle:
@@ -1138,6 +1167,8 @@ class _BotEditScreenState extends State<BotEditScreen> {
       maxTokens: _maxTokens,
       maxHistoryMessages: _maxHistoryMessages,
       includeRoomMetadata: _includeRoomMetadata,
+      visionInputEnabled: _visionInputEnabled,
+      historyImageInspectionEnabled: _historyImageInspectionEnabled,
       replyMode: _replyMode,
       isActive: widget.bot?.isActive ?? true,
       enabledTools: _composeEnabledTools(),
@@ -1219,6 +1250,11 @@ class _BotEditScreenState extends State<BotEditScreen> {
       tools.add('generate_image');
     } else {
       tools.remove('generate_image');
+    }
+    if (_visionInputEnabled && _historyImageInspectionEnabled) {
+      tools.add('inspect_room_image');
+    } else {
+      tools.remove('inspect_room_image');
     }
     return tools.toList(growable: false);
   }

@@ -25,6 +25,8 @@ class BotConfig {
   final int maxTokens;
   final int maxHistoryMessages;
   final bool includeRoomMetadata;
+  final bool visionInputEnabled;
+  final bool historyImageInspectionEnabled;
   final String replyMode;
   final String workflowMode;
   final String imageGenerationProvider;
@@ -72,6 +74,8 @@ class BotConfig {
     this.maxTokens = 2048,
     this.maxHistoryMessages = 20,
     this.includeRoomMetadata = true,
+    this.visionInputEnabled = true,
+    this.historyImageInspectionEnabled = true,
     this.replyMode = 'SINGLE',
     this.workflowMode = 'SINGLE_PASS',
     this.imageGenerationProvider = 'HERMES',
@@ -120,6 +124,9 @@ class BotConfig {
       maxHistoryMessages:
           int.tryParse(json['maxHistoryMessages']?.toString() ?? '') ?? 20,
       includeRoomMetadata: json['includeRoomMetadata'] != false,
+      visionInputEnabled: json['visionInputEnabled'] != false,
+      historyImageInspectionEnabled:
+          json['historyImageInspectionEnabled'] != false,
       replyMode: json['replyMode']?.toString() ?? 'SINGLE',
       workflowMode: json['workflowMode']?.toString() ?? 'SINGLE_PASS',
       imageGenerationProvider:
@@ -193,6 +200,8 @@ class BotConfig {
         'maxTokens': maxTokens,
         'maxHistoryMessages': maxHistoryMessages,
         'includeRoomMetadata': includeRoomMetadata,
+        'visionInputEnabled': visionInputEnabled,
+        'historyImageInspectionEnabled': historyImageInspectionEnabled,
         'replyMode': replyMode,
         'workflowMode': workflowMode,
         'imageGenerationProvider': imageGenerationProvider,
