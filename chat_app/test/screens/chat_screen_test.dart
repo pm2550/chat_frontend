@@ -317,6 +317,35 @@ void main() {
       expect(shellBottom, greaterThan(keyboardTop - 60));
     });
 
+    testWidgets('first composer focus remains visible when keyboard opens',
+        (tester) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(() {
+        tester.view.resetPhysicalSize();
+        tester.view.resetDevicePixelRatio();
+        tester.view.resetViewInsets();
+      });
+
+      await tester.pumpWidget(buildTestWidget(
+        createTestChat(id: '42'),
+        chatService: FakeChatDataService(messages: const []),
+      ));
+      await tester.pump();
+
+      await tester.tap(find.byType(TextField));
+      tester.view.viewInsets = const FakeViewPadding(bottom: 250);
+      await tester.pumpAndSettle();
+
+      final shellFinder =
+          find.byKey(const ValueKey('chat-composer-text-field-shell'));
+      final shellRect = tester.getRect(shellFinder);
+      const keyboardTop = 844 - 250;
+      expect(shellRect.top, greaterThanOrEqualTo(0));
+      expect(shellRect.bottom, lessThanOrEqualTo(keyboardTop + 4));
+      expect(shellRect.height, greaterThan(36));
+    });
+
     testWidgets('mobile composer sits near bottom when keyboard is closed',
         (tester) async {
       tester.view.physicalSize = const Size(390, 844);

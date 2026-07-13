@@ -28,6 +28,7 @@ class BotConfig {
   final bool visionInputEnabled;
   final bool historyImageInspectionEnabled;
   final String replyMode;
+  final double replyIntervalSeconds;
   final String workflowMode;
   final String imageGenerationProvider;
   final int? imageProviderCredentialId;
@@ -77,6 +78,7 @@ class BotConfig {
     this.visionInputEnabled = true,
     this.historyImageInspectionEnabled = true,
     this.replyMode = 'SINGLE',
+    this.replyIntervalSeconds = 2.0,
     this.workflowMode = 'SINGLE_PASS',
     this.imageGenerationProvider = 'HERMES',
     this.imageProviderCredentialId,
@@ -128,6 +130,8 @@ class BotConfig {
       historyImageInspectionEnabled:
           json['historyImageInspectionEnabled'] != false,
       replyMode: json['replyMode']?.toString() ?? 'SINGLE',
+      replyIntervalSeconds:
+          (json['replyIntervalSeconds'] as num?)?.toDouble() ?? 2.0,
       workflowMode: json['workflowMode']?.toString() ?? 'SINGLE_PASS',
       imageGenerationProvider:
           json['imageGenerationProvider']?.toString() ?? 'HERMES',
@@ -203,6 +207,7 @@ class BotConfig {
         'visionInputEnabled': visionInputEnabled,
         'historyImageInspectionEnabled': historyImageInspectionEnabled,
         'replyMode': replyMode,
+        'replyIntervalSeconds': replyIntervalSeconds,
         'workflowMode': workflowMode,
         'imageGenerationProvider': imageGenerationProvider,
         if (imageProviderCredentialId != null)

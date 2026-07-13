@@ -29,6 +29,7 @@ void main() {
       expect(config.visionInputEnabled, isTrue);
       expect(config.historyImageInspectionEnabled, isTrue);
       expect(config.replyMode, equals('SINGLE'));
+      expect(config.replyIntervalSeconds, equals(2.0));
       expect(config.isActive, isTrue);
     });
 
@@ -67,6 +68,7 @@ void main() {
           'temperature': 0.5,
           'maxTokens': 1024,
           'replyMode': 'CHUNKED',
+          'replyIntervalSeconds': 3.5,
           'visionInputEnabled': false,
           'historyImageInspectionEnabled': false,
           'isActive': true,
@@ -82,6 +84,7 @@ void main() {
         expect(config.temperature, equals(0.5));
         expect(config.maxTokens, equals(1024));
         expect(config.replyMode, equals('CHUNKED'));
+        expect(config.replyIntervalSeconds, equals(3.5));
         expect(config.visionInputEnabled, isFalse);
         expect(config.historyImageInspectionEnabled, isFalse);
         expect(config.isActive, isTrue);
@@ -150,6 +153,7 @@ void main() {
           temperature: 0.3,
           maxTokens: 512,
           replyMode: 'CHUNKED',
+          replyIntervalSeconds: 4.0,
         );
 
         final json = config.toJson();
@@ -161,6 +165,7 @@ void main() {
         expect(json['temperature'], equals(0.3));
         expect(json['maxTokens'], equals(512));
         expect(json['replyMode'], equals('CHUNKED'));
+        expect(json['replyIntervalSeconds'], equals(4.0));
         expect(json['visionInputEnabled'], isTrue);
         expect(json['historyImageInspectionEnabled'], isTrue);
       });

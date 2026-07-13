@@ -262,6 +262,7 @@ void main() {
       botName: 'talky-bot',
       llmProvider: 'HERMES',
       replyMode: 'SINGLE',
+      replyIntervalSeconds: 3.5,
     );
     await pumpEditor(tester, bot, service);
 
@@ -270,6 +271,9 @@ void main() {
     await tester.tap(chunkedChip);
     await tester.pumpAndSettle();
 
+    expect(find.byKey(const Key('bot-reply-interval-slider')), findsOneWidget);
+    expect(find.text('3.5 秒'), findsOneWidget);
+
     final saveButton = find.text('保存 Bot').last;
     await tester.ensureVisible(saveButton);
     await tester.tap(saveButton);
@@ -277,6 +281,39 @@ void main() {
 
     expect(service.savedConfig, isNotNull);
     expect(service.savedConfig!.replyMode, 'CHUNKED');
+    expect(service.savedConfig!.replyIntervalSeconds, 3.5);
+  });
+
+  testWidgets('focusing system prompt preserves desktop page scroll position',
+      (tester) async {
+    tester.view.physicalSize = const Size(900, 700);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final service = _CapturingBotService();
+    final bot = BotConfig(
+      id: 18,
+      botName: 'scroll-bot',
+      llmProvider: 'OPENAI',
+      systemPrompt: List.filled(20, '保持当前位置').join('\n'),
+    );
+    await tester.pumpWidget(MaterialApp(
+      home: BotEditScreen(bot: bot, botService: service),
+    ));
+    await tester.pumpAndSettle();
+
+    final prompt = find.byKey(const Key('bot-system-prompt-field'));
+    await tester.ensureVisible(prompt);
+    await tester.pumpAndSettle();
+    final scrollable =
+        tester.state<ScrollableState>(find.byType(Scrollable).first);
+    final before = scrollable.position.pixels;
+
+    await tester.tap(prompt);
+    await tester.pumpAndSettle();
+
+    expect(scrollable.position.pixels, closeTo(before, 1));
   });
 
   testWidgets('saving allowlist policy sends allowed user tokens',

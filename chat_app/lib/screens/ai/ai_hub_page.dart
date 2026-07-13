@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../../constants/api_constants.dart';
 import '../../constants/app_colors.dart';
 import '../../design/design.dart';
 import '../../models/chat.dart';
@@ -419,6 +420,7 @@ class _AiHubPageState extends State<AiHubPage>
                     _AiAvatar(
                       icon: Icons.smart_toy,
                       label: bot.botName,
+                      avatarUrl: bot.botAvatar,
                       active: bot.isActive,
                     ),
                     const SizedBox(width: PMSpacing.m),
@@ -1008,6 +1010,7 @@ class _AiHubPageState extends State<AiHubPage>
                             leading: _AiAvatar(
                               icon: Icons.smart_toy,
                               label: bot.botName,
+                              avatarUrl: bot.botAvatar,
                               active: bot.isActive,
                             ),
                             title: Text(bot.botName),
@@ -1106,12 +1109,14 @@ class _AiAvatar extends StatelessWidget {
   const _AiAvatar({
     required this.icon,
     required this.label,
+    this.avatarUrl,
     this.active = false,
     this.color = AppColors.secondary,
   });
 
   final IconData icon;
   final String label;
+  final String? avatarUrl;
   final bool active;
   final Color color;
 
@@ -1123,13 +1128,22 @@ class _AiAvatar extends StatelessWidget {
         Container(
           width: 48,
           height: 48,
+          clipBehavior: Clip.antiAlias,
           alignment: Alignment.center,
           decoration: BoxDecoration(
             color: color.withValues(alpha: 0.12),
             borderRadius: BorderRadius.circular(PMRadius.s),
             border: Border.all(color: color.withValues(alpha: 0.22)),
           ),
-          child: Icon(icon, color: color),
+          child: avatarUrl?.trim().isNotEmpty == true
+              ? Image.network(
+                  ApiConstants.resolveFileUrl(avatarUrl!.trim()),
+                  fit: BoxFit.cover,
+                  width: 48,
+                  height: 48,
+                  errorBuilder: (_, __, ___) => Icon(icon, color: color),
+                )
+              : Icon(icon, color: color),
         ),
         if (active)
           Positioned(

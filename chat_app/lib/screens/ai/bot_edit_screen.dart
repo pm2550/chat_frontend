@@ -98,6 +98,9 @@ class _BotEditScreenState extends State<BotEditScreen> {
   late final TextEditingController _imageNegativePromptController;
 
   final _formKey = GlobalKey<FormState>();
+  final ScrollController _pageScrollController = ScrollController();
+  final FocusNode _promptFocusNode = FocusNode();
+  double? _promptScrollAnchor;
   double _temperature = 0.7;
   int _maxTokens = 2048;
   int _maxHistoryMessages = 20;
@@ -107,6 +110,7 @@ class _BotEditScreenState extends State<BotEditScreen> {
   bool _webSearchEnabled = false;
   bool _imageGenerationEnabled = false;
   String _replyMode = 'SINGLE';
+  double _replyIntervalSeconds = 2.0;
   String _accessPolicy = 'PRIVATE';
   bool _saving = false;
   bool _loadingCredentials = false;
@@ -159,8 +163,10 @@ class _BotEditScreenState extends State<BotEditScreen> {
     _imageProvider = bot?.imageGenerationProvider ?? 'HERMES';
     _selectedImageCredentialId = bot?.imageProviderCredentialId;
     _replyMode = (bot?.replyMode ?? 'SINGLE').toUpperCase();
+    _replyIntervalSeconds = bot?.replyIntervalSeconds ?? 2.0;
     _accessPolicy = bot?.accessPolicy ?? 'PRIVATE';
     _providerController.addListener(_loadCredentialsForProvider);
+    _promptFocusNode.addListener(_restorePromptScrollAnchor);
     _temperature = bot?.temperature ?? 0.7;
     _maxTokens = bot?.maxTokens ?? 2048;
     _maxHistoryMessages = bot?.maxHistoryMessages ?? 20;
@@ -180,6 +186,31 @@ class _BotEditScreenState extends State<BotEditScreen> {
     });
   }
 
+  void _rememberPromptScrollAnchor() {
+    if (_pageScrollController.hasClients) {
+      _promptScrollAnchor = _pageScrollController.position.pixels;
+    }
+  }
+
+  void _restorePromptScrollAnchor() {
+    if (!_promptFocusNode.hasFocus || _promptScrollAnchor == null) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted ||
+          MediaQuery.sizeOf(context).width < 700 ||
+          !_pageScrollController.hasClients) {
+        return;
+      }
+      final position = _pageScrollController.position;
+      final target = _promptScrollAnchor!.clamp(
+        position.minScrollExtent,
+        position.maxScrollExtent,
+      );
+      if ((position.pixels - target).abs() > 1) {
+        _pageScrollController.jumpTo(target);
+      }
+    });
+  }
+
   @override
   void dispose() {
     _nameController.dispose();
@@ -192,6 +223,9 @@ class _BotEditScreenState extends State<BotEditScreen> {
     _imageEndpointController.dispose();
     _imageModelController.dispose();
     _imageNegativePromptController.dispose();
+    _promptFocusNode.removeListener(_restorePromptScrollAnchor);
+    _promptFocusNode.dispose();
+    _pageScrollController.dispose();
     super.dispose();
   }
 
@@ -206,6 +240,8 @@ class _BotEditScreenState extends State<BotEditScreen> {
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 860),
               child: ListView(
+                controller: _pageScrollController,
+                key: const PageStorageKey<String>('bot-edit-scroll'),
                 padding: const EdgeInsets.all(PMSpacing.xl),
                 children: [
                   PMPageHeader(
@@ -284,14 +320,20 @@ class _BotEditScreenState extends State<BotEditScreen> {
                           const SizedBox(height: PMSpacing.l),
                           _buildCredentialVaultSection(),
                           const SizedBox(height: PMSpacing.l),
-                          TextFormField(
-                            controller: _promptController,
-                            minLines: 5,
-                            maxLines: 10,
-                            decoration: const InputDecoration(
-                              labelText: '系统提示词',
-                              alignLabelWithHint: true,
-                              prefixIcon: Icon(Icons.notes),
+                          Listener(
+                            onPointerDown: (_) => _rememberPromptScrollAnchor(),
+                            child: TextFormField(
+                              key: const Key('bot-system-prompt-field'),
+                              controller: _promptController,
+                              focusNode: _promptFocusNode,
+                              minLines: 5,
+                              maxLines: 10,
+                              scrollPadding: const EdgeInsets.all(PMSpacing.l),
+                              decoration: const InputDecoration(
+                                labelText: '系统提示词',
+                                alignLabelWithHint: true,
+                                prefixIcon: Icon(Icons.notes),
+                              ),
                             ),
                           ),
                           const SizedBox(height: PMSpacing.l),
@@ -594,6 +636,41 @@ class _BotEditScreenState extends State<BotEditScreen> {
               ),
             ],
           ),
+          if (_replyMode == 'CHUNKED') ...[
+            const SizedBox(height: PMSpacing.l),
+            Row(
+              children: [
+                const Expanded(
+                  child: Text(
+                    '每句话发送间隔',
+                    style: TextStyle(fontWeight: FontWeight.w800),
+                  ),
+                ),
+                Text(
+                  '${_replyIntervalSeconds.toStringAsFixed(1)} 秒',
+                  key: const Key('bot-reply-interval-value'),
+                  style: const TextStyle(
+                    color: AppColors.secondaryDark,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ],
+            ),
+            Slider(
+              key: const Key('bot-reply-interval-slider'),
+              value: _replyIntervalSeconds.clamp(0.5, 10.0),
+              min: 0.5,
+              max: 10.0,
+              divisions: 19,
+              label: '${_replyIntervalSeconds.toStringAsFixed(1)} 秒',
+              onChanged: (value) =>
+                  setState(() => _replyIntervalSeconds = value),
+            ),
+            const Text(
+              '间隔只影响“一句一句说”，整段回复不延迟。',
+              style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
+            ),
+          ],
         ],
       ),
     );
@@ -1170,6 +1247,7 @@ class _BotEditScreenState extends State<BotEditScreen> {
       visionInputEnabled: _visionInputEnabled,
       historyImageInspectionEnabled: _historyImageInspectionEnabled,
       replyMode: _replyMode,
+      replyIntervalSeconds: _replyIntervalSeconds,
       isActive: widget.bot?.isActive ?? true,
       enabledTools: _composeEnabledTools(),
       accessPolicy: _accessPolicy,

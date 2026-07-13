@@ -74,6 +74,37 @@ void main() {
     expect(observer.pushedRouteNames.where((name) => name.startsWith('/chat')),
         isEmpty);
   });
+
+  testWidgets(
+      'bot card uses the configured avatar instead of the fallback icon',
+      (tester) async {
+    final botService = _CountingBotService(
+      bots: [
+        BotConfig(
+          id: 8,
+          botName: '阿雷',
+          botAvatar: '/api/files/avatar/alei.png',
+          llmProvider: 'KIMI',
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(MaterialApp(
+      home: AiHubPage(
+        botService: botService,
+        chatDataService: _CountingChatDataService(),
+      ),
+    ));
+    await tester.pump();
+
+    expect(
+      find.byWidgetPredicate((widget) {
+        if (widget is! Image || widget.image is! NetworkImage) return false;
+        return (widget.image as NetworkImage).url.endsWith('/alei.png');
+      }),
+      findsOneWidget,
+    );
+  });
 }
 
 class _CountingBotService extends BotService {
