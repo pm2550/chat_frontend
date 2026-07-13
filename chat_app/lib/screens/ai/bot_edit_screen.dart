@@ -211,6 +211,15 @@ class _BotEditScreenState extends State<BotEditScreen> {
     });
   }
 
+  void _restorePromptScrollAfterPointer() {
+    _restorePromptScrollAnchor();
+    Future<void>.delayed(const Duration(milliseconds: 80), () {
+      if (mounted && _promptFocusNode.hasFocus) {
+        _restorePromptScrollAnchor();
+      }
+    });
+  }
+
   @override
   void dispose() {
     _nameController.dispose();
@@ -322,13 +331,15 @@ class _BotEditScreenState extends State<BotEditScreen> {
                           const SizedBox(height: PMSpacing.l),
                           Listener(
                             onPointerDown: (_) => _rememberPromptScrollAnchor(),
+                            onPointerUp: (_) =>
+                                _restorePromptScrollAfterPointer(),
                             child: TextFormField(
                               key: const Key('bot-system-prompt-field'),
                               controller: _promptController,
                               focusNode: _promptFocusNode,
                               minLines: 5,
                               maxLines: 10,
-                              scrollPadding: const EdgeInsets.all(PMSpacing.l),
+                              scrollPadding: EdgeInsets.zero,
                               decoration: const InputDecoration(
                                 labelText: '系统提示词',
                                 alignLabelWithHint: true,
