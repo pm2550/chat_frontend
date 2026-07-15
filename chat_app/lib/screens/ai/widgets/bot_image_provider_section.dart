@@ -153,6 +153,7 @@ class BotImageProviderSection extends StatelessWidget {
                   _modelChip('nai-diffusion-4-5-full', 'V4.5 Full · 推荐'),
                   _modelChip('nai-diffusion-4-5-curated', 'V4.5 Curated'),
                   _modelChip('nai-diffusion-4-full', 'V4 Full'),
+                  _modelChip('nai-diffusion-4-curated', 'V4 Curated'),
                   _modelChip('nai-diffusion-3', 'Anime V3 · 旧版'),
                 ],
               ),
@@ -176,7 +177,7 @@ class BotImageProviderSection extends StatelessWidget {
               ),
               const SizedBox(height: PMSpacing.xs),
               const Text(
-                '忠实转写会保留主体、动作、服装与暴露程度，只补充兼容的构图、光影和美感细节。',
+                '二次元增强会保留主体、动作、服装与暴露程度；未指定画风时补充 2D 动画线稿、赛璐璐上色和美感细节。明确要求真人或写实时仍以原意为准。',
                 style: TextStyle(color: AppColors.textSecondary),
               ),
               const SizedBox(height: PMSpacing.s),
@@ -185,7 +186,12 @@ class BotImageProviderSection extends StatelessWidget {
                 runSpacing: PMSpacing.s,
                 children: [
                   PMChip(
-                    label: '忠实创意转写 · 推荐',
+                    label: '二次元增强 · 推荐',
+                    selected: promptMode == 'ANIME_CREATIVE',
+                    onTap: () => onPromptModeChanged('ANIME_CREATIVE'),
+                  ),
+                  PMChip(
+                    label: '忠实中性转写',
                     selected: promptMode == 'FAITHFUL_CREATIVE',
                     onTap: () => onPromptModeChanged('FAITHFUL_CREATIVE'),
                   ),

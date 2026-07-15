@@ -120,7 +120,7 @@ class _BotEditScreenState extends State<BotEditScreen> {
   int? _selectedCredentialId;
   int? _selectedImageCredentialId;
   String _imageProvider = 'HERMES';
-  String _imagePromptMode = 'FAITHFUL_CREATIVE';
+  String _imagePromptMode = 'ANIME_CREATIVE';
   bool _loadingImageCredentials = false;
   bool _hasCharacterCard = false;
   String? _characterPersona;
@@ -162,7 +162,7 @@ class _BotEditScreenState extends State<BotEditScreen> {
     _imageGenerationEnabled =
         bot?.enabledTools.contains('generate_image') ?? false;
     _imageProvider = bot?.imageGenerationProvider ?? 'HERMES';
-    _imagePromptMode = bot?.imagePromptMode ?? 'FAITHFUL_CREATIVE';
+    _imagePromptMode = bot?.imagePromptMode ?? 'ANIME_CREATIVE';
     _selectedImageCredentialId = bot?.imageProviderCredentialId;
     _replyMode = (bot?.replyMode ?? 'SINGLE').toUpperCase();
     _replyIntervalSeconds = bot?.replyIntervalSeconds ?? 2.0;

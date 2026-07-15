@@ -224,7 +224,7 @@ void main() {
 
     expect(service.savedConfig!.imageGenerationProvider, 'NOVELAI');
     expect(service.savedConfig!.imageModel, 'nai-diffusion-4-5-full');
-    expect(service.savedConfig!.imagePromptMode, 'FAITHFUL_CREATIVE');
+    expect(service.savedConfig!.imagePromptMode, 'ANIME_CREATIVE');
     expect(service.savedImageApiKey, 'novel-secret');
     expect(
       service.savedImageBaseUrl,
@@ -250,6 +250,7 @@ void main() {
     expect(find.text('V4.5 Full · 推荐'), findsOneWidget);
     expect(find.text('V4.5 Curated'), findsOneWidget);
     expect(find.text('V4 Full'), findsOneWidget);
+    expect(find.text('V4 Curated'), findsOneWidget);
     expect(find.text('Anime V3 · 旧版'), findsOneWidget);
 
     await tester.ensureVisible(find.text('V4.5 Curated'));
