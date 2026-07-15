@@ -120,6 +120,7 @@ class _BotEditScreenState extends State<BotEditScreen> {
   int? _selectedCredentialId;
   int? _selectedImageCredentialId;
   String _imageProvider = 'HERMES';
+  String _imagePromptMode = 'FAITHFUL_CREATIVE';
   bool _loadingImageCredentials = false;
   bool _hasCharacterCard = false;
   String? _characterPersona;
@@ -161,6 +162,7 @@ class _BotEditScreenState extends State<BotEditScreen> {
     _imageGenerationEnabled =
         bot?.enabledTools.contains('generate_image') ?? false;
     _imageProvider = bot?.imageGenerationProvider ?? 'HERMES';
+    _imagePromptMode = bot?.imagePromptMode ?? 'FAITHFUL_CREATIVE';
     _selectedImageCredentialId = bot?.imageProviderCredentialId;
     _replyMode = (bot?.replyMode ?? 'SINGLE').toUpperCase();
     _replyIntervalSeconds = bot?.replyIntervalSeconds ?? 2.0;
@@ -401,12 +403,18 @@ class _BotEditScreenState extends State<BotEditScreen> {
                               modelController: _imageModelController,
                               negativePromptController:
                                   _imageNegativePromptController,
+                              promptMode: _imagePromptMode,
                               currentCredentialLabel:
                                   widget.bot?.imageProviderCredentialLabel,
                               currentCredentialLast4:
                                   widget.bot?.imageProviderCredentialLast4,
                               onProviderChanged: _setImageProvider,
                               onCredentialChanged: _selectImageCredential,
+                              onPromptModeChanged: (value) =>
+                                  setState(() => _imagePromptMode = value),
+                              onModelChanged: (value) => setState(
+                                () => _imageModelController.text = value,
+                              ),
                             ),
                           ],
                           const SizedBox(height: PMSpacing.l),
@@ -1273,6 +1281,7 @@ class _BotEditScreenState extends State<BotEditScreen> {
       imageNegativePrompt: _imageNegativePromptController.text.trim().isEmpty
           ? null
           : _imageNegativePromptController.text.trim(),
+      imagePromptMode: _imagePromptMode,
     );
 
     try {
@@ -1532,12 +1541,12 @@ class _BotEditScreenState extends State<BotEditScreen> {
             'https://image.novelai.net/ai/generate-image';
         if (_imageModelController.text.trim().isEmpty ||
             _imageModelController.text == 'gpt-image-1') {
-          _imageModelController.text = 'nai-diffusion-3';
+          _imageModelController.text = 'nai-diffusion-4-5-full';
         }
       } else if (provider == 'OPENAI_COMPATIBLE') {
         _imageEndpointController.clear();
         if (_imageModelController.text.trim().isEmpty ||
-            _imageModelController.text == 'nai-diffusion-3') {
+            _imageModelController.text.startsWith('nai-diffusion-')) {
           _imageModelController.text = 'gpt-image-1';
         }
       }

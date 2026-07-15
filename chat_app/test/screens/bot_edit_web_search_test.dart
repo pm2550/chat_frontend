@@ -223,12 +223,48 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(service.savedConfig!.imageGenerationProvider, 'NOVELAI');
-    expect(service.savedConfig!.imageModel, 'nai-diffusion-3');
+    expect(service.savedConfig!.imageModel, 'nai-diffusion-4-5-full');
+    expect(service.savedConfig!.imagePromptMode, 'FAITHFUL_CREATIVE');
     expect(service.savedImageApiKey, 'novel-secret');
     expect(
       service.savedImageBaseUrl,
       'https://image.novelai.net/ai/generate-image',
     );
+  });
+
+  testWidgets('NovelAI exposes quality models and prompt rewrite modes',
+      (tester) async {
+    final service = _CapturingBotService();
+    final bot = BotConfig(
+      id: 11,
+      botName: 'novel-options-bot',
+      llmProvider: 'HERMES',
+      enabledTools: const ['generate_image'],
+      hasImageProviderCredential: true,
+    );
+    await pumpEditor(tester, bot, service);
+
+    await tester.ensureVisible(find.text('NovelAI'));
+    await tester.tap(find.text('NovelAI'));
+    await tester.pumpAndSettle();
+    expect(find.text('V4.5 Full · 推荐'), findsOneWidget);
+    expect(find.text('V4.5 Curated'), findsOneWidget);
+    expect(find.text('V4 Full'), findsOneWidget);
+    expect(find.text('Anime V3 · 旧版'), findsOneWidget);
+
+    await tester.ensureVisible(find.text('V4.5 Curated'));
+    await tester.tap(find.text('V4.5 Curated'));
+    await tester.ensureVisible(find.text('原文直传'));
+    await tester.tap(find.text('原文直传'));
+    await tester.pumpAndSettle();
+
+    final saveButton = find.text('保存 Bot').last;
+    await tester.ensureVisible(saveButton);
+    await tester.tap(saveButton);
+    await tester.pumpAndSettle();
+
+    expect(service.savedConfig!.imageModel, 'nai-diffusion-4-5-curated');
+    expect(service.savedConfig!.imagePromptMode, 'VERBATIM');
   });
 
   testWidgets('Kimi Code provider selects the kimi-code default model',

@@ -15,8 +15,11 @@ class BotImageProviderSection extends StatelessWidget {
     required this.endpointController,
     required this.modelController,
     required this.negativePromptController,
+    required this.promptMode,
     required this.onProviderChanged,
     required this.onCredentialChanged,
+    required this.onPromptModeChanged,
+    required this.onModelChanged,
     this.currentCredentialLabel,
     this.currentCredentialLast4,
   });
@@ -29,8 +32,11 @@ class BotImageProviderSection extends StatelessWidget {
   final TextEditingController endpointController;
   final TextEditingController modelController;
   final TextEditingController negativePromptController;
+  final String promptMode;
   final ValueChanged<String> onProviderChanged;
   final ValueChanged<int?> onCredentialChanged;
+  final ValueChanged<String> onPromptModeChanged;
+  final ValueChanged<String> onModelChanged;
   final String? currentCredentialLabel;
   final String? currentCredentialLast4;
 
@@ -131,17 +137,65 @@ class BotImageProviderSection extends StatelessWidget {
               ),
             ),
             const SizedBox(height: PMSpacing.m),
-            TextField(
-              controller: modelController,
-              decoration: InputDecoration(
-                labelText: '图片模型',
-                prefixIcon: const Icon(Icons.image_outlined),
-                hintText: provider == 'NOVELAI'
-                    ? 'nai-diffusion-3'
-                    : 'gpt-image-1 / flux-image',
-              ),
-            ),
             if (provider == 'NOVELAI') ...[
+              const Text(
+                'NovelAI 模型',
+                style: TextStyle(
+                  color: AppColors.textPrimary,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: PMSpacing.s),
+              Wrap(
+                spacing: PMSpacing.s,
+                runSpacing: PMSpacing.s,
+                children: [
+                  _modelChip('nai-diffusion-4-5-full', 'V4.5 Full · 推荐'),
+                  _modelChip('nai-diffusion-4-5-curated', 'V4.5 Curated'),
+                  _modelChip('nai-diffusion-4-full', 'V4 Full'),
+                  _modelChip('nai-diffusion-3', 'Anime V3 · 旧版'),
+                ],
+              ),
+            ] else
+              TextField(
+                controller: modelController,
+                decoration: const InputDecoration(
+                  labelText: '图片模型',
+                  prefixIcon: Icon(Icons.image_outlined),
+                  hintText: 'gpt-image-1 / flux-image',
+                ),
+              ),
+            if (provider == 'NOVELAI') ...[
+              const SizedBox(height: PMSpacing.m),
+              const Text(
+                '中文提示词',
+                style: TextStyle(
+                  color: AppColors.textPrimary,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: PMSpacing.xs),
+              const Text(
+                '忠实转写会保留主体、动作、服装与暴露程度，只补充兼容的构图、光影和美感细节。',
+                style: TextStyle(color: AppColors.textSecondary),
+              ),
+              const SizedBox(height: PMSpacing.s),
+              Wrap(
+                spacing: PMSpacing.s,
+                runSpacing: PMSpacing.s,
+                children: [
+                  PMChip(
+                    label: '忠实创意转写 · 推荐',
+                    selected: promptMode == 'FAITHFUL_CREATIVE',
+                    onTap: () => onPromptModeChanged('FAITHFUL_CREATIVE'),
+                  ),
+                  PMChip(
+                    label: '原文直传',
+                    selected: promptMode == 'VERBATIM',
+                    onTap: () => onPromptModeChanged('VERBATIM'),
+                  ),
+                ],
+              ),
               const SizedBox(height: PMSpacing.m),
               TextField(
                 controller: negativePromptController,
@@ -165,6 +219,14 @@ class BotImageProviderSection extends StatelessWidget {
       label: label,
       selected: provider == value,
       onTap: () => onProviderChanged(value),
+    );
+  }
+
+  Widget _modelChip(String value, String label) {
+    return PMChip(
+      label: label,
+      selected: modelController.text == value,
+      onTap: () => onModelChanged(value),
     );
   }
 }

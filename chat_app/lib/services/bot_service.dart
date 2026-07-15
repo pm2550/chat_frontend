@@ -37,6 +37,7 @@ class BotConfig {
   final bool hasImageProviderCredential;
   final String? imageModel;
   final String? imageNegativePrompt;
+  final String imagePromptMode;
   final bool isActive;
   final String? triggerMode;
   final String? triggerKeywords;
@@ -87,6 +88,7 @@ class BotConfig {
     this.hasImageProviderCredential = false,
     this.imageModel,
     this.imageNegativePrompt,
+    this.imagePromptMode = 'FAITHFUL_CREATIVE',
     this.isActive = true,
     this.triggerMode,
     this.triggerKeywords,
@@ -145,6 +147,8 @@ class BotConfig {
       hasImageProviderCredential: json['hasImageProviderCredential'] == true,
       imageModel: json['imageModel']?.toString(),
       imageNegativePrompt: json['imageNegativePrompt']?.toString(),
+      imagePromptMode:
+          json['imagePromptMode']?.toString() ?? 'FAITHFUL_CREATIVE',
       isActive: json['isActive'] ?? true,
       triggerMode: json['triggerMode']?.toString(),
       triggerKeywords: json['triggerKeywords']?.toString(),
@@ -215,6 +219,7 @@ class BotConfig {
         if (imageModel != null) 'imageModel': imageModel,
         if (imageNegativePrompt != null)
           'imageNegativePrompt': imageNegativePrompt,
+        'imagePromptMode': imagePromptMode,
         'enabledTools': enabledTools,
         'accessPolicy': accessPolicy,
         'allowedUsernames': allowedUsernames,
