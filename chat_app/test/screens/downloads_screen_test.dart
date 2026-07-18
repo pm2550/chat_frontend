@@ -43,6 +43,38 @@ void main() {
     expect(find.text('打开网页版'), findsOneWidget);
     expect(find.text('下载 Windows 版'), findsNothing);
   });
+
+  testWidgets('downloads a native client without navigating the app',
+      (tester) async {
+    String? openedUrl;
+    String? openedFilename;
+    await tester.pumpWidget(
+      MaterialApp(
+        routes: {
+          '/login': (context) => const _LoginPlaceholder(),
+        },
+        home: DownloadsScreen(
+          downloadService: const _FakeDownloadCatalogService(),
+          downloadOpener: (url, filename) async {
+            openedUrl = url;
+            openedFilename = filename;
+            return true;
+          },
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('下载 Windows 版').first);
+    await tester.pump();
+
+    expect(
+      openedUrl,
+      'https://gateway.chat.pm2550.com/download/windows/pm-chat',
+    );
+    expect(openedFilename, 'pm-chat');
+    expect(find.text('Login'), findsNothing);
+  });
 }
 
 class _LoginPlaceholder extends StatelessWidget {

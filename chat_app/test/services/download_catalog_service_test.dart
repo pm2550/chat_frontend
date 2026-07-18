@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:chat_app/services/download_catalog_service.dart';
@@ -41,6 +42,33 @@ void main() {
       );
     });
 
+    test('fetchCatalog requests native platform statuses concurrently',
+        () async {
+      final requests = <String>[];
+      final responses = <Completer<http.Response>>[];
+      final client = _FakeClient((request) {
+        requests.add(request.url.queryParameters['platform']!);
+        final response = Completer<http.Response>();
+        responses.add(response);
+        return response.future;
+      });
+      final service = DownloadCatalogService(client: client);
+
+      final catalog = service.fetchCatalog();
+      await Future<void>.delayed(Duration.zero);
+
+      expect(requests,
+          containsAll(['ANDROID', 'IOS', 'WINDOWS', 'MACOS', 'LINUX']));
+      expect(requests, hasLength(5));
+      for (final response in responses) {
+        response.complete(http.Response(
+          jsonEncode({'updateAvailable': false}),
+          200,
+        ));
+      }
+      expect(await catalog, hasLength(6));
+    });
+
     test('fetchStatus reads public app version endpoint', () async {
       final client = _FakeClient((request) async {
         expect(request.url.path, '/api/v1/app/version');
@@ -68,6 +96,21 @@ void main() {
       expect(status.downloadUrl, '/api/v1/app/download/android/pm-chat.apk');
       expect(status.fileSize, 42);
       expect(status.isAvailable, isTrue);
+    });
+
+    test('resolves compatibility download route to final static artifact', () {
+      const service = DownloadCatalogService();
+
+      expect(
+        service.resolveDownloadUrl(
+          '/api/v1/app/download/android/pm-chat-android.apk',
+        ),
+        'https://gateway.chat.pm2550.com/download/android/pm-chat-android.apk',
+      );
+      expect(
+        service.resolveDownloadUrl('https://releases.example/pm-chat.zip'),
+        'https://releases.example/pm-chat.zip',
+      );
     });
   });
 }

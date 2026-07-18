@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../../constants/app_brand.dart';
 import '../../constants/app_colors.dart';
+import '../../services/client_download_launcher.dart';
 import '../../services/download_catalog_service.dart';
 import '../../widgets/pm_brand.dart';
 import '../../widgets/pm_responsive.dart';
@@ -11,9 +11,11 @@ class DownloadsScreen extends StatefulWidget {
   const DownloadsScreen({
     super.key,
     this.downloadService = const DownloadCatalogService(),
+    this.downloadOpener,
   });
 
   final DownloadCatalogService downloadService;
+  final Future<bool> Function(String url, String filename)? downloadOpener;
 
   @override
   State<DownloadsScreen> createState() => _DownloadsScreenState();
@@ -46,8 +48,10 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
       return;
     }
 
-    final uri = Uri.parse(widget.downloadService.resolveUrl(rawUrl));
-    final opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    final url = widget.downloadService.resolveDownloadUrl(rawUrl);
+    final filename = Uri.parse(url).pathSegments.last;
+    final opened = await (widget.downloadOpener?.call(url, filename) ??
+        launchClientDownload(url, filename: filename));
     if (!opened) {
       _showMessage('无法打开下载链接');
     }

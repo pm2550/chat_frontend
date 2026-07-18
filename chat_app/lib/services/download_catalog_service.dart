@@ -137,11 +137,7 @@ class DownloadCatalogService {
   }
 
   Future<List<ClientDownloadStatus>> fetchCatalog() async {
-    final results = <ClientDownloadStatus>[];
-    for (final target in targets) {
-      results.add(await fetchStatus(target));
-    }
-    return results;
+    return Future.wait(targets.map(fetchStatus));
   }
 
   Future<ClientDownloadStatus> fetchRecommended() {
@@ -194,6 +190,24 @@ class DownloadCatalogService {
       return url;
     }
     return '${ApiConstants.baseUrl}$url';
+  }
+
+  /// Resolve the public static artifact URL used by browsers.
+  ///
+  /// The compatibility API route redirects to `/download/...` in production.
+  /// Opening that redirect through `url_launcher` can replace a mobile PWA's
+  /// current page, so Web downloads should target the final attachment URL.
+  String resolveDownloadUrl(String url) {
+    final resolved = Uri.parse(resolveUrl(url));
+    final base = Uri.parse(ApiConstants.baseUrl);
+    const apiPrefix = '/api/v1/app/download/';
+    if (resolved.host == base.host && resolved.path.startsWith(apiPrefix)) {
+      return resolved
+          .replace(
+              path: '/download/${resolved.path.substring(apiPrefix.length)}')
+          .toString();
+    }
+    return resolved.toString();
   }
 
   ClientDownloadTarget _target(ClientDownloadPlatform platform) {
