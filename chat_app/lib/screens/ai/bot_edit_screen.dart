@@ -121,6 +121,7 @@ class _BotEditScreenState extends State<BotEditScreen> {
   int? _selectedImageCredentialId;
   String _imageProvider = 'HERMES';
   String _imagePromptMode = 'ANIME_CREATIVE';
+  String _imageInvocationMode = 'AGENT';
   bool _loadingImageCredentials = false;
   bool _hasCharacterCard = false;
   String? _characterPersona;
@@ -163,6 +164,7 @@ class _BotEditScreenState extends State<BotEditScreen> {
         bot?.enabledTools.contains('generate_image') ?? false;
     _imageProvider = bot?.imageGenerationProvider ?? 'HERMES';
     _imagePromptMode = bot?.imagePromptMode ?? 'ANIME_CREATIVE';
+    _imageInvocationMode = bot?.imageInvocationMode ?? 'AGENT';
     _selectedImageCredentialId = bot?.imageProviderCredentialId;
     _replyMode = (bot?.replyMode ?? 'SINGLE').toUpperCase();
     _replyIntervalSeconds = bot?.replyIntervalSeconds ?? 2.0;
@@ -404,6 +406,7 @@ class _BotEditScreenState extends State<BotEditScreen> {
                               negativePromptController:
                                   _imageNegativePromptController,
                               promptMode: _imagePromptMode,
+                              invocationMode: _imageInvocationMode,
                               currentCredentialLabel:
                                   widget.bot?.imageProviderCredentialLabel,
                               currentCredentialLast4:
@@ -412,6 +415,8 @@ class _BotEditScreenState extends State<BotEditScreen> {
                               onCredentialChanged: _selectImageCredential,
                               onPromptModeChanged: (value) =>
                                   setState(() => _imagePromptMode = value),
+                              onInvocationModeChanged: (value) =>
+                                  setState(() => _imageInvocationMode = value),
                               onModelChanged: (value) => setState(
                                 () => _imageModelController.text = value,
                               ),
@@ -1282,6 +1287,7 @@ class _BotEditScreenState extends State<BotEditScreen> {
           ? null
           : _imageNegativePromptController.text.trim(),
       imagePromptMode: _imagePromptMode,
+      imageInvocationMode: _imageInvocationMode,
     );
 
     try {

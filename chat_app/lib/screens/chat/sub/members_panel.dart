@@ -229,12 +229,21 @@ extension _ChatScreenMembersPanelParts on _ChatScreenState {
           const SizedBox(height: 8),
           for (final bot in _roomBots)
             PMListRow(
-              leading: CircleAvatar(
-                backgroundColor: AppColors.secondary.withValues(alpha: 0.12),
-                child: const Icon(
-                  Icons.smart_toy_rounded,
-                  color: AppColors.secondaryDark,
-                ),
+              leading: PMUserAvatar.raw(
+                imageUrl: bot.botAvatar?.trim().isNotEmpty == true
+                    ? ApiConstants.resolveFileUrl(bot.botAvatar!)
+                    : null,
+                fallbackText: bot.roomNickname?.isNotEmpty == true
+                    ? bot.roomNickname
+                    : bot.botName,
+                onTap: bot.botAvatar?.trim().isNotEmpty == true
+                    ? () => _showBotAvatarPreview(
+                          bot.roomNickname?.isNotEmpty == true
+                              ? bot.roomNickname!
+                              : bot.botName,
+                          ApiConstants.resolveFileUrl(bot.botAvatar!),
+                        )
+                    : null,
               ),
               title: Text(bot.roomNickname?.isNotEmpty == true
                   ? bot.roomNickname!

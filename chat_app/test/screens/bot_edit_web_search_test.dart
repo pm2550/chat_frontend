@@ -52,7 +52,7 @@ void main() {
       WidgetTester tester, BotConfig bot, _CapturingBotService service) async {
     // Tall, narrow surface so the whole form fits without scrolling — otherwise the
     // Switch / save button land off-screen and taps miss (hit-test warning).
-    tester.view.physicalSize = const Size(1000, 3200);
+    tester.view.physicalSize = const Size(1000, 3600);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
@@ -266,6 +266,32 @@ void main() {
 
     expect(service.savedConfig!.imageModel, 'nai-diffusion-4-5-curated');
     expect(service.savedConfig!.imagePromptMode, 'VERBATIM');
+  });
+
+  testWidgets('direct invocation is optional and does not change prompt mode',
+      (tester) async {
+    final service = _CapturingBotService();
+    final bot = BotConfig(
+      id: 12,
+      botName: 'direct-draw-bot',
+      llmProvider: 'HERMES',
+      enabledTools: const ['generate_image'],
+      imagePromptMode: 'ANIME_CREATIVE',
+      imageInvocationMode: 'AGENT',
+    );
+    await pumpEditor(tester, bot, service);
+
+    await tester.ensureVisible(find.text('原文直达'));
+    await tester.tap(find.text('原文直达'));
+    await tester.pumpAndSettle();
+
+    final saveButton = find.text('保存 Bot').last;
+    await tester.ensureVisible(saveButton);
+    await tester.tap(saveButton);
+    await tester.pumpAndSettle();
+
+    expect(service.savedConfig!.imageInvocationMode, 'DIRECT');
+    expect(service.savedConfig!.imagePromptMode, 'ANIME_CREATIVE');
   });
 
   testWidgets('Kimi Code provider selects the kimi-code default model',

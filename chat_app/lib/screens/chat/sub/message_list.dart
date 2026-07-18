@@ -205,6 +205,19 @@ extension _ChatScreenMessageListParts on _ChatScreenState {
 
   void _showMentionProfile(String mentionLabel) {
     final normalized = mentionLabel.trim().toLowerCase();
+    final bot = _roomBots.cast<BotConfig?>().firstWhere(
+      (candidate) {
+        if (candidate == null) return false;
+        final roomName = candidate.roomNickname?.trim().toLowerCase();
+        return roomName == normalized ||
+            candidate.botName.trim().toLowerCase() == normalized;
+      },
+      orElse: () => null,
+    );
+    if (bot != null) {
+      _showMentionBotProfile(bot);
+      return;
+    }
     final participant = _chat.participants.cast<User?>().firstWhere(
           (user) =>
               user != null &&
@@ -262,6 +275,108 @@ extension _ChatScreenMessageListParts on _ChatScreenState {
                       label: const Text('查看成员'),
                     ),
                   ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showMentionBotProfile(BotConfig bot) {
+    final label = bot.roomNickname?.trim().isNotEmpty == true
+        ? bot.roomNickname!.trim()
+        : bot.botName;
+    final avatarUrl = bot.botAvatar?.trim().isNotEmpty == true
+        ? ApiConstants.resolveFileUrl(bot.botAvatar!)
+        : null;
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(PMSpacing.l),
+          child: PMCard(
+            radius: PMRadius.l,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                PMListRow(
+                  leading: PMUserAvatar.raw(
+                    imageUrl: avatarUrl,
+                    fallbackText: label,
+                    onTap: avatarUrl == null
+                        ? null
+                        : () {
+                            Navigator.of(sheetContext).pop();
+                            _showBotAvatarPreview(label, avatarUrl);
+                          },
+                  ),
+                  title: Text(label),
+                  subtitle: Text('AI Bot · ${bot.botName}'),
+                ),
+                const SizedBox(height: PMSpacing.s),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: OutlinedButton.icon(
+                    onPressed: () => Navigator.of(sheetContext).pop(),
+                    icon: const Icon(Icons.close, size: 18),
+                    label: const Text('关闭'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showBotAvatarPreview(String label, String avatarUrl) {
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => Dialog(
+        backgroundColor: Colors.transparent,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 560, maxHeight: 640),
+          child: PMCard(
+            radius: PMRadius.l,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        label,
+                        style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: '关闭',
+                      onPressed: () => Navigator.of(dialogContext).pop(),
+                      icon: const Icon(Icons.close),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: PMSpacing.m),
+                Flexible(
+                  child: InteractiveViewer(
+                    minScale: 0.8,
+                    maxScale: 5,
+                    child: Image.network(
+                      avatarUrl,
+                      fit: BoxFit.contain,
+                      errorBuilder: (_, __, ___) => const PMErrorState(
+                        title: '头像加载失败',
+                        message: '请稍后重试',
+                      ),
+                    ),
+                  ),
                 ),
               ],
             ),

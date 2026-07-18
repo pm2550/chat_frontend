@@ -38,6 +38,7 @@ class BotConfig {
   final String? imageModel;
   final String? imageNegativePrompt;
   final String imagePromptMode;
+  final String imageInvocationMode;
   final bool isActive;
   final String? triggerMode;
   final String? triggerKeywords;
@@ -89,6 +90,7 @@ class BotConfig {
     this.imageModel,
     this.imageNegativePrompt,
     this.imagePromptMode = 'ANIME_CREATIVE',
+    this.imageInvocationMode = 'AGENT',
     this.isActive = true,
     this.triggerMode,
     this.triggerKeywords,
@@ -148,6 +150,7 @@ class BotConfig {
       imageModel: json['imageModel']?.toString(),
       imageNegativePrompt: json['imageNegativePrompt']?.toString(),
       imagePromptMode: json['imagePromptMode']?.toString() ?? 'ANIME_CREATIVE',
+      imageInvocationMode: json['imageInvocationMode']?.toString() ?? 'AGENT',
       isActive: json['isActive'] ?? true,
       triggerMode: json['triggerMode']?.toString(),
       triggerKeywords: json['triggerKeywords']?.toString(),
@@ -219,6 +222,7 @@ class BotConfig {
         if (imageNegativePrompt != null)
           'imageNegativePrompt': imageNegativePrompt,
         'imagePromptMode': imagePromptMode,
+        'imageInvocationMode': imageInvocationMode,
         'enabledTools': enabledTools,
         'accessPolicy': accessPolicy,
         'allowedUsernames': allowedUsernames,

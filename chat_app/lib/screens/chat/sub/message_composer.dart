@@ -643,17 +643,13 @@ extension _ChatScreenComposerParts on _ChatScreenState {
       }));
     }
 
-    final candidates = source
-        .where(_isMentionableUser)
-        .where((user) {
-          final display = user.displayName.toLowerCase();
-          final username = user.username.toLowerCase();
-          return normalized.isEmpty ||
-              display.startsWith(normalized) ||
-              username.startsWith(normalized);
-        })
-        .take(5)
-        .toList(growable: false);
+    final candidates = source.where(_isMentionableUser).where((user) {
+      final display = user.displayName.toLowerCase();
+      final username = user.username.toLowerCase();
+      return normalized.isEmpty ||
+          display.startsWith(normalized) ||
+          username.startsWith(normalized);
+    }).toList(growable: false);
 
     _setViewState(() {
       _mentionStartIndex = candidates.isEmpty ? null : atIndex;
@@ -783,7 +779,8 @@ extension _ChatScreenComposerParts on _ChatScreenState {
       final members = await _chatService.getChatRoomMembers(_chat.id);
       if (!mounted) return;
       _setViewState(() {
-        final users = members.map((member) => member.user).toList(growable: false);
+        final users =
+            members.map((member) => member.user).toList(growable: false);
         _chat = _chat.copyWith(
           participants: users,
           memberCount: users.length,
@@ -847,21 +844,20 @@ extension _ChatScreenComposerParts on _ChatScreenState {
     return Align(
       alignment: Alignment.centerLeft,
       child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 360),
+        constraints: const BoxConstraints(maxWidth: 360, maxHeight: 320),
         child: Padding(
           padding: const EdgeInsets.only(bottom: 10),
           child: PMCard(
             elevated: true,
             padding: const EdgeInsets.symmetric(vertical: 6),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                for (var index = 0; index < _mentionSuggestions.length; index++)
-                  _buildMentionSuggestionRow(
-                    _mentionSuggestions[index],
-                    selected: index == _mentionSelectedIndex,
-                  ),
-              ],
+            child: ListView.builder(
+              shrinkWrap: true,
+              padding: EdgeInsets.zero,
+              itemCount: _mentionSuggestions.length,
+              itemBuilder: (context, index) => _buildMentionSuggestionRow(
+                _mentionSuggestions[index],
+                selected: index == _mentionSelectedIndex,
+              ),
             ),
           ),
         ),
@@ -875,13 +871,12 @@ extension _ChatScreenComposerParts on _ChatScreenState {
         user.displayName.isNotEmpty ? user.displayName : user.username;
     return PMListRow(
       leading: isBot
-          ? CircleAvatar(
-              backgroundColor: AppColors.secondary.withValues(alpha: 0.12),
-              child: const PMSymbolIcon(
-                PMSymbol.ai,
-                color: AppColors.secondaryDark,
-                size: 18,
-              ),
+          ? PMUserAvatar.raw(
+              imageUrl: user.avatarUrl == null
+                  ? null
+                  : ApiConstants.resolveFileUrl(user.avatarUrl!),
+              fallbackText: label,
+              size: 40,
             )
           : PMUserAvatar(
               user: user,

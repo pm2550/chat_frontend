@@ -387,8 +387,8 @@ class _ChatRoomSettingsScreenState extends State<ChatRoomSettingsScreen> {
             members.any(
                 (member) => member.userId == currentUserId && member.isAdmin);
         // F5: real OWNER role, derived from the authoritative member list.
-        _currentUserIsOwner = members.any(
-            (member) => member.userId == currentUserId && member.isOwner);
+        _currentUserIsOwner = members
+            .any((member) => member.userId == currentUserId && member.isOwner);
         _isLoadingMembers = false;
       });
     } catch (error) {
@@ -443,9 +443,7 @@ class _ChatRoomSettingsScreenState extends State<ChatRoomSettingsScreen> {
                     itemBuilder: (context, index) {
                       final bot = candidates[index];
                       return ListTile(
-                        leading: const CircleAvatar(
-                          child: Icon(Icons.smart_toy),
-                        ),
+                        leading: _buildBotAvatar(bot),
                         title: Text(bot.botName),
                         subtitle: Text(bot.llmProvider),
                         trailing: const Icon(Icons.add),
@@ -1098,7 +1096,7 @@ class _ChatRoomSettingsScreenState extends State<ChatRoomSettingsScreen> {
           children: [
             Row(
               children: [
-                _iconTile(Icons.smart_toy_outlined, AppColors.secondaryDark),
+                _buildBotAvatar(bot),
                 const SizedBox(width: PMSpacing.m),
                 Expanded(
                   child: Column(
@@ -1140,6 +1138,78 @@ class _ChatRoomSettingsScreenState extends State<ChatRoomSettingsScreen> {
               color: AppColors.secondaryDark,
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBotAvatar(BotConfig bot, {double size = 44}) {
+    final label = bot.roomNickname?.trim().isNotEmpty == true
+        ? bot.roomNickname!.trim()
+        : bot.botName;
+    final avatarUrl = _resolveAvatarUrl(bot.botAvatar);
+    return Tooltip(
+      message: avatarUrl == null ? label : '查看 $label 的头像',
+      child: PMUserAvatar.raw(
+        key: ValueKey('room-bot-avatar-${bot.id ?? bot.botName}'),
+        imageUrl: avatarUrl,
+        fallbackText: label,
+        size: size,
+        onTap: avatarUrl == null
+            ? null
+            : () => _showBotAvatarPreview(label, avatarUrl),
+      ),
+    );
+  }
+
+  void _showBotAvatarPreview(String label, String avatarUrl) {
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => Dialog(
+        backgroundColor: Colors.transparent,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 560, maxHeight: 640),
+          child: PMCard(
+            radius: PMRadius.l,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        label,
+                        style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: '关闭',
+                      onPressed: () => Navigator.of(dialogContext).pop(),
+                      icon: const Icon(Icons.close),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: PMSpacing.m),
+                Flexible(
+                  child: InteractiveViewer(
+                    minScale: 0.8,
+                    maxScale: 5,
+                    child: Image.network(
+                      avatarUrl,
+                      fit: BoxFit.contain,
+                      errorBuilder: (_, __, ___) => const PMErrorState(
+                        title: '头像加载失败',
+                        message: '请稍后重试',
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );
@@ -1435,8 +1505,7 @@ class _ChatRoomSettingsScreenState extends State<ChatRoomSettingsScreen> {
         crossAxisAlignment: WrapCrossAlignment.center,
         children: [
           const Text('角色',
-              style:
-                  TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+              style: TextStyle(fontSize: 12, color: AppColors.textSecondary)),
           PMChip(
             label: '成员',
             selected: role == 'MEMBER',
@@ -1476,8 +1545,7 @@ class _ChatRoomSettingsScreenState extends State<ChatRoomSettingsScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-            content: Text('设置角色失败: $error'),
-            backgroundColor: AppColors.error),
+            content: Text('设置角色失败: $error'), backgroundColor: AppColors.error),
       );
     }
   }
@@ -1512,8 +1580,7 @@ class _ChatRoomSettingsScreenState extends State<ChatRoomSettingsScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-            content: Text('转让群主失败: $error'),
-            backgroundColor: AppColors.error),
+            content: Text('转让群主失败: $error'), backgroundColor: AppColors.error),
       );
     }
   }

@@ -295,6 +295,36 @@ void main() {
 
       expect(botService.removedBotIds, [1]);
     });
+
+    testWidgets('group bot uses its configured avatar and opens preview',
+        (tester) async {
+      final botService = FakeBotService();
+      botService.roomBots[0] = BotConfig(
+        id: 1,
+        botName: 'RoomBot',
+        llmProvider: 'OPENAI',
+        botAvatar: '/api/files/avatar/room-bot.png',
+      );
+
+      await tester.pumpWidget(buildWidget(
+        botService: botService,
+        enableBotLoading: true,
+      ));
+      await tester.pumpAndSettle();
+
+      final avatar = find.byKey(const Key('room-bot-avatar-1'));
+      await tester.scrollUntilVisible(
+        avatar,
+        300,
+        scrollable: verticalScrollable(),
+      );
+      expect(avatar, findsOneWidget);
+      await tester.tap(avatar);
+      await tester.pump();
+
+      expect(find.byType(InteractiveViewer), findsOneWidget);
+      expect(find.text('RoomBot'), findsWidgets);
+    });
   });
 }
 

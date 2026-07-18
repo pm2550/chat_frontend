@@ -16,9 +16,11 @@ class BotImageProviderSection extends StatelessWidget {
     required this.modelController,
     required this.negativePromptController,
     required this.promptMode,
+    required this.invocationMode,
     required this.onProviderChanged,
     required this.onCredentialChanged,
     required this.onPromptModeChanged,
+    required this.onInvocationModeChanged,
     required this.onModelChanged,
     this.currentCredentialLabel,
     this.currentCredentialLast4,
@@ -33,9 +35,11 @@ class BotImageProviderSection extends StatelessWidget {
   final TextEditingController modelController;
   final TextEditingController negativePromptController;
   final String promptMode;
+  final String invocationMode;
   final ValueChanged<String> onProviderChanged;
   final ValueChanged<int?> onCredentialChanged;
   final ValueChanged<String> onPromptModeChanged;
+  final ValueChanged<String> onInvocationModeChanged;
   final ValueChanged<String> onModelChanged;
   final String? currentCredentialLabel;
   final String? currentCredentialLast4;
@@ -62,6 +66,38 @@ class BotImageProviderSection extends StatelessWidget {
           const Text(
             'Bot 先把用户要求整理成 prompt，再调用这里选择的图片 API。',
             style: TextStyle(color: AppColors.textSecondary),
+          ),
+          const SizedBox(height: PMSpacing.m),
+          const Text(
+            '调用方式',
+            style: TextStyle(
+              color: AppColors.textPrimary,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: PMSpacing.xs),
+          Text(
+            invocationMode == 'DIRECT'
+                ? '原文直达只移除触发用的 @Bot，不经过文字模型或提示词转写；全局负面提示词仍独立发送。'
+                : '智能调用由文字模型结合上下文决定是否画图，并按下面选择的提示词模式处理。',
+            style: const TextStyle(color: AppColors.textSecondary),
+          ),
+          const SizedBox(height: PMSpacing.s),
+          Wrap(
+            spacing: PMSpacing.s,
+            runSpacing: PMSpacing.s,
+            children: [
+              PMChip(
+                label: '智能调用',
+                selected: invocationMode == 'AGENT',
+                onTap: () => onInvocationModeChanged('AGENT'),
+              ),
+              PMChip(
+                label: '原文直达',
+                selected: invocationMode == 'DIRECT',
+                onTap: () => onInvocationModeChanged('DIRECT'),
+              ),
+            ],
           ),
           const SizedBox(height: PMSpacing.m),
           Wrap(
