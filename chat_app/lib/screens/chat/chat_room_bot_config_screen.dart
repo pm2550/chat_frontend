@@ -40,6 +40,7 @@ class _ChatRoomBotConfigScreenState extends State<ChatRoomBotConfigScreen> {
   late final TextEditingController _promptSuffixController;
 
   String _triggerMode = 'MENTION';
+  bool _showAdvancedTriggerModes = false;
   String _moderationGrant = 'NONE';
   bool _enabledInRoom = true;
   bool _isSaving = false;
@@ -51,6 +52,7 @@ class _ChatRoomBotConfigScreenState extends State<ChatRoomBotConfigScreen> {
     _botService = widget.botService ?? BotService();
     _chatService = widget.chatService ?? ChatDataService();
     _triggerMode = (widget.bot.triggerMode ?? 'MENTION').toUpperCase();
+    _showAdvancedTriggerModes = _triggerMode.contains('REGEX');
     _moderationGrant = (widget.bot.moderationGrant ?? 'NONE').toUpperCase();
     _enabledInRoom = widget.bot.enabledInRoom;
     _keywordsController =
@@ -178,9 +180,7 @@ class _ChatRoomBotConfigScreenState extends State<ChatRoomBotConfigScreen> {
                             for (final mode in const [
                               'MENTION',
                               'MENTION_OR_KEYWORD',
-                              'MENTION_OR_REGEX',
                               'KEYWORD',
-                              'REGEX',
                               'ALL'
                             ])
                               PMChip(
@@ -200,6 +200,56 @@ class _ChatRoomBotConfigScreenState extends State<ChatRoomBotConfigScreen> {
                           ],
                         ),
                       ),
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(
+                          PMSpacing.m,
+                          0,
+                          PMSpacing.m,
+                          PMSpacing.m,
+                        ),
+                        child: Align(
+                          alignment: Alignment.centerLeft,
+                          child: PMButton(
+                            key: const Key('room-bot-trigger-advanced-toggle'),
+                            label:
+                                _showAdvancedTriggerModes ? '收起高级规则' : '高级规则',
+                            icon: Icons.tune,
+                            compact: true,
+                            variant: PMButtonVariant.link,
+                            onPressed: () => setState(() {
+                              _showAdvancedTriggerModes =
+                                  !_showAdvancedTriggerModes;
+                            }),
+                          ),
+                        ),
+                      ),
+                      if (_showAdvancedTriggerModes)
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(
+                            PMSpacing.m,
+                            0,
+                            PMSpacing.m,
+                            PMSpacing.m,
+                          ),
+                          child: Wrap(
+                            spacing: PMSpacing.s,
+                            runSpacing: PMSpacing.s,
+                            children: [
+                              for (final mode in const [
+                                'MENTION_OR_REGEX',
+                                'REGEX',
+                              ])
+                                PMChip(
+                                  label: _modeLabel(mode),
+                                  icon: Icons.data_object,
+                                  selected: _triggerMode == mode,
+                                  color: AppColors.secondaryDark,
+                                  onTap: () =>
+                                      setState(() => _triggerMode = mode),
+                                ),
+                            ],
+                          ),
+                        ),
                     ],
                   ),
                   if (_triggerMode == 'KEYWORD' ||
@@ -212,21 +262,23 @@ class _ChatRoomBotConfigScreenState extends State<ChatRoomBotConfigScreen> {
                       children: [
                         Padding(
                           padding: const EdgeInsets.all(PMSpacing.m),
-                          child: TextField(
-                            controller: _keywordsController,
-                            decoration: InputDecoration(
-                              labelText: _triggerMode.contains('REGEX')
-                                  ? '正则表达式'
-                                  : '关键词',
-                              hintText: _triggerMode.contains('REGEX')
-                                  ? r'例如：(?i)(画图|draw)\s*[:：]'
-                                  : '用逗号分隔，例如：总结, 帮我, PM',
-                              helperText: _triggerMode.contains('REGEX')
-                                  ? '消息匹配该正则时触发；正则无效时服务端会跳过，不会影响群聊。'
-                                  : '任一关键词命中即触发。',
-                              border: const OutlineInputBorder(),
-                            ),
-                          ),
+                          child: _triggerMode.contains('REGEX')
+                              ? TextField(
+                                  key: const Key('room-bot-trigger-regex'),
+                                  controller: _keywordsController,
+                                  decoration: const InputDecoration(
+                                    labelText: '正则表达式',
+                                    hintText: r'例如：(?i)(画图|draw)\s*[:：]',
+                                    helperText: '仅供高级兼容；日常配置请使用自然语言关键词。',
+                                    border: OutlineInputBorder(),
+                                  ),
+                                )
+                              : PMKeywordEditor(
+                                  key: const Key('room-bot-keyword-editor'),
+                                  fieldKey: const Key(
+                                      'room-bot-trigger-keyword-input'),
+                                  controller: _keywordsController,
+                                ),
                         ),
                       ],
                     ),

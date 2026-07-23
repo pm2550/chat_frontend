@@ -23,6 +23,7 @@ class BotConfig {
   final String? systemPrompt;
   final double temperature;
   final int maxTokens;
+  final String reasoningEffort;
   final int maxHistoryMessages;
   final bool includeRoomMetadata;
   final bool visionInputEnabled;
@@ -77,6 +78,7 @@ class BotConfig {
     this.systemPrompt,
     this.temperature = 0.7,
     this.maxTokens = 2048,
+    this.reasoningEffort = 'AUTO',
     this.maxHistoryMessages = 20,
     this.includeRoomMetadata = true,
     this.visionInputEnabled = true,
@@ -131,6 +133,7 @@ class BotConfig {
       systemPrompt: json['systemPrompt'],
       temperature: (json['temperature'] ?? 0.7).toDouble(),
       maxTokens: json['maxTokens'] ?? 2048,
+      reasoningEffort: json['reasoningEffort']?.toString() ?? 'AUTO',
       maxHistoryMessages:
           int.tryParse(json['maxHistoryMessages']?.toString() ?? '') ?? 20,
       includeRoomMetadata: json['includeRoomMetadata'] != false,
@@ -214,6 +217,7 @@ class BotConfig {
         'systemPrompt': systemPrompt,
         'temperature': temperature,
         'maxTokens': maxTokens,
+        'reasoningEffort': reasoningEffort,
         'maxHistoryMessages': maxHistoryMessages,
         'includeRoomMetadata': includeRoomMetadata,
         'visionInputEnabled': visionInputEnabled,

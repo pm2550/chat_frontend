@@ -351,7 +351,8 @@ void main() {
     expect(service.savedConfig!.replyIntervalSeconds, 3.5);
   });
 
-  testWidgets('saving default mention-or-regex trigger persists QQbot rule',
+  testWidgets(
+      'saving default trigger accepts multiple natural-language keywords',
       (tester) async {
     final service = _CapturingBotService();
     final bot = BotConfig(
@@ -362,14 +363,28 @@ void main() {
     );
     await pumpEditor(tester, bot, service);
 
-    final triggerChip = find.text('提及或正则');
+    final triggerChip = find.text('提及或关键词');
     await tester.ensureVisible(triggerChip);
     await tester.tap(triggerChip);
     await tester.pumpAndSettle();
 
     final field = find.byKey(const Key('bot-default-trigger-value'));
     expect(field, findsOneWidget);
-    await tester.enterText(field, r'^/chat(?:\s|$)');
+    await tester.enterText(field, '阿雷，如何评价,还记得');
+    await tester.tap(find.byKey(const Key('add-trigger-keyword')));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('trigger-keyword-阿雷')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('trigger-keyword-如何评价')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('trigger-keyword-还记得')),
+      findsOneWidget,
+    );
 
     final saveButton = find.text('保存 Bot').last;
     await tester.ensureVisible(saveButton);
@@ -377,8 +392,11 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(service.savedConfig, isNotNull);
-    expect(service.savedConfig!.defaultTriggerMode, 'MENTION_OR_REGEX');
-    expect(service.savedConfig!.defaultTriggerKeywords, r'^/chat(?:\s|$)');
+    expect(service.savedConfig!.defaultTriggerMode, 'MENTION_OR_KEYWORD');
+    expect(
+      service.savedConfig!.defaultTriggerKeywords,
+      '阿雷,如何评价,还记得',
+    );
   });
 
   testWidgets('focusing system prompt preserves desktop page scroll position',
@@ -496,5 +514,59 @@ void main() {
     expect(service.savedConfig, isNotNull);
     expect(service.savedConfig!.accessPolicy, 'ALLOWLIST');
     expect(service.savedConfig!.allowedUsernames, ['alice', '42']);
+  });
+
+  testWidgets('Ollama bot exposes and saves selectable reasoning effort',
+      (tester) async {
+    final service = _CapturingBotService();
+    final bot = BotConfig(
+      id: 20,
+      botName: 'kimi-chat',
+      llmProvider: 'OLLAMA',
+      modelName: 'kimi-k2.6',
+      maxTokens: 1200,
+      reasoningEffort: 'NONE',
+    );
+    await pumpEditor(tester, bot, service);
+
+    expect(
+      find.byKey(const Key('bot-reasoning-effort-section')),
+      findsOneWidget,
+    );
+    await tester.tap(find.byKey(const Key('bot-reasoning-low')));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('至少 2048'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('bot-reasoning-none')));
+    await tester.pumpAndSettle();
+    final saveButton = find.text('保存 Bot').last;
+    await tester.ensureVisible(saveButton);
+    await tester.tap(saveButton);
+    await tester.pumpAndSettle();
+
+    expect(service.savedConfig?.reasoningEffort, 'NONE');
+    expect(service.savedConfig?.maxTokens, 1200);
+  });
+
+  testWidgets('Kimi thinking mode rejects an undersized token budget',
+      (tester) async {
+    final service = _CapturingBotService();
+    final bot = BotConfig(
+      id: 21,
+      botName: 'kimi-thinking',
+      llmProvider: 'OLLAMA',
+      modelName: 'kimi-k2.6',
+      maxTokens: 1200,
+      reasoningEffort: 'AUTO',
+    );
+    await pumpEditor(tester, bot, service);
+
+    final saveButton = find.text('保存 Bot').last;
+    await tester.ensureVisible(saveButton);
+    await tester.tap(saveButton);
+    await tester.pump();
+
+    expect(find.textContaining('至少需要 4096 Max Tokens'), findsOneWidget);
+    expect(service.savedConfig, isNull);
   });
 }

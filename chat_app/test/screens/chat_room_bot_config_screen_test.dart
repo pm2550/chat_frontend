@@ -6,6 +6,8 @@ import 'package:flutter_test/flutter_test.dart';
 
 class FakeBotService extends BotService {
   int updateCalls = 0;
+  String? lastTriggerMode;
+  String? lastKeywords;
 
   @override
   Future<BotConfig> updateRoomBotConfig(
@@ -18,6 +20,8 @@ class FakeBotService extends BotService {
     bool? enabledInRoom,
   }) async {
     updateCalls++;
+    lastTriggerMode = triggerMode;
+    lastKeywords = keywords;
     return BotConfig(id: botId, botName: 'Helper', llmProvider: 'OPENAI');
   }
 }
@@ -43,6 +47,8 @@ Future<void> openScreen(
   required FakeBotService bot,
   required FakeChatDataService chat,
   String grant = 'NONE',
+  String triggerMode = 'MENTION',
+  String? triggerKeywords,
 }) async {
   await tester.pumpWidget(
     MaterialApp(
@@ -59,6 +65,8 @@ Future<void> openScreen(
                       botName: 'Helper',
                       llmProvider: 'OPENAI',
                       moderationGrant: grant,
+                      triggerMode: triggerMode,
+                      triggerKeywords: triggerKeywords,
                     ),
                     botService: bot,
                     chatService: chat,
@@ -119,5 +127,41 @@ void main() {
       expect(chat.lastModerationGrantBotId, 7);
       expect(chat.lastModerationGrant, 'KICK');
     });
+  });
+
+  testWidgets('room bot trigger editor adds and removes natural keywords',
+      (tester) async {
+    tester.view.physicalSize = const Size(1400, 3000);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    final bot = FakeBotService();
+    final chat = FakeChatDataService();
+    await openScreen(
+      tester,
+      isOwner: true,
+      bot: bot,
+      chat: chat,
+      triggerMode: 'MENTION_OR_KEYWORD',
+      triggerKeywords: '找一下,如何评价',
+    );
+
+    expect(find.text('找一下'), findsOneWidget);
+    expect(find.text('如何评价'), findsOneWidget);
+    await tester.tap(
+      find.byKey(const ValueKey('remove-trigger-keyword-找一下')),
+    );
+    await tester.enterText(
+      find.byKey(const Key('room-bot-trigger-keyword-input')),
+      '还记得，回顾',
+    );
+    await tester.tap(find.byKey(const Key('add-trigger-keyword')));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('保存配置'));
+    await tester.pumpAndSettle();
+
+    expect(bot.lastTriggerMode, 'MENTION_OR_KEYWORD');
+    expect(bot.lastKeywords, '如何评价,还记得,回顾');
   });
 }

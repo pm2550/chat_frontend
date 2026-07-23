@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -7,6 +8,7 @@ import 'package:chat_app/design/design.dart';
 import 'package:chat_app/widgets/message_bubble.dart';
 import 'package:chat_app/widgets/chat_video_thumbnail.dart';
 import 'package:chat_app/models/message.dart';
+import 'package:chat_app/models/poll.dart';
 
 void main() {
   setUp(MessageBubble.clearImageCacheForTesting);
@@ -85,6 +87,67 @@ void main() {
   }
 
   group('MessageBubble', () {
+    testWidgets('poll refresh keeps the rendered card while network is pending',
+        (tester) async {
+      final first = Completer<PollInfo>();
+      final refresh = Completer<PollInfo>();
+      var loads = 0;
+      Future<PollInfo> loader(int _) {
+        loads += 1;
+        return loads == 1 ? first.future : refresh.future;
+      }
+
+      final message = createMessage(
+        type: MessageType.poll,
+        content: '[投票] 午饭吃什么',
+      ).copyWith(pollId: 8);
+
+      Widget bubble(int epoch) => buildTestWidget(
+            MessageBubble(
+              message: message,
+              isMe: false,
+              pollLoader: loader,
+              pollRefreshEpoch: epoch,
+            ),
+          );
+
+      await tester.pumpWidget(bubble(0));
+      first.complete(const PollInfo(
+        id: 8,
+        messageId: 1,
+        question: '午饭吃什么',
+        options: [
+          PollOption(index: 0, text: '面', votes: 1),
+          PollOption(index: 1, text: '饭', votes: 0),
+        ],
+        totalVotes: 1,
+      ));
+      await tester.pumpAndSettle();
+      expect(find.text('午饭吃什么'), findsOneWidget);
+      expect(find.text('面'), findsOneWidget);
+      final settledSize = tester.getSize(find.byType(PMCard));
+
+      await tester.pumpWidget(bubble(1));
+      await tester.pump();
+
+      expect(find.text('午饭吃什么'), findsOneWidget);
+      expect(find.text('面'), findsOneWidget);
+      expect(tester.getSize(find.byType(PMCard)), settledSize);
+
+      refresh.complete(const PollInfo(
+        id: 8,
+        messageId: 1,
+        question: '午饭吃什么',
+        options: [
+          PollOption(index: 0, text: '面', votes: 1),
+          PollOption(index: 1, text: '饭', votes: 1),
+        ],
+        totalVotes: 2,
+      ));
+      await tester.pumpAndSettle();
+      expect(find.text('2 人参与'), findsOneWidget);
+    });
+
     testWidgets('renders message content text', (tester) async {
       final message = createMessage(content: '你好，世界！');
 
@@ -253,6 +316,7 @@ void main() {
       // Non-anonymous avatars use the PM design-system avatar so frame
       // overlays can be applied consistently across the app.
       expect(find.byType(PMUserAvatar), findsOneWidget);
+      expect(tester.widget<PMUserAvatar>(find.byType(PMUserAvatar)).size, 40);
       // The avatar fallback shows first letter of senderName uppercased.
       expect(find.text('B'), findsOneWidget);
     });

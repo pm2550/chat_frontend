@@ -104,6 +104,7 @@ class _BotEditScreenState extends State<BotEditScreen> {
   double? _promptScrollAnchor;
   double _temperature = 0.7;
   int _maxTokens = 2048;
+  String _reasoningEffort = 'AUTO';
   int _maxHistoryMessages = 20;
   bool _includeRoomMetadata = true;
   bool _visionInputEnabled = true;
@@ -113,6 +114,7 @@ class _BotEditScreenState extends State<BotEditScreen> {
   String _replyMode = 'SINGLE';
   double _replyIntervalSeconds = 2.0;
   String _defaultTriggerMode = 'MENTION';
+  bool _showAdvancedTriggerModes = false;
   String _accessPolicy = 'PRIVATE';
   bool _saving = false;
   bool _loadingCredentials = false;
@@ -173,11 +175,13 @@ class _BotEditScreenState extends State<BotEditScreen> {
     _replyMode = (bot?.replyMode ?? 'SINGLE').toUpperCase();
     _replyIntervalSeconds = bot?.replyIntervalSeconds ?? 2.0;
     _defaultTriggerMode = (bot?.defaultTriggerMode ?? 'MENTION').toUpperCase();
+    _showAdvancedTriggerModes = _defaultTriggerMode.contains('REGEX');
     _accessPolicy = bot?.accessPolicy ?? 'PRIVATE';
     _providerController.addListener(_loadCredentialsForProvider);
     _promptFocusNode.addListener(_restorePromptScrollAnchor);
     _temperature = bot?.temperature ?? 0.7;
     _maxTokens = bot?.maxTokens ?? 2048;
+    _reasoningEffort = bot?.reasoningEffort ?? 'AUTO';
     _maxHistoryMessages = bot?.maxHistoryMessages ?? 20;
     _includeRoomMetadata = bot?.includeRoomMetadata ?? true;
     _visionInputEnabled = bot?.visionInputEnabled ?? true;
@@ -393,6 +397,11 @@ class _BotEditScreenState extends State<BotEditScreen> {
                             onChanged: (value) =>
                                 setState(() => _maxTokens = value.round()),
                           ),
+                          if (_providerController.text.trim().toUpperCase() ==
+                              'OLLAMA') ...[
+                            const SizedBox(height: PMSpacing.l),
+                            _buildReasoningEffortSection(),
+                          ],
                           const SizedBox(height: PMSpacing.l),
                           _buildReplyModeSection(),
                           const SizedBox(height: PMSpacing.l),
@@ -708,6 +717,65 @@ class _BotEditScreenState extends State<BotEditScreen> {
     );
   }
 
+  Widget _buildReasoningEffortSection() {
+    const options = <(String, String)>[
+      ('AUTO', '模型默认'),
+      ('NONE', '关闭思考'),
+      ('LOW', '低'),
+      ('MEDIUM', '中'),
+      ('HIGH', '高'),
+    ];
+    final minimum = switch (_reasoningEffort) {
+      'NONE' => 256,
+      'LOW' => 2048,
+      'HIGH' => 8192,
+      _ => 4096,
+    };
+    return PMCard(
+      key: const Key('bot-reasoning-effort-section'),
+      elevated: false,
+      background: AppColors.cloud,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            '思考强度',
+            style: TextStyle(fontWeight: FontWeight.w900),
+          ),
+          const SizedBox(height: PMSpacing.s),
+          const Text(
+            'Ollama/Kimi 的思考会占用 Max Tokens。聊天 Bot 可关闭思考；复杂任务可提高强度并同步提高 Token。',
+            style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
+          ),
+          const SizedBox(height: PMSpacing.m),
+          Wrap(
+            spacing: PMSpacing.s,
+            runSpacing: PMSpacing.s,
+            children: [
+              for (final option in options)
+                PMChip(
+                  key: Key('bot-reasoning-${option.$1.toLowerCase()}'),
+                  label: option.$2,
+                  selected: _reasoningEffort == option.$1,
+                  onTap: () => setState(() => _reasoningEffort = option.$1),
+                ),
+            ],
+          ),
+          const SizedBox(height: PMSpacing.s),
+          Text(
+            _reasoningEffort == 'NONE'
+                ? '当前关闭隐藏思考，输出预算全部用于回复正文。'
+                : '当前组合建议 Max Tokens 至少 $minimum；不足时保存会被拒绝并说明原因。',
+            style: const TextStyle(
+              color: AppColors.secondaryDark,
+              fontSize: 13,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildDefaultTriggerSection() {
     final usesRegex = _defaultTriggerMode == 'REGEX' ||
         _defaultTriggerMode == 'MENTION_OR_REGEX';
@@ -745,9 +813,7 @@ class _BotEditScreenState extends State<BotEditScreen> {
               for (final option in const [
                 ('MENTION', '仅提及', Icons.alternate_email),
                 ('MENTION_OR_KEYWORD', '提及或关键词', Icons.key_outlined),
-                ('MENTION_OR_REGEX', '提及或正则', Icons.data_object),
                 ('KEYWORD', '仅关键词', Icons.key),
-                ('REGEX', '仅正则', Icons.code),
                 ('ALL', '全部消息', Icons.all_inclusive),
               ])
                 PMChip(
@@ -758,25 +824,55 @@ class _BotEditScreenState extends State<BotEditScreen> {
                 ),
             ],
           ),
+          const SizedBox(height: PMSpacing.s),
+          PMButton(
+            key: const Key('bot-trigger-advanced-toggle'),
+            label: _showAdvancedTriggerModes ? '收起高级规则' : '高级规则',
+            icon: Icons.tune,
+            compact: true,
+            variant: PMButtonVariant.link,
+            onPressed: () => setState(
+              () => _showAdvancedTriggerModes = !_showAdvancedTriggerModes,
+            ),
+          ),
+          if (_showAdvancedTriggerModes)
+            Wrap(
+              spacing: PMSpacing.s,
+              runSpacing: PMSpacing.s,
+              children: [
+                for (final option in const [
+                  ('MENTION_OR_REGEX', '提及或正则', Icons.data_object),
+                  ('REGEX', '仅正则', Icons.code),
+                ])
+                  PMChip(
+                    label: option.$2,
+                    icon: option.$3,
+                    selected: _defaultTriggerMode == option.$1,
+                    onTap: () =>
+                        setState(() => _defaultTriggerMode = option.$1),
+                  ),
+              ],
+            ),
           if (needsValue) ...[
             const SizedBox(height: PMSpacing.m),
-            TextFormField(
-              key: const Key('bot-default-trigger-value'),
-              controller: _defaultTriggerController,
-              decoration: InputDecoration(
-                labelText: usesRegex ? '正则表达式' : '关键词',
-                hintText: usesRegex ? r'例如：^/chat(?:\s|$)' : '用逗号分隔，例如：阿雷, 雷帝',
-                helperText: usesRegex
-                    ? '阿雷/QQbot 的等价规则是“提及或 ^/chat 开头”。'
-                    : '任一关键词命中就会触发。',
+            if (usesRegex)
+              TextFormField(
+                key: const Key('bot-default-trigger-value'),
+                controller: _defaultTriggerController,
+                decoration: const InputDecoration(
+                  labelText: '正则表达式',
+                  hintText: r'例如：^/chat(?:\s|$)',
+                  helperText: '仅供高级兼容；日常配置请使用上面的自然语言关键词。',
+                ),
+                validator: (value) =>
+                    value == null || value.trim().isEmpty ? '请填写正则表达式' : null,
+              )
+            else
+              PMKeywordEditor(
+                key: const Key('bot-default-keyword-editor'),
+                fieldKey: const Key('bot-default-trigger-value'),
+                controller: _defaultTriggerController,
               ),
-              validator: (value) {
-                if (needsValue && (value == null || value.trim().isEmpty)) {
-                  return usesRegex ? '请填写正则表达式' : '请填写至少一个关键词';
-                }
-                return null;
-              },
-            ),
           ],
         ],
       ),
@@ -1335,6 +1431,26 @@ class _BotEditScreenState extends State<BotEditScreen> {
       );
       return;
     }
+    final provider = _providerController.text.trim().toUpperCase();
+    final model = _modelController.text.trim().toLowerCase();
+    if (provider == 'OLLAMA' && model.startsWith('kimi-k2')) {
+      final minimum = switch (_reasoningEffort) {
+        'NONE' => 256,
+        'LOW' => 2048,
+        'HIGH' => 8192,
+        _ => 4096,
+      };
+      if (_maxTokens < minimum) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              '当前思考模式至少需要 $minimum Max Tokens；请提高上限或选择“关闭思考”',
+            ),
+          ),
+        );
+        return;
+      }
+    }
     setState(() => _saving = true);
     final config = BotConfig(
       id: widget.bot?.id,
@@ -1349,6 +1465,7 @@ class _BotEditScreenState extends State<BotEditScreen> {
           : _promptController.text.trim(),
       temperature: _temperature,
       maxTokens: _maxTokens,
+      reasoningEffort: _reasoningEffort,
       maxHistoryMessages: _maxHistoryMessages,
       includeRoomMetadata: _includeRoomMetadata,
       visionInputEnabled: _visionInputEnabled,

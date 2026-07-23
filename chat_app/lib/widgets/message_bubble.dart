@@ -90,7 +90,7 @@ class MessageBubble extends StatelessWidget {
             _buildAvatar(anonymousColor),
             const SizedBox(width: 8),
           ] else if (!isMe && !showAvatar) ...[
-            const SizedBox(width: 40),
+            const SizedBox(width: 48),
           ],
           Flexible(
             child: Column(
@@ -196,7 +196,7 @@ class MessageBubble extends StatelessWidget {
             const SizedBox(width: 8),
             _buildAvatar(anonymousColor),
           ] else if (isMe && !showAvatar) ...[
-            const SizedBox(width: 40),
+            const SizedBox(width: 48),
           ],
         ],
       ),
@@ -210,7 +210,7 @@ class MessageBubble extends StatelessWidget {
             ? null
             : ApiConstants.resolveFileUrl(_senderAvatarUrl!),
         fallbackText: _senderDisplayName,
-        size: 24,
+        size: 40,
         framePreset: senderAvatarFramePreset,
         onSecondaryTap: onAvatarMention,
         onLongPress: onAvatarMention,
@@ -220,7 +220,7 @@ class MessageBubble extends StatelessWidget {
     final avatar = AnonymousAvatar(
       name: _anonymousDisplayName,
       color: anonymousColor,
-      size: 24,
+      size: 40,
     );
     return Stack(
       clipBehavior: Clip.none,
@@ -230,8 +230,8 @@ class MessageBubble extends StatelessWidget {
           right: -3,
           bottom: -3,
           child: Container(
-            width: 14,
-            height: 14,
+            width: 16,
+            height: 16,
             decoration: BoxDecoration(
               color: Colors.white,
               shape: BoxShape.circle,
@@ -242,7 +242,7 @@ class MessageBubble extends StatelessWidget {
                 '🎭',
                 style: TextStyle(
                   color: anonymousColor,
-                  fontSize: 8,
+                  fontSize: 9,
                   height: 1,
                 ),
               ),
@@ -1497,18 +1497,36 @@ class _PollMessageCard extends StatefulWidget {
 }
 
 class _PollMessageCardState extends State<_PollMessageCard> {
-  late Future<PollInfo> _future = widget.loader(widget.pollId);
+  late Future<PollInfo> _future;
   PollInfo? _poll;
   final Set<int> _selected = {};
   bool _submitting = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _future = _loadPoll();
+  }
+
+  Future<PollInfo> _loadPoll() async {
+    final poll = await widget.loader(widget.pollId);
+    if (mounted) {
+      _poll = poll;
+    }
+    return poll;
+  }
 
   @override
   void didUpdateWidget(covariant _PollMessageCard oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.pollId != widget.pollId ||
         oldWidget.refreshEpoch != widget.refreshEpoch) {
-      _future = widget.loader(widget.pollId);
-      _poll = null;
+      if (oldWidget.pollId != widget.pollId) {
+        _poll = null;
+      }
+      // Keep the last rendered poll while refreshing. Collapsing to the small
+      // loading shell changes the list extent underneath a user's drag.
+      _future = _loadPoll();
       _selected.clear();
     }
   }

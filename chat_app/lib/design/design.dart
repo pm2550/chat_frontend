@@ -8,6 +8,7 @@ export 'pm_dialog_header.dart';
 export 'pm_empty_state.dart';
 export 'pm_error_state.dart';
 export 'pm_list_row.dart';
+export 'pm_keyword_editor.dart';
 export 'pm_page_header.dart';
 export 'pm_progress_strip.dart';
 export 'pm_section_card.dart';
