@@ -30,6 +30,8 @@ void main() {
       expect(config.historyImageInspectionEnabled, isTrue);
       expect(config.replyMode, equals('SINGLE'));
       expect(config.replyIntervalSeconds, equals(2.0));
+      expect(config.defaultTriggerMode, equals('MENTION'));
+      expect(config.defaultTriggerKeywords, isNull);
       expect(config.isActive, isTrue);
     });
 
@@ -69,6 +71,8 @@ void main() {
           'maxTokens': 1024,
           'replyMode': 'CHUNKED',
           'replyIntervalSeconds': 3.5,
+          'defaultTriggerMode': 'MENTION_OR_REGEX',
+          'defaultTriggerKeywords': r'^/chat(?:\s|$)',
           'visionInputEnabled': false,
           'historyImageInspectionEnabled': false,
           'isActive': true,
@@ -85,6 +89,8 @@ void main() {
         expect(config.maxTokens, equals(1024));
         expect(config.replyMode, equals('CHUNKED'));
         expect(config.replyIntervalSeconds, equals(3.5));
+        expect(config.defaultTriggerMode, equals('MENTION_OR_REGEX'));
+        expect(config.defaultTriggerKeywords, equals(r'^/chat(?:\s|$)'));
         expect(config.visionInputEnabled, isFalse);
         expect(config.historyImageInspectionEnabled, isFalse);
         expect(config.isActive, isTrue);
@@ -154,6 +160,8 @@ void main() {
           maxTokens: 512,
           replyMode: 'CHUNKED',
           replyIntervalSeconds: 4.0,
+          defaultTriggerMode: 'MENTION_OR_KEYWORD',
+          defaultTriggerKeywords: '阿雷,雷帝',
         );
 
         final json = config.toJson();
@@ -166,6 +174,8 @@ void main() {
         expect(json['maxTokens'], equals(512));
         expect(json['replyMode'], equals('CHUNKED'));
         expect(json['replyIntervalSeconds'], equals(4.0));
+        expect(json['defaultTriggerMode'], equals('MENTION_OR_KEYWORD'));
+        expect(json['defaultTriggerKeywords'], equals('阿雷,雷帝'));
         expect(json['visionInputEnabled'], isTrue);
         expect(json['historyImageInspectionEnabled'], isTrue);
       });

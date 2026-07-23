@@ -336,6 +336,10 @@ void main() {
 
     expect(find.byKey(const Key('bot-reply-interval-slider')), findsOneWidget);
     expect(find.text('3.5 秒'), findsOneWidget);
+    expect(
+      find.textContaining('不需要在系统提示词里手写 <break>'),
+      findsOneWidget,
+    );
 
     final saveButton = find.text('保存 Bot').last;
     await tester.ensureVisible(saveButton);
@@ -345,6 +349,36 @@ void main() {
     expect(service.savedConfig, isNotNull);
     expect(service.savedConfig!.replyMode, 'CHUNKED');
     expect(service.savedConfig!.replyIntervalSeconds, 3.5);
+  });
+
+  testWidgets('saving default mention-or-regex trigger persists QQbot rule',
+      (tester) async {
+    final service = _CapturingBotService();
+    final bot = BotConfig(
+      id: 28,
+      botName: '阿雷',
+      llmProvider: 'KIMI',
+      defaultTriggerMode: 'MENTION',
+    );
+    await pumpEditor(tester, bot, service);
+
+    final triggerChip = find.text('提及或正则');
+    await tester.ensureVisible(triggerChip);
+    await tester.tap(triggerChip);
+    await tester.pumpAndSettle();
+
+    final field = find.byKey(const Key('bot-default-trigger-value'));
+    expect(field, findsOneWidget);
+    await tester.enterText(field, r'^/chat(?:\s|$)');
+
+    final saveButton = find.text('保存 Bot').last;
+    await tester.ensureVisible(saveButton);
+    await tester.tap(saveButton);
+    await tester.pumpAndSettle();
+
+    expect(service.savedConfig, isNotNull);
+    expect(service.savedConfig!.defaultTriggerMode, 'MENTION_OR_REGEX');
+    expect(service.savedConfig!.defaultTriggerKeywords, r'^/chat(?:\s|$)');
   });
 
   testWidgets('focusing system prompt preserves desktop page scroll position',

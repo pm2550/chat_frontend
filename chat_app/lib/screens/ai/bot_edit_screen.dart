@@ -96,6 +96,7 @@ class _BotEditScreenState extends State<BotEditScreen> {
   late final TextEditingController _imageEndpointController;
   late final TextEditingController _imageModelController;
   late final TextEditingController _imageNegativePromptController;
+  late final TextEditingController _defaultTriggerController;
 
   final _formKey = GlobalKey<FormState>();
   final ScrollController _pageScrollController = ScrollController();
@@ -111,6 +112,7 @@ class _BotEditScreenState extends State<BotEditScreen> {
   bool _imageGenerationEnabled = false;
   String _replyMode = 'SINGLE';
   double _replyIntervalSeconds = 2.0;
+  String _defaultTriggerMode = 'MENTION';
   String _accessPolicy = 'PRIVATE';
   bool _saving = false;
   bool _loadingCredentials = false;
@@ -151,6 +153,8 @@ class _BotEditScreenState extends State<BotEditScreen> {
     _imageModelController = TextEditingController(text: bot?.imageModel ?? '');
     _imageNegativePromptController =
         TextEditingController(text: bot?.imageNegativePrompt ?? '');
+    _defaultTriggerController =
+        TextEditingController(text: bot?.defaultTriggerKeywords ?? '');
     _allowedUsersController = TextEditingController(
       text: bot?.allowedUsers
               .map((user) =>
@@ -168,6 +172,7 @@ class _BotEditScreenState extends State<BotEditScreen> {
     _selectedImageCredentialId = bot?.imageProviderCredentialId;
     _replyMode = (bot?.replyMode ?? 'SINGLE').toUpperCase();
     _replyIntervalSeconds = bot?.replyIntervalSeconds ?? 2.0;
+    _defaultTriggerMode = (bot?.defaultTriggerMode ?? 'MENTION').toUpperCase();
     _accessPolicy = bot?.accessPolicy ?? 'PRIVATE';
     _providerController.addListener(_loadCredentialsForProvider);
     _promptFocusNode.addListener(_restorePromptScrollAnchor);
@@ -236,6 +241,7 @@ class _BotEditScreenState extends State<BotEditScreen> {
     _imageEndpointController.dispose();
     _imageModelController.dispose();
     _imageNegativePromptController.dispose();
+    _defaultTriggerController.dispose();
     _promptFocusNode.removeListener(_restorePromptScrollAnchor);
     _promptFocusNode.dispose();
     _pageScrollController.dispose();
@@ -389,6 +395,8 @@ class _BotEditScreenState extends State<BotEditScreen> {
                           ),
                           const SizedBox(height: PMSpacing.l),
                           _buildReplyModeSection(),
+                          const SizedBox(height: PMSpacing.l),
+                          _buildDefaultTriggerSection(),
                           const SizedBox(height: PMSpacing.l),
                           _buildContextSection(),
                           const SizedBox(height: PMSpacing.l),
@@ -691,8 +699,83 @@ class _BotEditScreenState extends State<BotEditScreen> {
                   setState(() => _replyIntervalSeconds = value),
             ),
             const Text(
-              '间隔只影响“一句一句说”，整段回复不延迟。',
+              '系统会自动要求模型按自然短句拆分，不需要在系统提示词里手写 <break>。间隔只影响逐条发送。',
               style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDefaultTriggerSection() {
+    final usesRegex = _defaultTriggerMode == 'REGEX' ||
+        _defaultTriggerMode == 'MENTION_OR_REGEX';
+    final needsValue = usesRegex ||
+        _defaultTriggerMode == 'KEYWORD' ||
+        _defaultTriggerMode == 'MENTION_OR_KEYWORD';
+    return PMCard(
+      elevated: false,
+      background: AppColors.cloud,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(
+            children: [
+              Icon(Icons.bolt_outlined, color: AppColors.primary),
+              SizedBox(width: PMSpacing.s),
+              Expanded(
+                child: Text(
+                  '接入群聊时的默认触发',
+                  style: TextStyle(fontWeight: FontWeight.w900),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: PMSpacing.s),
+          const Text(
+            '新接入的群会继承这里的规则；群管理员仍可在群内 Bot 配置中单独覆盖。',
+            style: TextStyle(color: AppColors.textSecondary),
+          ),
+          const SizedBox(height: PMSpacing.m),
+          Wrap(
+            spacing: PMSpacing.s,
+            runSpacing: PMSpacing.s,
+            children: [
+              for (final option in const [
+                ('MENTION', '仅提及', Icons.alternate_email),
+                ('MENTION_OR_KEYWORD', '提及或关键词', Icons.key_outlined),
+                ('MENTION_OR_REGEX', '提及或正则', Icons.data_object),
+                ('KEYWORD', '仅关键词', Icons.key),
+                ('REGEX', '仅正则', Icons.code),
+                ('ALL', '全部消息', Icons.all_inclusive),
+              ])
+                PMChip(
+                  label: option.$2,
+                  icon: option.$3,
+                  selected: _defaultTriggerMode == option.$1,
+                  onTap: () => setState(() => _defaultTriggerMode = option.$1),
+                ),
+            ],
+          ),
+          if (needsValue) ...[
+            const SizedBox(height: PMSpacing.m),
+            TextFormField(
+              key: const Key('bot-default-trigger-value'),
+              controller: _defaultTriggerController,
+              decoration: InputDecoration(
+                labelText: usesRegex ? '正则表达式' : '关键词',
+                hintText: usesRegex ? r'例如：^/chat(?:\s|$)' : '用逗号分隔，例如：阿雷, 雷帝',
+                helperText: usesRegex
+                    ? '阿雷/QQbot 的等价规则是“提及或 ^/chat 开头”。'
+                    : '任一关键词命中就会触发。',
+              ),
+              validator: (value) {
+                if (needsValue && (value == null || value.trim().isEmpty)) {
+                  return usesRegex ? '请填写正则表达式' : '请填写至少一个关键词';
+                }
+                return null;
+              },
             ),
           ],
         ],
@@ -1272,6 +1355,10 @@ class _BotEditScreenState extends State<BotEditScreen> {
       historyImageInspectionEnabled: _historyImageInspectionEnabled,
       replyMode: _replyMode,
       replyIntervalSeconds: _replyIntervalSeconds,
+      defaultTriggerMode: _defaultTriggerMode,
+      defaultTriggerKeywords: _defaultTriggerController.text.trim().isEmpty
+          ? null
+          : _defaultTriggerController.text.trim(),
       isActive: widget.bot?.isActive ?? true,
       enabledTools: _composeEnabledTools(),
       accessPolicy: _accessPolicy,

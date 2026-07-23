@@ -29,6 +29,8 @@ class BotConfig {
   final bool historyImageInspectionEnabled;
   final String replyMode;
   final double replyIntervalSeconds;
+  final String defaultTriggerMode;
+  final String? defaultTriggerKeywords;
   final String workflowMode;
   final String imageGenerationProvider;
   final int? imageProviderCredentialId;
@@ -81,6 +83,8 @@ class BotConfig {
     this.historyImageInspectionEnabled = true,
     this.replyMode = 'SINGLE',
     this.replyIntervalSeconds = 2.0,
+    this.defaultTriggerMode = 'MENTION',
+    this.defaultTriggerKeywords,
     this.workflowMode = 'SINGLE_PASS',
     this.imageGenerationProvider = 'HERMES',
     this.imageProviderCredentialId,
@@ -136,6 +140,8 @@ class BotConfig {
       replyMode: json['replyMode']?.toString() ?? 'SINGLE',
       replyIntervalSeconds:
           (json['replyIntervalSeconds'] as num?)?.toDouble() ?? 2.0,
+      defaultTriggerMode: json['defaultTriggerMode']?.toString() ?? 'MENTION',
+      defaultTriggerKeywords: json['defaultTriggerKeywords']?.toString(),
       workflowMode: json['workflowMode']?.toString() ?? 'SINGLE_PASS',
       imageGenerationProvider:
           json['imageGenerationProvider']?.toString() ?? 'HERMES',
@@ -214,6 +220,9 @@ class BotConfig {
         'historyImageInspectionEnabled': historyImageInspectionEnabled,
         'replyMode': replyMode,
         'replyIntervalSeconds': replyIntervalSeconds,
+        'defaultTriggerMode': defaultTriggerMode,
+        if (defaultTriggerKeywords != null)
+          'defaultTriggerKeywords': defaultTriggerKeywords,
         'workflowMode': workflowMode,
         'imageGenerationProvider': imageGenerationProvider,
         if (imageProviderCredentialId != null)

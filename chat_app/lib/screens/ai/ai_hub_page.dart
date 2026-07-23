@@ -1032,7 +1032,6 @@ class _AiHubPageState extends State<AiHubPage>
       await _botService.addBotToRoom(
         int.parse(room.id),
         selectedBot!.id!,
-        triggerMode: 'MENTION',
       );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(

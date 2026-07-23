@@ -1219,6 +1219,8 @@ class _ChatRoomSettingsScreenState extends State<ChatRoomSettingsScreen> {
     return switch ((mode ?? 'MENTION').toUpperCase()) {
       'KEYWORD' => '关键词触发',
       'REGEX' => '正则触发',
+      'MENTION_OR_KEYWORD' => '提及或关键词',
+      'MENTION_OR_REGEX' => '提及或正则',
       'ALL' => '全消息触发',
       _ => '提及触发',
     };
@@ -1228,6 +1230,8 @@ class _ChatRoomSettingsScreenState extends State<ChatRoomSettingsScreen> {
     return switch ((mode ?? 'MENTION').toUpperCase()) {
       'KEYWORD' => Icons.key,
       'REGEX' => Icons.data_object,
+      'MENTION_OR_KEYWORD' => Icons.key_outlined,
+      'MENTION_OR_REGEX' => Icons.data_object,
       'ALL' => Icons.all_inclusive,
       _ => Icons.alternate_email,
     };

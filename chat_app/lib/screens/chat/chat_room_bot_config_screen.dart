@@ -177,6 +177,8 @@ class _ChatRoomBotConfigScreenState extends State<ChatRoomBotConfigScreen> {
                           children: [
                             for (final mode in const [
                               'MENTION',
+                              'MENTION_OR_KEYWORD',
+                              'MENTION_OR_REGEX',
                               'KEYWORD',
                               'REGEX',
                               'ALL'
@@ -200,22 +202,26 @@ class _ChatRoomBotConfigScreenState extends State<ChatRoomBotConfigScreen> {
                       ),
                     ],
                   ),
-                  if (_triggerMode == 'KEYWORD' || _triggerMode == 'REGEX') ...[
+                  if (_triggerMode == 'KEYWORD' ||
+                      _triggerMode == 'REGEX' ||
+                      _triggerMode == 'MENTION_OR_KEYWORD' ||
+                      _triggerMode == 'MENTION_OR_REGEX') ...[
                     const SizedBox(height: PMSpacing.l),
                     PMSectionCard(
-                      title: _triggerMode == 'REGEX' ? '正则表达式' : '关键词',
+                      title: _triggerMode.contains('REGEX') ? '正则表达式' : '关键词',
                       children: [
                         Padding(
                           padding: const EdgeInsets.all(PMSpacing.m),
                           child: TextField(
                             controller: _keywordsController,
                             decoration: InputDecoration(
-                              labelText:
-                                  _triggerMode == 'REGEX' ? '正则表达式' : '关键词',
-                              hintText: _triggerMode == 'REGEX'
+                              labelText: _triggerMode.contains('REGEX')
+                                  ? '正则表达式'
+                                  : '关键词',
+                              hintText: _triggerMode.contains('REGEX')
                                   ? r'例如：(?i)(画图|draw)\s*[:：]'
                                   : '用逗号分隔，例如：总结, 帮我, PM',
-                              helperText: _triggerMode == 'REGEX'
+                              helperText: _triggerMode.contains('REGEX')
                                   ? '消息匹配该正则时触发；正则无效时服务端会跳过，不会影响群聊。'
                                   : '任一关键词命中即触发。',
                               border: const OutlineInputBorder(),
@@ -290,7 +296,11 @@ class _ChatRoomBotConfigScreenState extends State<ChatRoomBotConfigScreen> {
                             spacing: PMSpacing.s,
                             runSpacing: PMSpacing.s,
                             children: [
-                              for (final grant in const ['NONE', 'MUTE', 'KICK'])
+                              for (final grant in const [
+                                'NONE',
+                                'MUTE',
+                                'KICK'
+                              ])
                                 PMChip(
                                   label: _grantLabel(grant),
                                   icon: grant == 'NONE'
@@ -345,6 +355,8 @@ class _ChatRoomBotConfigScreenState extends State<ChatRoomBotConfigScreen> {
     return switch (mode) {
       'KEYWORD' => '关键词',
       'REGEX' => '正则',
+      'MENTION_OR_KEYWORD' => '提及或关键词',
+      'MENTION_OR_REGEX' => '提及或正则',
       'ALL' => '全部消息',
       _ => '提及',
     };
