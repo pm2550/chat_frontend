@@ -9,6 +9,7 @@ import 'package:chat_app/widgets/message_bubble.dart';
 import 'package:chat_app/widgets/chat_video_thumbnail.dart';
 import 'package:chat_app/models/message.dart';
 import 'package:chat_app/models/poll.dart';
+import 'package:chat_app/widgets/qq_face_message.dart';
 
 void main() {
   setUp(MessageBubble.clearImageCacheForTesting);
@@ -156,6 +157,37 @@ void main() {
       ));
 
       expect(find.text('你好，世界！'), findsOneWidget);
+    });
+
+    testWidgets('renders Kirara QQ face 11 as the bundled angry expression',
+        (tester) async {
+      final message = createMessage(content: '[face:11]', botConfigId: 'alei');
+
+      await tester.pumpWidget(buildTestWidget(
+        MessageBubble(message: message, isMe: false),
+      ));
+
+      expect(find.byType(QqFaceMessage), findsOneWidget);
+      expect(find.bySemanticsLabel('QQ 表情：发怒'), findsOneWidget);
+      expect(find.text('[face:11]'), findsNothing);
+      final image = tester.widget<Image>(find.byType(Image));
+      expect(image.image, isA<AssetImage>());
+      expect(
+        (image.image as AssetImage).assetName,
+        'assets/images/qq_faces/face_11.png',
+      );
+    });
+
+    testWidgets('keeps unknown standalone QQ faces readable', (tester) async {
+      final message =
+          createMessage(content: '[face:999999]', botConfigId: 'alei');
+
+      await tester.pumpWidget(buildTestWidget(
+        MessageBubble(message: message, isMe: false),
+      ));
+
+      expect(find.byType(QqFaceMessage), findsOneWidget);
+      expect(find.text('QQ 表情 #999999'), findsOneWidget);
     });
 
     testWidgets('loads and renders link preview for text messages',

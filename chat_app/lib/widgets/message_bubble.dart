@@ -14,6 +14,7 @@ import '../models/message.dart';
 import '../models/poll.dart';
 import '../services/auth_service.dart';
 import 'chat_video_thumbnail.dart';
+import 'qq_face_message.dart';
 
 typedef ImageBytesLoader = Future<Uint8List> Function(String fileUrl);
 typedef LinkPreviewLoader = Future<LinkPreview?> Function(String url);
@@ -78,6 +79,7 @@ class MessageBubble extends StatelessWidget {
     );
     final showSenderLabel =
         message.isAnonymous || message.isBotMessage || (!isMe && showAvatar);
+    final qqFace = QqFaceCatalog.parseStandalone(message.content);
 
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
@@ -107,9 +109,12 @@ class MessageBubble extends StatelessWidget {
                     child: _buildSenderLabel(anonymousColor),
                   ),
                 Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 13, vertical: 9),
-                  decoration: bubbleVisual.decoration,
+                  padding: qqFace == null
+                      ? const EdgeInsets.symmetric(horizontal: 13, vertical: 9)
+                      : EdgeInsets.zero,
+                  decoration: qqFace == null
+                      ? bubbleVisual.decoration
+                      : const BoxDecoration(),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -439,6 +444,10 @@ class MessageBubble extends StatelessWidget {
     }
     if (message.isStickerMessage) {
       return _buildStickerMessage();
+    }
+    final qqFace = QqFaceCatalog.parseStandalone(message.content);
+    if (qqFace != null) {
+      return QqFaceMessage(face: qqFace);
     }
     if (message.isPollMessage) {
       return _buildPollMessage();
