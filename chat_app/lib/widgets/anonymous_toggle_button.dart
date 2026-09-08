@@ -63,13 +63,13 @@ class _AnonymousToggleButtonState extends State<AnonymousToggleButton> {
     final label = enabled
         ? _isAnonymous
             ? '匿名 · ${_currentIdentity!.anonymousName}'
-            : '实名'
-        : '实名';
+            : '真名'
+        : '真名';
     final color = _isAnonymous ? _anonymousColor : AppColors.primary;
 
     if (widget.compact) {
       return Tooltip(
-        message: enabled ? label : '群管理员未开启匿名',
+        message: enabled ? '$label（长按选一直匿名 / 每条自己选）' : '群管理员未开启匿名',
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 2),
           child: InkWell(
@@ -114,7 +114,7 @@ class _AnonymousToggleButtonState extends State<AnonymousToggleButton> {
     }
 
     return Tooltip(
-      message: enabled ? '切换匿名身份' : '群管理员未开启匿名',
+      message: enabled ? '点一下开关匿名，长按选一直匿名 / 每条自己选' : '群管理员未开启匿名',
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 3),
         child: InkWell(
@@ -256,7 +256,7 @@ class _AnonymousToggleButtonState extends State<AnonymousToggleButton> {
                 PMDialogHeader(
                   title: '匿名身份',
                   subtitle: identity.theme?.displayName == null
-                      ? '当前匿名 persona'
+                      ? '你现在的匿名身份'
                       : '主题：${identity.theme!.displayName}',
                 ),
                 const SizedBox(height: PMSpacing.l),
@@ -285,7 +285,7 @@ class _AnonymousToggleButtonState extends State<AnonymousToggleButton> {
                   runSpacing: PMSpacing.s,
                   children: [
                     PMChip(
-                      label: '持续匿名',
+                      label: '一直匿名',
                       selected: !widget.perMessageMode,
                       color: _anonymousColor,
                       onTap: () {
@@ -294,8 +294,9 @@ class _AnonymousToggleButtonState extends State<AnonymousToggleButton> {
                       },
                     ),
                     PMChip(
-                      label:
-                          widget.nextMessageAnonymous ? '逐条选择 · 下条匿名' : '逐条选择',
+                      label: widget.nextMessageAnonymous
+                          ? '每条自己选 · 下一条匿名'
+                          : '每条自己选',
                       selected: widget.perMessageMode,
                       color: _anonymousColor,
                       onTap: () {
@@ -304,6 +305,18 @@ class _AnonymousToggleButtonState extends State<AnonymousToggleButton> {
                       },
                     ),
                   ],
+                ),
+                const SizedBox(height: PMSpacing.s),
+                Text(
+                  widget.perMessageMode
+                      ? '每条自己选：每发出一条就自动回到真名，想匿名的那条再点一下匿名。'
+                      : '一直匿名：接下来每条都匿名，直到你点「退出匿名」。',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    color: AppColors.textSecondary,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
                 const SizedBox(height: PMSpacing.s),
                 Text(
@@ -319,7 +332,7 @@ class _AnonymousToggleButtonState extends State<AnonymousToggleButton> {
                 ),
                 const SizedBox(height: PMSpacing.l),
                 PMButton(
-                  label: '换一个 persona',
+                  label: '换一个匿名身份',
                   icon: Icons.casino_outlined,
                   onPressed: () {
                     Navigator.of(context).pop();

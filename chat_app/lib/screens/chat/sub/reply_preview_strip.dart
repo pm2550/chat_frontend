@@ -104,8 +104,10 @@ extension _ChatScreenAnonymousParts on _ChatScreenState {
           Expanded(
             child: Text(
               active
-                  ? '匿名发送中：${_anonymousIdentity!.anonymousName}'
-                  : '本房间已开启匿名模式，点击输入框左侧匿名按钮后发送将隐藏真实身份。',
+                  ? (_shouldSendAnonymous()
+                      ? '这条会匿名发送：${_anonymousIdentity!.anonymousName}'
+                      : '这条会用你自己的名字发送')
+                  : '这个群可以匿名说话。点输入框左边的匿名按钮，别人就看不到是你发的。',
               maxLines: isDesktop ? 1 : 2,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
@@ -121,13 +123,14 @@ extension _ChatScreenAnonymousParts on _ChatScreenState {
           ],
           if (active) ...[
             const SizedBox(width: 6),
-            TextButton(
-              onPressed: _toggleAnonymousSendMode,
-              child: Text(
-                _anonymousPerMessageMode
-                    ? (_anonymousNextMessage ? '逐条 · 匿名' : '逐条 · 实名')
-                    : '持续匿名',
-                style: TextStyle(color: accent),
+            Tooltip(
+              message: '点一下换：一直匿名 → 下一条匿名 → 下一条用真名',
+              child: TextButton(
+                onPressed: _toggleAnonymousSendMode,
+                child: Text(
+                  _anonymousSendModeLabel(),
+                  style: TextStyle(color: accent),
+                ),
               ),
             ),
             const SizedBox(width: 6),
@@ -138,8 +141,8 @@ extension _ChatScreenAnonymousParts on _ChatScreenState {
               icon: Icon(Icons.casino_outlined, size: 16, color: accent),
               label: Text(
                 _anonymousQuota == null
-                    ? '重抽'
-                    : '重抽 · 剩 ${_anonymousQuota!.remaining}',
+                    ? '换个名字'
+                    : '换个名字 · 还能换 ${_anonymousQuota!.remaining} 次',
                 style: TextStyle(color: accent),
               ),
             ),
@@ -181,7 +184,7 @@ extension _ChatScreenAnonymousParts on _ChatScreenState {
       if (mounted) {
         _setViewState(() => _anonymousQuota = quota);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(result.message ?? '今日匿名身份切换次数已用完，请明天再试')),
+          SnackBar(content: Text(result.message ?? '今天换名字的次数用完了，明天再来')),
         );
       }
       return;
@@ -189,7 +192,7 @@ extension _ChatScreenAnonymousParts on _ChatScreenState {
     final identity = result.identity;
     if (identity == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(result.message ?? '匿名身份重抽失败')),
+        SnackBar(content: Text(result.message ?? '换名字失败了，稍后再试')),
       );
       return;
     }
@@ -222,20 +225,36 @@ extension _ChatScreenAnonymousParts on _ChatScreenState {
     }
   }
 
+  String _anonymousSendModeLabel() {
+    if (!_anonymousPerMessageMode) return '一直匿名';
+    return _anonymousNextMessage ? '下一条匿名' : '下一条用真名';
+  }
+
+  /// 三档循环：一直匿名 → 下一条匿名 → 下一条用真名 → 一直匿名。
   void _toggleAnonymousSendMode() {
+    final bool nextPerMessage;
+    final bool nextAnonymous;
+    if (!_anonymousPerMessageMode) {
+      nextPerMessage = true;
+      nextAnonymous = true;
+    } else if (_anonymousNextMessage) {
+      nextPerMessage = true;
+      nextAnonymous = false;
+    } else {
+      nextPerMessage = false;
+      nextAnonymous = false;
+    }
     _setViewState(() {
-      if (_anonymousPerMessageMode) {
-        _anonymousNextMessage = !_anonymousNextMessage;
-      } else {
-        _anonymousPerMessageMode = true;
-        _anonymousNextMessage = true;
-      }
+      _anonymousPerMessageMode = nextPerMessage;
+      _anonymousNextMessage = nextAnonymous;
     });
     final roomId = int.tryParse(_chat.id);
     if (roomId != null) {
       unawaited(_anonymousService.setMode(
         roomId,
-        ChatAnonymousMode.perMessage,
+        nextPerMessage
+            ? ChatAnonymousMode.perMessage
+            : ChatAnonymousMode.sticky,
       ));
     }
   }
