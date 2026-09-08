@@ -281,8 +281,8 @@ void main() {
     );
     await pumpEditor(tester, bot, service);
 
-    await tester.ensureVisible(find.text('原文直达'));
-    await tester.tap(find.text('原文直达'));
+    await tester.ensureVisible(find.text('直接出图'));
+    await tester.tap(find.text('直接出图'));
     await tester.pumpAndSettle();
 
     final saveButton = find.text('保存 Bot').last;
@@ -292,6 +292,38 @@ void main() {
 
     expect(service.savedConfig!.imageInvocationMode, 'DIRECT');
     expect(service.savedConfig!.imagePromptMode, 'ANIME_CREATIVE');
+    expect(
+      service.savedConfig!.imageRewriteFailurePolicy,
+      'USE_SOURCE_PROMPT',
+    );
+  });
+
+  testWidgets('NovelAI lets owners stop instead of falling back after rewrite failure',
+      (tester) async {
+    final service = _CapturingBotService();
+    final bot = BotConfig(
+      id: 13,
+      botName: 'rewrite-policy-bot',
+      llmProvider: 'HERMES',
+      enabledTools: const ['generate_image'],
+      imageGenerationProvider: 'NOVELAI',
+    );
+    await pumpEditor(tester, bot, service);
+
+    await tester.ensureVisible(find.text('停止并提示'));
+    await tester.tap(find.text('停止并提示'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.widgetWithText(TextField, '图片 API Key'),
+      'novel-secret',
+    );
+
+    final saveButton = find.text('保存 Bot').last;
+    await tester.ensureVisible(saveButton);
+    await tester.tap(saveButton);
+    await tester.pumpAndSettle();
+
+    expect(service.savedConfig!.imageRewriteFailurePolicy, 'FAIL');
   });
 
   testWidgets('Kimi Code provider selects the kimi-code default model',

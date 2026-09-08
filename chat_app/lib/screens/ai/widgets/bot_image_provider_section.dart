@@ -17,10 +17,12 @@ class BotImageProviderSection extends StatelessWidget {
     required this.negativePromptController,
     required this.promptMode,
     required this.invocationMode,
+    required this.rewriteFailurePolicy,
     required this.onProviderChanged,
     required this.onCredentialChanged,
     required this.onPromptModeChanged,
     required this.onInvocationModeChanged,
+    required this.onRewriteFailurePolicyChanged,
     required this.onModelChanged,
     this.currentCredentialLabel,
     this.currentCredentialLast4,
@@ -36,10 +38,12 @@ class BotImageProviderSection extends StatelessWidget {
   final TextEditingController negativePromptController;
   final String promptMode;
   final String invocationMode;
+  final String rewriteFailurePolicy;
   final ValueChanged<String> onProviderChanged;
   final ValueChanged<int?> onCredentialChanged;
   final ValueChanged<String> onPromptModeChanged;
   final ValueChanged<String> onInvocationModeChanged;
+  final ValueChanged<String> onRewriteFailurePolicyChanged;
   final ValueChanged<String> onModelChanged;
   final String? currentCredentialLabel;
   final String? currentCredentialLast4;
@@ -78,7 +82,7 @@ class BotImageProviderSection extends StatelessWidget {
           const SizedBox(height: PMSpacing.xs),
           Text(
             invocationMode == 'DIRECT'
-                ? '原文直达只移除触发用的 @Bot，不经过文字模型或提示词转写；全局负面提示词仍独立发送。'
+                ? '直接出图只跳过 Agent 的工具决策；是否转写仍由下方中文提示词模式决定。全局负面提示词始终独立发送。'
                 : '智能调用由文字模型结合上下文决定是否画图，并按下面选择的提示词模式处理。',
             style: const TextStyle(color: AppColors.textSecondary),
           ),
@@ -93,7 +97,7 @@ class BotImageProviderSection extends StatelessWidget {
                 onTap: () => onInvocationModeChanged('AGENT'),
               ),
               PMChip(
-                label: '原文直达',
+                label: '直接出图',
                 selected: invocationMode == 'DIRECT',
                 onTap: () => onInvocationModeChanged('DIRECT'),
               ),
@@ -238,6 +242,40 @@ class BotImageProviderSection extends StatelessWidget {
                   ),
                 ],
               ),
+              if (promptMode != 'VERBATIM') ...[
+                const SizedBox(height: PMSpacing.m),
+                const Text(
+                  '润色不可用时',
+                  style: TextStyle(
+                    color: AppColors.textPrimary,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: PMSpacing.xs),
+                const Text(
+                  '默认按用户原文继续调用 NovelAI；不会在这里替图片服务作内容判断。',
+                  style: TextStyle(color: AppColors.textSecondary),
+                ),
+                const SizedBox(height: PMSpacing.s),
+                Wrap(
+                  spacing: PMSpacing.s,
+                  runSpacing: PMSpacing.s,
+                  children: [
+                    PMChip(
+                      label: '按原文继续 · 推荐',
+                      selected: rewriteFailurePolicy == 'USE_SOURCE_PROMPT',
+                      onTap: () => onRewriteFailurePolicyChanged(
+                        'USE_SOURCE_PROMPT',
+                      ),
+                    ),
+                    PMChip(
+                      label: '停止并提示',
+                      selected: rewriteFailurePolicy == 'FAIL',
+                      onTap: () => onRewriteFailurePolicyChanged('FAIL'),
+                    ),
+                  ],
+                ),
+              ],
               const SizedBox(height: PMSpacing.m),
               TextField(
                 controller: negativePromptController,
