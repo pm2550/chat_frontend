@@ -7,11 +7,52 @@ extension _ChatScreenDragPasteUploadParts on _ChatScreenState {
       onDragEntered: _showDragUploadOverlay,
       onDragExited: _hideDragUploadOverlay,
       onFilesDropped: _sendDroppedFiles,
-      onPasteImage: (file) => _sendPickedFile(
-        file,
-        messageType: MessageType.image,
+      // 粘贴的图片先排进发送栏，由用户按发送键决定什么时候发出。
+      onPasteImage: (file) async => _queuePendingAttachment(
+        _PendingAttachment.file(file, messageType: MessageType.image),
       ),
+      onPasteImageUrl: _queuePastedImageUrl,
     );
+  }
+
+  /// 粘贴网页图片时剪贴板里只有第三方地址，浏览器读不到跨域字节，
+  /// 先让服务端代取回来，好在发送栏里显示真实缩略图；取不到就先占位排队。
+  Future<void> _queuePastedImageUrl(String url) async {
+    try {
+      final file = await _chatService.fetchRemoteImage(url);
+      _queuePendingAttachment(
+        _PendingAttachment.file(file, messageType: MessageType.image),
+      );
+    } catch (_) {
+      _queuePendingAttachment(_PendingAttachment.remoteImage(url));
+    }
+  }
+
+  /// 粘贴网页图片时剪贴板里只有第三方地址，浏览器取不到，交服务端代抓。
+  Future<void> _sendPastedImageUrl(String url) async {
+    _setViewState(() {
+      _isSendingAttachment = true;
+    });
+    try {
+      final sent = await _chatService.sendImageFromUrl(_chat.id, url);
+      _upsertMessage(sent);
+      _scrollToBottom();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('粘贴的图片没能发出去: $e'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        _setViewState(() {
+          _isSendingAttachment = false;
+        });
+      }
+    }
   }
 
   void _showDragUploadOverlay(int fileCount) {

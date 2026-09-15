@@ -3,6 +3,9 @@ part of '../chat_screen.dart';
 extension _ChatScreenComposerParts on _ChatScreenState {
   Future<void> _sendMessage() async {
     final content = _messageController.text.trim();
+    if (content.isEmpty && !_hasPendingAttachments) return;
+    // 粘贴进来的图片先排在发送栏里，这一下才真正发出去。
+    await _sendPendingAttachments();
     if (content.isEmpty) return;
     final replyToMessage = _replyingToMessage;
     final replyToId = replyToMessage?.id;
@@ -408,6 +411,7 @@ extension _ChatScreenComposerParts on _ChatScreenState {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
+          _buildPendingAttachmentsStrip(),
           _buildReplyPreviewStrip(),
           _buildMentionPickerPanel(),
           _buildAnonymousIdentityHint(),
@@ -458,7 +462,7 @@ extension _ChatScreenComposerParts on _ChatScreenState {
                 ),
               ),
               const SizedBox(width: 8),
-              _isTyping
+              _isTyping || _hasPendingAttachments
                   ? _buildInputIconButton(
                       symbol: PMSymbol.send,
                       onPressed: _sendMessage,

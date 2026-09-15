@@ -1098,6 +1098,48 @@ class ChatDataService {
     return Message.fromJson(messageJson, fallbackChatRoomId: chatRoomId);
   }
 
+  /// 把远程图片取回来（不发消息），用于粘贴后在发送栏里预览。
+  Future<PickedChatFile> fetchRemoteImage(String url) async {
+    final response = await _request(
+      'POST',
+      ApiConstants.fetchRemoteImage,
+      body: {'url': url},
+    );
+    final data = _decodeResponse(response);
+    final payload = data['data'];
+    if (payload is! Map<String, dynamic>) {
+      throw const ChatDataException('响应中没有图片数据');
+    }
+    final base64Content = payload['base64'];
+    if (base64Content is! String || base64Content.isEmpty) {
+      throw const ChatDataException('响应中没有图片内容');
+    }
+    final bytes = base64Decode(base64Content);
+    return PickedChatFile(
+      name: payload['fileName']?.toString() ?? 'paste.png',
+      size: bytes.length,
+      mimeType: payload['contentType']?.toString(),
+      bytes: bytes,
+    );
+  }
+
+  /// 按图片地址发图：粘贴网页图片时剪贴板里只有远程 URL，
+  /// 浏览器 fetch 会被 CORS 挡住，交给服务端代抓。
+  Future<Message> sendImageFromUrl(String chatRoomId, String url) async {
+    final roomId = _parseRoomId(chatRoomId);
+    final response = await _request(
+      'POST',
+      ApiConstants.sendFileFromUrl,
+      body: {'chatRoomId': roomId, 'url': url},
+    );
+    final data = _decodeResponse(response);
+    final messageJson = data['data'];
+    if (messageJson is! Map<String, dynamic>) {
+      throw const ChatDataException('发送成功但响应中没有图片消息数据');
+    }
+    return Message.fromJson(messageJson, fallbackChatRoomId: chatRoomId);
+  }
+
   Future<MessagePage> searchMessages(
     String chatRoomId,
     String keyword, {

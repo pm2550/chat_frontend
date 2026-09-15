@@ -134,6 +134,9 @@ class ApiConstants {
   // Message endpoints
   static const String sendMessage = '$apiBaseUrl/messages';
   static const String sendFileMessage = '$apiBaseUrl/messages/file';
+  static const String sendFileFromUrl =
+      '$apiBaseUrl/messages/file-from-url';
+  static const String fetchRemoteImage = '$apiBaseUrl/messages/remote-image';
   static const String generateImage = '$apiBaseUrl/images/generate';
   static String chatRoomMessages(int roomId) =>
       '$apiBaseUrl/messages/chat-room/$roomId';

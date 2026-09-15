@@ -64,6 +64,7 @@ part 'sub/poll_card.dart';
 part 'sub/link_preview_card.dart';
 part 'sub/announcement_banner.dart';
 part 'sub/drag_paste_upload.dart';
+part 'sub/pending_attachments_strip.dart';
 
 typedef ChatAttachmentPicker = Future<PickedChatFile?> Function();
 
@@ -200,6 +201,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   bool _showAnnouncementBanner = false;
   String? _announcementSeenKey;
   ChatDropPasteController? _dropPasteController;
+  final List<_PendingAttachment> _pendingAttachments = [];
   bool _isDragUploadActive = false;
   int _dragUploadFileCount = 0;
   UserAppSettings _appSettings = const UserAppSettings();
@@ -1100,6 +1102,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
+                  _buildPendingAttachmentsStrip(),
                   _buildReplyPreviewStrip(),
                   _buildMentionPickerPanel(),
                   _buildAnonymousIdentityHint(),
@@ -1200,7 +1203,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   }
 
   Widget _buildComposerSubmitButton() {
-    return _isTyping
+    return _isTyping || _hasPendingAttachments
         ? _buildInputIconButton(
             symbol: PMSymbol.send,
             onPressed: _sendMessage,
