@@ -6,7 +6,7 @@ extension _ChatScreenDragPasteUploadParts on _ChatScreenState {
     _dropPasteController = attachChatDropPasteHandlers(
       onDragEntered: _showDragUploadOverlay,
       onDragExited: _hideDragUploadOverlay,
-      onFilesDropped: _sendDroppedFiles,
+      onFilesDropped: _queueDroppedFiles,
       // 粘贴的图片先排进发送栏，由用户按发送键决定什么时候发出。
       onPasteImage: (file) async => _queuePendingAttachment(
         _PendingAttachment.file(file, messageType: MessageType.image),
@@ -69,12 +69,15 @@ extension _ChatScreenDragPasteUploadParts on _ChatScreenState {
     });
   }
 
-  Future<void> _sendDroppedFiles(List<PickedChatFile> files) async {
+  /// 拖进来的文件和粘贴一样，先排进发送栏，由用户按发送键决定何时发出。
+  Future<void> _queueDroppedFiles(List<PickedChatFile> files) async {
     _hideDragUploadOverlay();
     for (final file in files) {
-      await _sendPickedFile(
-        file,
-        messageType: _messageTypeForPickedFile(file),
+      _queuePendingAttachment(
+        _PendingAttachment.file(
+          file,
+          messageType: _messageTypeForPickedFile(file),
+        ),
       );
     }
   }
@@ -97,7 +100,7 @@ extension _ChatScreenDragPasteUploadParts on _ChatScreenState {
       },
       onLeave: (_) => _hideDragUploadOverlay(),
       onAcceptWithDetails: (details) {
-        unawaited(_sendDroppedFiles(details.data));
+        unawaited(_queueDroppedFiles(details.data));
       },
       builder: (context, candidateData, rejectedData) {
         return Stack(

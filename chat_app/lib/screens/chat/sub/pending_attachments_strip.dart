@@ -19,6 +19,20 @@ class _PendingAttachment {
     final segments = uri?.pathSegments ?? const [];
     return segments.isEmpty ? '网页图片' : segments.last;
   }
+
+  /// 缩略图能不能直接画出来（远程图已在入队时取回字节，所以只看本地文件）。
+  bool get isImage {
+    if (remoteUrl != null) return true;
+    final mimeType = file?.mimeType?.toLowerCase();
+    if (mimeType != null) return mimeType.startsWith('image/');
+    return messageType == MessageType.image;
+  }
+
+  bool get isVideo {
+    final mimeType = file?.mimeType?.toLowerCase();
+    if (mimeType != null && mimeType.startsWith('video/')) return true;
+    return messageType == MessageType.video;
+  }
 }
 
 extension _ChatScreenPendingAttachmentParts on _ChatScreenState {
@@ -77,7 +91,7 @@ extension _ChatScreenPendingAttachmentParts on _ChatScreenState {
                 bottom: PMSpacing.s,
               ),
               child: Text(
-                '${_pendingAttachments.length} 张待发送图片 · 按发送键发出',
+                _pendingAttachmentsSummary(),
                 style: const TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w700,
@@ -101,11 +115,18 @@ extension _ChatScreenPendingAttachmentParts on _ChatScreenState {
     );
   }
 
+  String _pendingAttachmentsSummary() {
+    final count = _pendingAttachments.length;
+    final allImages = _pendingAttachments.every((item) => item.isImage);
+    final unit = allImages ? '张待发送图片' : '个待发送文件';
+    return '$count$unit · 按发送键发出';
+  }
+
   Widget _buildPendingAttachmentTile(int index) {
     final attachment = _pendingAttachments[index];
     return SizedBox(
       key: ValueKey('chat-pending-attachment-$index'),
-      width: 72,
+      width: attachment.isImage ? 72 : 132,
       height: 72,
       child: Stack(
         children: [
@@ -148,6 +169,9 @@ extension _ChatScreenPendingAttachmentParts on _ChatScreenState {
   }
 
   Widget _buildPendingAttachmentPreview(_PendingAttachment attachment) {
+    if (!attachment.isImage) {
+      return _buildPendingFileCard(attachment);
+    }
     final bytes = attachment.file?.bytes;
     if (bytes != null && bytes.isNotEmpty) {
       return Image.memory(
@@ -165,6 +189,45 @@ extension _ChatScreenPendingAttachmentParts on _ChatScreenState {
       );
     }
     return _buildPendingAttachmentFallback();
+  }
+
+  Widget _buildPendingFileCard(_PendingAttachment attachment) {
+    final size = attachment.file?.size ?? 0;
+    return Padding(
+      padding: const EdgeInsets.all(PMSpacing.s),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(
+            attachment.isVideo
+                ? Icons.videocam_rounded
+                : Icons.insert_drive_file_rounded,
+            size: 22,
+            color: AppColors.primary,
+          ),
+          const SizedBox(height: PMSpacing.xs),
+          Text(
+            attachment.label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+              color: AppColors.textPrimary,
+            ),
+          ),
+          if (size > 0)
+            Text(
+              _formatFileSize(size),
+              style: const TextStyle(
+                fontSize: 10,
+                color: AppColors.textSecondary,
+              ),
+            ),
+        ],
+      ),
+    );
   }
 
   Widget _buildPendingAttachmentFallback() {
