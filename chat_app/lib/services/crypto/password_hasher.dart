@@ -2,8 +2,8 @@ import 'dart:convert';
 import 'dart:math';
 import 'dart:typed_data';
 
-import 'package:pointycastle/key_derivators/api.dart';
-import 'package:pointycastle/key_derivators/argon2.dart';
+import 'argon2_backend.dart';
+import 'argon2_pointycastle.dart';
 
 class ClientPasswordHash {
   const ClientPasswordHash({
@@ -62,23 +62,25 @@ class PasswordHasher {
     required String argon2Params,
   }) async {
     final parsed = _parseParams(argon2Params);
-    final generator = Argon2BytesGenerator()
-      ..init(Argon2Parameters(
-        Argon2Parameters.ARGON2_id,
-        _base64UrlDecode(salt),
-        desiredKeyLength: parsed.hashLen,
-        iterations: parsed.iterations,
-        memory: parsed.memoryKb,
-        lanes: parsed.parallelism,
-        version: parsed.version,
-      ));
-
-    final output = Uint8List(parsed.hashLen);
     final input = Uint8List.fromList(utf8.encode(password));
-    generator.deriveKey(input, 0, output, 0);
-    _zero(input);
-    return _base64UrlNoPadding(output);
+    try {
+      final output = await deriveArgon2id(Argon2idRequest(
+        password: input,
+        salt: _base64UrlDecode(salt),
+        memoryKb: parsed.memoryKb,
+        iterations: parsed.iterations,
+        parallelism: parsed.parallelism,
+        version: parsed.version,
+        hashLen: parsed.hashLen,
+      ));
+      return _base64UrlNoPadding(output);
+    } finally {
+      _zero(input);
+    }
   }
+
+  /// 提前准备好 Argon2 实现（web 端会先拉取 WebAssembly 脚本）。
+  Future<void> warmUp() => warmUpArgon2id();
 
   _Argon2Params _parseParams(String value) {
     final match = _paramsPattern.firstMatch(value);

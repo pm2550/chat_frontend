@@ -60,6 +60,29 @@ void main() {
     expect(first, isNot(second));
   });
 
+  // 标准答案由独立实现 argon2-cffi 用线上参数算出：换 Argon2 实现后
+  // 输出必须逐字节不变，否则所有已有账号都登不上。
+  test('production params match the reference Argon2id output', () async {
+    final hasher = PasswordHasher();
+
+    expect(
+      await hasher.hashWithSalt(
+        password: 'Correct Horse Battery Staple',
+        salt: 'AAAAAAAAAAAAAAAAAAAAAA',
+        argon2Params: PasswordHasher.defaultArgon2Params,
+      ),
+      'xMqKcF4a1H3kZsHIFe9HwMWnZzbMaGpjGpKIfBukOSI',
+    );
+    expect(
+      await hasher.hashWithSalt(
+        password: '中文密码🔑 with space',
+        salt: 'AQEBAQEBAQEBAQEBAQEBAQ',
+        argon2Params: PasswordHasher.defaultArgon2Params,
+      ),
+      'BLocYGrlZOA_FgEOjnATYNARDz9sutTrHfhNJpOFpgI',
+    );
+  }, timeout: const Timeout(Duration(minutes: 2)));
+
   test('hashNewPassword produces a fresh base64url salt bundle', () async {
     final hasher = PasswordHasher();
     final bundle = await hasher.hashNewPassword('new-password');

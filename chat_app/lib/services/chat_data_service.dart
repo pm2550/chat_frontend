@@ -1713,10 +1713,19 @@ class ChatDataService {
     return '请求失败';
   }
 
+  /// 请求被 401 后已经试过续期仍失败：只有服务器明确拒绝了 refresh token 才算登录过期；
+  /// 否则是后端重启/网络抖动，给一句不会触发退出登录的提示。
+  String _sessionExpiredOrTransient() {
+    if (_authService.refreshTokenRejected) {
+      return '登录状态已过期，请重新登录';
+    }
+    return '暂时连不上服务器，稍后会自动重试';
+  }
+
   String _extractHttpError(int statusCode, String body) {
     final error = _extractError(body);
     if (statusCode == 401) {
-      return '登录状态已过期，请重新登录';
+      return _sessionExpiredOrTransient();
     }
     if (statusCode == 403) {
       final lower = error.toLowerCase();
@@ -1724,7 +1733,7 @@ class ChatDataService {
           lower.contains('jwt') ||
           lower.contains('token') ||
           lower.contains('authentication')) {
-        return '登录状态已过期，请重新登录';
+        return _sessionExpiredOrTransient();
       }
       return error == '请求失败' ? '没有权限访问此内容' : error;
     }

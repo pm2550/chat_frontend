@@ -109,6 +109,8 @@ class AuthService extends ChangeNotifier {
     notifyListeners();
 
     try {
+      // 拉盐参数的同时把 Argon2 实现准备好，两件事并行。
+      unawaited(_passwordHasher.warmUp());
       final saltParams = await _fetchClientSaltParams(username);
       final payload = <String, dynamic>{'username': username};
       final usedLegacyPath = !saltParams.isClientArgon2;
@@ -241,9 +243,29 @@ class AuthService extends ChangeNotifier {
     };
   }
 
-  /// Refresh access token using refresh token
-  Future<bool> refreshAccessToken() async {
-    if (_refreshToken == null) return false;
+  Future<bool>? _refreshInFlight;
+  bool _refreshTokenRejected = false;
+
+  /// 最近一次续期失败，是不是服务器明确拒绝了 refresh token。
+  ///
+  /// 只有这种情况才算登录失效；后端重启时的 502、超时、断网都只是暂时连不上，
+  /// 不能因此清掉会话把用户踢回登录页。
+  bool get refreshTokenRejected => _refreshTokenRejected;
+
+  /// Refresh access token using refresh token.
+  ///
+  /// 多个请求同时 401 时只发一次续期，其余等同一个结果。
+  Future<bool> refreshAccessToken() {
+    return _refreshInFlight ??= _refreshAccessTokenOnce().whenComplete(() {
+      _refreshInFlight = null;
+    });
+  }
+
+  Future<bool> _refreshAccessTokenOnce() async {
+    if (_refreshToken == null) {
+      _refreshTokenRejected = true;
+      return false;
+    }
 
     try {
       final response = await _post(
@@ -254,9 +276,18 @@ class AuthService extends ChangeNotifier {
         },
       ).timeout(ApiConstants.requestTimeout);
 
+      // 先按状态码判定：400/401/403 = 服务器看过这张 refresh token 并拒绝了
+      // （过期、被注销）；5xx 等是网关/后端暂时不可用，响应体也可能是 HTML。
+      if (response.statusCode != 200) {
+        _refreshTokenRejected = response.statusCode == 400 ||
+            response.statusCode == 401 ||
+            response.statusCode == 403;
+        return false;
+      }
+
       final data = jsonDecode(utf8.decode(response.bodyBytes));
 
-      if (response.statusCode == 200 && data['code'] == 200) {
+      if (data['code'] == 200) {
         final responseData = data['data'];
         _accessToken = responseData['accessToken'] ?? responseData['token'];
         if (responseData['refreshToken'] != null) {
@@ -264,11 +295,14 @@ class AuthService extends ChangeNotifier {
         }
         _currentUser = User.fromJson(responseData['user']);
         await _saveAuthData();
+        _refreshTokenRejected = false;
         notifyListeners();
         return true;
       }
+      _refreshTokenRejected = false;
     } catch (e) {
       debugPrint('Token refresh error: $e');
+      _refreshTokenRejected = false;
     }
     return false;
   }
