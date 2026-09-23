@@ -30,6 +30,12 @@ class ChatCallService extends ChangeNotifier {
   bool get isSupported => true;
 
   final Map<int, _PeerSession> _peers = {};
+
+  /// 对方的 ICE 候选常常比我们建好连接、设好远端描述更早到（被叫还在申请麦克风、
+  /// 处理 offer）。以前直接丢掉，只能靠直连时"反推"碰巧接通；需要 TURN 中继时
+  /// （两边都在运营商 NAT 后面）就一定接不通。先排队，设完远端描述再补上。
+  final Map<int, List<web.RTCIceCandidateInit>> _pendingIce = {};
+  static const int _maxPendingIcePerPeer = 64;
   final Map<int, Future<_PeerSession>> _pendingPeerSessions = {};
   web.MediaStream? _localStream;
   web.HTMLVideoElement? _localVideo;
@@ -443,6 +449,7 @@ class ChatCallService extends ChangeNotifier {
           sdp: signal['sdp']?.toString() ?? '',
         ))
         .toDart;
+    await _flushPendingIce(fromUserId, session);
     final answer = await session.pc.createAnswer().toDart;
     if (answer == null) {
       throw StateError('浏览器没有生成 WebRTC answer');
@@ -476,6 +483,7 @@ class ChatCallService extends ChangeNotifier {
           sdp: signal['sdp']?.toString() ?? '',
         ))
         .toDart;
+    await _flushPendingIce(fromUserId, session);
     _markPeerState(fromUserId, PeerConnectionState.connected);
   }
 
@@ -484,19 +492,42 @@ class ChatCallService extends ChangeNotifier {
     final fromUserId = _asInt(signal['fromUserId']);
     if (fromUserId == null) return;
     final session = _peers[fromUserId];
-    if (session == null) return;
 
     final rawCandidate = signal['candidate'];
     if (rawCandidate is! Map) return;
     final candidate = rawCandidate['candidate']?.toString();
     if (candidate == null || candidate.isEmpty) return;
-    await session.pc
-        .addIceCandidate(web.RTCIceCandidateInit(
-          candidate: candidate,
-          sdpMid: rawCandidate['sdpMid']?.toString(),
-          sdpMLineIndex: _asInt(rawCandidate['sdpMLineIndex']),
-        ))
-        .toDart;
+    final init = web.RTCIceCandidateInit(
+      candidate: candidate,
+      sdpMid: rawCandidate['sdpMid']?.toString(),
+      sdpMLineIndex: _asInt(rawCandidate['sdpMLineIndex']),
+    );
+    if (session == null || session.pc.remoteDescription == null) {
+      final queue = _pendingIce.putIfAbsent(fromUserId, () => []);
+      if (queue.length < _maxPendingIcePerPeer) queue.add(init);
+      return;
+    }
+    await _addIceCandidate(session, init);
+  }
+
+  /// 设完远端描述后，把之前排队的候选补进去。
+  Future<void> _flushPendingIce(int peerUserId, _PeerSession session) async {
+    final queued = _pendingIce.remove(peerUserId);
+    if (queued == null) return;
+    for (final init in queued) {
+      await _addIceCandidate(session, init);
+    }
+  }
+
+  Future<void> _addIceCandidate(
+    _PeerSession session,
+    web.RTCIceCandidateInit init,
+  ) async {
+    try {
+      await session.pc.addIceCandidate(init).toDart;
+    } catch (_) {
+      // 单个候选无效（比如对方网卡已下线）不影响其余候选和通话本身。
+    }
   }
 
   Future<void> _ensureLocalMedia(CallMediaKind mediaKind) async {
@@ -904,12 +935,14 @@ class ChatCallService extends ChangeNotifier {
 
   void _disposeAllPeers() {
     _outgoingTimeoutTimer?.cancel();
+    _pendingIce.clear();
     for (final peerUserId in List<int>.from(_peers.keys)) {
       _disposePeerSession(peerUserId);
     }
   }
 
   void _disposePeerSession(int peerUserId) {
+    _pendingIce.remove(peerUserId);
     final session = _peers.remove(peerUserId);
     try {
       session?.dispose();
