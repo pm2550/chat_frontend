@@ -111,7 +111,10 @@ jobs:
             flutter pub get
             bash scripts/ci/patch_flutter_sound_linux.sh
 
+            # 只打手机用的 ARM（32/64 位）。x86_64 只有模拟器和少数平板用得上，
+            # 加上 WebRTC 原生库后三套 ABI 的 APK 超过 100MB（服务器上传上限），下载也慢。
             flutter build apk --release \
+              --target-platform android-arm,android-arm64 \
               --build-name "$VERSION_NAME" \
               --build-number "$VERSION_CODE" \
               --dart-define=API_BASE_URL="$API_BASE_URL" \
