@@ -12,11 +12,14 @@ import 'screens/settings/points_screen.dart';
 import 'constants/app_brand.dart';
 import 'constants/app_colors.dart';
 import 'services/agent_client_tools.dart';
+import 'services/websocket_service.dart';
 import 'widgets/app_update_listener.dart';
 import 'widgets/auth_guard.dart';
 
 void main() {
+  WidgetsFlutterBinding.ensureInitialized();
   AgentClientToolRegistry().registerDefaults();
+  WebSocketService().enableMobileWebBackgroundHandoff();
   runApp(
     const ProviderScope(
       child: ChatApp(),

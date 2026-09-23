@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import '../constants/api_constants.dart';
 import '../models/message.dart';
@@ -130,6 +131,35 @@ class WebSocketService extends ChangeNotifier implements ChatRealtimeService {
       debugPrint('WebSocket connection error: $e');
       _scheduleReconnect();
     }
+  }
+
+  _BackgroundPushHandoff? _backgroundHandoff;
+
+  /// 手机上的网页/PWA：切到后台就主动断开，服务器立刻把用户当离线、改走系统推送；
+  /// 回到前台再连上。iOS 会直接冻结后台页面，不断开的话连接会"半死"，
+  /// 服务器以为你还在线，一条推送都不发。
+  ///
+  /// 原生 App 不走这里：它在后台靠这条连接弹本地通知；电脑端后台标签页也照常收消息。
+  void enableMobileWebBackgroundHandoff() {
+    if (!shouldHandOffToPushInBackground(
+      isWeb: kIsWeb,
+      platform: defaultTargetPlatform,
+    )) {
+      return;
+    }
+    if (_backgroundHandoff != null) return;
+    final handoff = _BackgroundPushHandoff(this);
+    _backgroundHandoff = handoff;
+    WidgetsBinding.instance.addObserver(handoff);
+  }
+
+  @visibleForTesting
+  static bool shouldHandOffToPushInBackground({
+    required bool isWeb,
+    required TargetPlatform platform,
+  }) {
+    return isWeb &&
+        (platform == TargetPlatform.iOS || platform == TargetPlatform.android);
   }
 
   /// Disconnect from WebSocket server
@@ -399,5 +429,33 @@ class WebSocketService extends ChangeNotifier implements ChatRealtimeService {
     _callController.close();
     _appUpdateController.close();
     super.dispose();
+  }
+}
+
+class _BackgroundPushHandoff with WidgetsBindingObserver {
+  _BackgroundPushHandoff(this._service);
+
+  final WebSocketService _service;
+  bool _disconnectedForBackground = false;
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    switch (state) {
+      case AppLifecycleState.hidden:
+      case AppLifecycleState.paused:
+        // inactive 只是失去焦点（拉下通知栏、弹出键盘），不算切后台。
+        if (_service.isConnected) {
+          _disconnectedForBackground = true;
+          _service.disconnect();
+        }
+      case AppLifecycleState.resumed:
+        if (_disconnectedForBackground) {
+          _disconnectedForBackground = false;
+          unawaited(_service.reconnect());
+        }
+      case AppLifecycleState.inactive:
+      case AppLifecycleState.detached:
+        break;
+    }
   }
 }
