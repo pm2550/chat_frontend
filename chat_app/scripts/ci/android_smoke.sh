@@ -31,6 +31,7 @@ IMG="cisave$(date +%s)"
 python3 scripts/ci/android_smoke_peer.py send-image "$IMG"
 sleep 8
 python3 scripts/ci/android_smoke_ui.py dump $OUT/ui-chatlist.txt
+check "聊天列表能加载" "! grep -q '加载失败' $OUT/ui-chatlist.txt"
 PEER=$(python3 -c "import json;print(json.load(open('$OUT/smoke.json'))['peer_name'])")
 python3 scripts/ci/android_smoke_ui.py tap-text "$PEER"
 sleep 10
