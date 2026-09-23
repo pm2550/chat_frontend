@@ -774,6 +774,54 @@ void main() {
       expect(imageSize.height, greaterThan(110));
     });
 
+    testWidgets(
+        'tapping a loaded image still opens it when the chat rebuilds '
+        'mid-tap', (tester) async {
+      // Real chat screens rebuild on pointer down (focus changes, typing,
+      // websocket events). The image used to flash back to its spinner on
+      // every rebuild, which dropped the tap detector and the tap with it.
+      MessageBubble.clearImageCacheForTesting();
+      final message = createMessage(
+        content: 'tap-photo.png',
+        type: MessageType.image,
+        fileUrl: '/api/files/chat/tap-photo.png',
+        fileName: 'tap-photo.png',
+        fileType: 'image/png',
+      );
+      Future<Uint8List> loader(String _) async => base64Decode(
+            'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwC'
+            'AAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+          );
+      var opened = 0;
+      var generation = 0;
+      late StateSetter rebuild;
+
+      await tester.pumpWidget(buildTestWidget(StatefulBuilder(
+        builder: (context, setState) {
+          rebuild = setState;
+          return MessageBubble(
+            message: message,
+            isMe: false,
+            imageLoader: loader,
+            onOpenAttachment: (_) async => opened += 1,
+          );
+        },
+      )));
+      await tester.pumpAndSettle();
+      expect(find.byType(Image), findsOneWidget);
+
+      final gesture =
+          await tester.startGesture(tester.getCenter(find.byType(Image)));
+      rebuild(() => generation += 1);
+      await tester.pump();
+      expect(find.byType(CircularProgressIndicator), findsNothing,
+          reason: 'a loaded image must not flash back to the spinner');
+      await gesture.up();
+      await tester.pumpAndSettle();
+
+      expect(opened, 1);
+    });
+
     testWidgets('reuses authenticated image bytes across bubble rebuilds',
         (tester) async {
       final message = createMessage(

@@ -1,20 +1,29 @@
 import 'package:chat_app/models/message.dart';
 import 'package:chat_app/screens/chat/chat_file_center_screen.dart';
 import 'package:chat_app/services/chat_data_service.dart';
+import 'package:chat_app/services/file_save_result.dart';
 import 'package:chat_app/widgets/chat_video_thumbnail.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  testWidgets('renders file messages and downloads selected file',
+  testWidgets('renders file messages and saves selected file',
       (tester) async {
     final service = FakeFileCenterChatService();
+    final saved = <String>[];
 
     await tester.pumpWidget(MaterialApp(
       home: ChatFileCenterScreen(
         chatRoomId: '42',
         chatRoomName: 'Project Room',
         chatService: service,
+        fileSaver: ({required bytes, required name, mimeType}) async {
+          saved.add('$name:${bytes.length}');
+          return const FileSaveResult.saved(
+            FileSaveDestination.pickedLocation,
+            path: '/home/me/doc.pdf',
+          );
+        },
       ),
     ));
     await tester.pumpAndSettle();
@@ -26,7 +35,50 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(service.downloadedIds, ['2']);
-    expect(find.text('已取回 doc.pdf (3 B)'), findsOneWidget);
+    expect(saved, ['doc.pdf:3']);
+    expect(find.text('已保存到 /home/me/doc.pdf'), findsOneWidget);
+  });
+
+  testWidgets('says so when the platform cannot save, instead of claiming '
+      'the file was fetched', (tester) async {
+    final service = FakeFileCenterChatService();
+
+    await tester.pumpWidget(MaterialApp(
+      home: ChatFileCenterScreen(
+        chatRoomId: '42',
+        chatRoomName: 'Project Room',
+        chatService: service,
+        fileSaver: ({required bytes, required name, mimeType}) async =>
+            const FileSaveResult.unsupported(),
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('doc.pdf'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('当前平台不支持保存文件'), findsOneWidget);
+    expect(find.textContaining('已取回'), findsNothing);
+  });
+
+  testWidgets('cancelling the save dialog shows nothing', (tester) async {
+    final service = FakeFileCenterChatService();
+
+    await tester.pumpWidget(MaterialApp(
+      home: ChatFileCenterScreen(
+        chatRoomId: '42',
+        chatRoomName: 'Project Room',
+        chatService: service,
+        fileSaver: ({required bytes, required name, mimeType}) async =>
+            const FileSaveResult.cancelled(),
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('doc.pdf'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(SnackBar), findsNothing);
   });
 
   testWidgets('tapping image opens preview instead of saving immediately',
@@ -49,6 +101,41 @@ void main() {
     expect(find.byType(InteractiveViewer), findsOneWidget);
     expect(find.byTooltip('保存图片'), findsOneWidget);
     expect(find.textContaining('已保存'), findsNothing);
+  });
+
+  testWidgets('saving from the image preview reports the result on top of '
+      'the preview', (tester) async {
+    final service = FakeFileCenterChatService();
+    final saved = <String>[];
+
+    await tester.pumpWidget(MaterialApp(
+      home: ChatFileCenterScreen(
+        chatRoomId: '42',
+        chatRoomName: 'Project Room',
+        chatService: service,
+        fileSaver: ({required bytes, required name, mimeType}) async {
+          saved.add(name);
+          return const FileSaveResult.saved(FileSaveDestination.gallery);
+        },
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('photo.png').first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('保存图片'));
+    await tester.pumpAndSettle();
+
+    expect(saved, ['photo.png']);
+    // The snackbar must live inside the full-screen preview; the page's own
+    // Scaffold is hidden behind the black dialog.
+    expect(
+      find.descendant(
+        of: find.byType(Dialog),
+        matching: find.text('已保存到相册'),
+      ),
+      findsOneWidget,
+    );
   });
 
   testWidgets('tapping video opens preview instead of saving immediately',

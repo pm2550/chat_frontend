@@ -201,6 +201,11 @@ extension _ChatScreenComposerParts on _ChatScreenState {
     );
   }
 
+  bool get _cameraCaptureSupported =>
+      kIsWeb ||
+      defaultTargetPlatform == TargetPlatform.android ||
+      defaultTargetPlatform == TargetPlatform.iOS;
+
   Future<PickedChatFile?> _pickImageFromCamera() async {
     final image = await ImagePicker().pickImage(source: ImageSource.camera);
     if (image == null) return null;
@@ -234,7 +239,13 @@ extension _ChatScreenComposerParts on _ChatScreenState {
 
   Future<void> _pickAndSendImage() async {
     final picker = widget.imagePicker ?? _pickImageFromGallery;
-    final file = await picker();
+    final PickedChatFile? file;
+    try {
+      file = await picker();
+    } catch (error) {
+      _showPickerError('无法打开相册', error);
+      return;
+    }
     if (file != null) {
       await _sendPickedFile(file);
     }
@@ -249,10 +260,30 @@ extension _ChatScreenComposerParts on _ChatScreenState {
   }
 
   Future<void> _pickAndSendCameraImage() async {
-    final file = await _pickImageFromCamera();
+    final PickedChatFile? file;
+    try {
+      file = await _pickImageFromCamera();
+    } catch (error) {
+      _showPickerError('无法打开相机', error);
+      return;
+    }
     if (file != null) {
       await _sendPickedFile(file, messageType: MessageType.image);
     }
+  }
+
+  void _showPickerError(String action, Object error) {
+    if (!mounted) return;
+    final denied = error is PlatformException &&
+        error.code.toLowerCase().contains('denied');
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(denied
+            ? '$action：没有权限，请在系统设置里允许 PM chat 使用'
+            : '$action：$error'),
+        backgroundColor: AppColors.error,
+      ),
+    );
   }
 
   Future<void> _pickAndSendVoiceFile() async {
@@ -1006,15 +1037,18 @@ extension _ChatScreenComposerParts on _ChatScreenState {
                           _showImageGenerationSheet();
                         },
                       ),
-                      _buildInputOption(
-                        symbol: PMSymbol.camera,
-                        label: '拍照',
-                        onTap: () {
-                          final sendFuture = _pickAndSendCameraImage();
-                          Navigator.pop(context);
-                          unawaited(sendFuture);
-                        },
-                      ),
+                      // image_picker has no camera on Windows/macOS/Linux;
+                      // the button would silently do nothing there.
+                      if (_cameraCaptureSupported)
+                        _buildInputOption(
+                          symbol: PMSymbol.camera,
+                          label: '拍照',
+                          onTap: () {
+                            final sendFuture = _pickAndSendCameraImage();
+                            Navigator.pop(context);
+                            unawaited(sendFuture);
+                          },
+                        ),
                       _buildInputOption(
                         symbol: PMSymbol.image,
                         label: '相册',

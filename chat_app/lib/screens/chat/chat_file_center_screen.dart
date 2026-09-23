@@ -18,11 +18,13 @@ class ChatFileCenterScreen extends StatefulWidget {
     required this.chatRoomId,
     required this.chatRoomName,
     this.chatService,
+    this.fileSaver,
   });
 
   final String chatRoomId;
   final String chatRoomName;
   final ChatDataService? chatService;
+  final file_save.FileSaver? fileSaver;
 
   @override
   State<ChatFileCenterScreen> createState() => _ChatFileCenterScreenState();
@@ -134,20 +136,24 @@ class _ChatFileCenterScreenState extends State<ChatFileCenterScreen> {
   Future<void> _downloadFile(
     Message message, {
     DownloadedChatFile? downloaded,
+    ScaffoldMessengerState? feedback,
   }) async {
     try {
       final file = downloaded ?? await _chatService.downloadFile(message);
-      final saved = await file_save.saveBytesAsFile(
+      final save = widget.fileSaver ?? file_save.saveBytesAsFile;
+      final result = await save(
         bytes: file.bytes,
         name: file.name,
         mimeType: file.mimeType ?? message.fileType,
       );
       if (!mounted) return;
-      _showSnackBar(saved
-          ? '已保存 ${file.name}'
-          : '已取回 ${file.name} (${_formatFileSize(file.bytes.length)})');
+      final text = result.describe(file.name);
+      if (text != null) {
+        _showSnackBar(text, isError: !result.isSaved, messenger: feedback);
+      }
     } catch (error) {
-      _showSnackBar('下载失败: $error', isError: true);
+      if (!mounted) return;
+      _showSnackBar('保存失败: $error', isError: true, messenger: feedback);
     }
   }
 
@@ -159,7 +165,8 @@ class _ChatFileCenterScreenState extends State<ChatFileCenterScreen> {
       builder: (dialogContext) => _FileCenterImagePreviewDialog(
         message: message,
         fileFuture: fileFuture,
-        onDownload: (file) => _downloadFile(message, downloaded: file),
+        onDownload: (file, feedback) =>
+            _downloadFile(message, downloaded: file, feedback: feedback),
       ),
     );
   }
@@ -172,7 +179,8 @@ class _ChatFileCenterScreenState extends State<ChatFileCenterScreen> {
       builder: (_) => ChatVideoPreviewDialog(
         message: message,
         fileFuture: fileFuture,
-        onDownload: (file) => _downloadFile(message, downloaded: file),
+        onDownload: (file, feedback) =>
+            _downloadFile(message, downloaded: file, feedback: feedback),
       ),
     );
   }
@@ -450,9 +458,13 @@ class _ChatFileCenterScreenState extends State<ChatFileCenterScreen> {
     return '${(size / 1024 / 1024).toStringAsFixed(1)} MB';
   }
 
-  void _showSnackBar(String message, {bool isError = false}) {
+  void _showSnackBar(
+    String message, {
+    bool isError = false,
+    ScaffoldMessengerState? messenger,
+  }) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
+    (messenger ?? ScaffoldMessenger.of(context)).showSnackBar(
       SnackBar(
         content: Text(message),
         backgroundColor: isError ? AppColors.error : null,
@@ -470,78 +482,91 @@ class _FileCenterImagePreviewDialog extends StatelessWidget {
 
   final Message message;
   final Future<DownloadedChatFile> fileFuture;
-  final Future<void> Function(DownloadedChatFile file) onDownload;
+  final Future<void> Function(
+    DownloadedChatFile file,
+    ScaffoldMessengerState feedback,
+  ) onDownload;
 
   @override
   Widget build(BuildContext context) {
+    // Own ScaffoldMessenger: the save result must show on top of the
+    // preview, not on the chat page hidden underneath it.
     return Dialog.fullscreen(
       backgroundColor: Colors.black,
-      child: SafeArea(
-        child: FutureBuilder<DownloadedChatFile>(
-          future: fileFuture,
-          builder: (context, snapshot) {
-            final file = snapshot.data;
-            return Stack(
-              children: [
-                Positioned.fill(child: _buildBody(snapshot)),
-                Positioned(
-                  left: 16,
-                  top: 12,
-                  right: 16,
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          file?.name ??
-                              message.fileName ??
-                              message.resolvedFileLabel,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 16,
-                            fontWeight: FontWeight.w800,
+      child: ScaffoldMessenger(
+        child: Scaffold(
+          backgroundColor: Colors.transparent,
+          body: SafeArea(
+            child: FutureBuilder<DownloadedChatFile>(
+              future: fileFuture,
+              builder: (context, snapshot) {
+                final file = snapshot.data;
+                return Stack(
+                  children: [
+                    Positioned.fill(child: _buildBody(snapshot)),
+                    Positioned(
+                      left: 16,
+                      top: 12,
+                      right: 16,
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              file?.name ??
+                                  message.fileName ??
+                                  message.resolvedFileLabel,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 16,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
                           ),
-                        ),
-                      ),
-                      Tooltip(
-                        message: '保存图片',
-                        child: IconButton(
-                          onPressed: file == null
-                              ? null
-                              : () {
-                                  onDownload(file);
-                                },
-                          icon: const Icon(Icons.download),
-                          color: Colors.white,
-                          disabledColor: Colors.white38,
-                          style: IconButton.styleFrom(
-                            backgroundColor:
-                                Colors.white.withValues(alpha: 0.14),
-                            disabledBackgroundColor:
-                                Colors.white.withValues(alpha: 0.07),
+                          Tooltip(
+                            message: '保存图片',
+                            child: IconButton(
+                              onPressed: file == null
+                                  ? null
+                                  : () {
+                                      onDownload(
+                                        file,
+                                        ScaffoldMessenger.of(context),
+                                      );
+                                    },
+                              icon: const Icon(Icons.download),
+                              color: Colors.white,
+                              disabledColor: Colors.white38,
+                              style: IconButton.styleFrom(
+                                backgroundColor:
+                                    Colors.white.withValues(alpha: 0.14),
+                                disabledBackgroundColor:
+                                    Colors.white.withValues(alpha: 0.07),
+                              ),
+                            ),
                           ),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Tooltip(
-                        message: '关闭',
-                        child: IconButton(
-                          onPressed: () => Navigator.of(context).pop(),
-                          icon: const Icon(Icons.close),
-                          color: Colors.white,
-                          style: IconButton.styleFrom(
-                            backgroundColor:
-                                Colors.white.withValues(alpha: 0.14),
+                          const SizedBox(width: 8),
+                          Tooltip(
+                            message: '关闭',
+                            child: IconButton(
+                              onPressed: () => Navigator.of(context).pop(),
+                              icon: const Icon(Icons.close),
+                              color: Colors.white,
+                              style: IconButton.styleFrom(
+                                backgroundColor:
+                                    Colors.white.withValues(alpha: 0.14),
+                              ),
+                            ),
                           ),
-                        ),
+                        ],
                       ),
-                    ],
-                  ),
-                ),
-              ],
-            );
-          },
+                    ),
+                  ],
+                );
+              },
+            ),
+          ),
         ),
       ),
     );

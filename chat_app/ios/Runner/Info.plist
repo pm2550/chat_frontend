@@ -45,6 +45,8 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>PM chat 需要把你保存的聊天图片和视频存入相册。</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>PM chat 需要使用麦克风来发送语音消息和进行语音/视频通话。</string>
 	<key>NSCameraUsageDescription</key>

@@ -255,14 +255,13 @@ class _WorkspacePageState extends State<WorkspacePage>
   Future<void> _downloadFile(WorkspaceFileItem file) async {
     try {
       final downloaded = await _service.downloadFile(file);
-      final saved = await file_save.saveBytesAsFile(
+      final result = await file_save.saveBytesAsFile(
         bytes: downloaded.bytes,
         name: downloaded.name,
         mimeType: downloaded.mimeType ?? file.mimeType,
       );
-      _showSnackBar(saved
-          ? '已下载 ${downloaded.name}'
-          : '已取回 ${downloaded.name} (${_formatBytes(downloaded.bytes.length)})');
+      final text = result.describe(downloaded.name);
+      if (text != null) _showSnackBar(text, isError: !result.isSaved);
     } catch (error) {
       _showSnackBar('下载失败: $error', isError: true);
     }
@@ -277,7 +276,7 @@ class _WorkspacePageState extends State<WorkspacePage>
       name: preview.name,
       mimeType: preview.mimeType ?? file.mimeType,
     );
-    _showSnackBar(opened ? '已打开 ${preview.name}' : '当前平台不支持新窗口预览，请下载查看');
+    _showSnackBar(opened ? '已打开 ${preview.name}' : '当前平台无法打开预览，请下载查看');
   }
 
   // F6: only plain-text files are human-editable in this batch.

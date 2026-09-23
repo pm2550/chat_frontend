@@ -60,29 +60,32 @@ extension _ChatScreenAttachmentParts on _ChatScreenState {
   Future<void> _downloadAttachment(
     Message message, {
     DownloadedChatFile? downloaded,
+    ScaffoldMessengerState? feedback,
   }) async {
+    final messenger = feedback ?? ScaffoldMessenger.of(context);
     try {
       final file = downloaded ?? await _chatService.downloadFile(message);
-      final saved = await file_save.saveBytesAsFile(
+      final fileName = _safeAttachmentFileName(message, file);
+      final save = widget.fileSaver ?? file_save.saveBytesAsFile;
+      final result = await save(
         bytes: file.bytes,
-        name: _safeAttachmentFileName(message, file),
+        name: fileName,
         mimeType: file.mimeType ?? message.fileType,
       );
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      final text = result.describe(fileName);
+      if (text == null) return;
+      messenger.showSnackBar(
         SnackBar(
-          content: Text(
-            saved
-                ? '已保存 ${_safeAttachmentFileName(message, file)}'
-                : '已取回 ${file.name} (${_formatFileSize(file.bytes.length)})',
-          ),
+          content: Text(text),
+          backgroundColor: result.isSaved ? null : AppColors.error,
         ),
       );
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      messenger.showSnackBar(
         SnackBar(
-          content: Text('文件下载失败: $e'),
+          content: Text('保存失败: $e'),
           backgroundColor: AppColors.error,
         ),
       );
@@ -97,9 +100,10 @@ extension _ChatScreenAttachmentParts on _ChatScreenState {
       builder: (dialogContext) => _ImagePreviewDialog(
         message: message,
         fileFuture: fileFuture,
-        onDownload: (file) => _downloadAttachment(
+        onDownload: (file, feedback) => _downloadAttachment(
           message,
           downloaded: file,
+          feedback: feedback,
         ),
         onForward: (file) async {
           Navigator.of(dialogContext).pop();
@@ -117,9 +121,10 @@ extension _ChatScreenAttachmentParts on _ChatScreenState {
       builder: (dialogContext) => ChatVideoPreviewDialog(
         message: message,
         fileFuture: fileFuture,
-        onDownload: (file) => _downloadAttachment(
+        onDownload: (file, feedback) => _downloadAttachment(
           message,
           downloaded: file,
+          feedback: feedback,
         ),
         onForward: (file) async {
           Navigator.of(dialogContext).pop();
@@ -322,70 +327,85 @@ class _ImagePreviewDialog extends StatelessWidget {
 
   final Message message;
   final Future<DownloadedChatFile> fileFuture;
-  final Future<void> Function(DownloadedChatFile file) onDownload;
+
+  /// [feedback] is the preview's own messenger, for the save result.
+  final Future<void> Function(
+    DownloadedChatFile file,
+    ScaffoldMessengerState feedback,
+  ) onDownload;
   final Future<void> Function(DownloadedChatFile file) onForward;
 
   @override
   Widget build(BuildContext context) {
+    // Own ScaffoldMessenger: the save result must show on top of the
+    // preview, not on the chat page hidden underneath it.
     return Dialog.fullscreen(
       backgroundColor: Colors.black,
-      child: SafeArea(
-        child: FutureBuilder<DownloadedChatFile>(
-          future: fileFuture,
-          builder: (context, snapshot) {
-            final file = snapshot.data;
-            return Stack(
-              children: [
-                Positioned.fill(
-                  child: _buildBody(context, snapshot),
-                ),
-                Positioned(
-                  left: 16,
-                  top: 12,
-                  right: 16,
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          file?.name ??
-                              message.fileName ??
-                              message.resolvedFileLabel,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w800,
-                            fontSize: 16,
+      child: ScaffoldMessenger(
+        child: Scaffold(
+          backgroundColor: Colors.transparent,
+          body: SafeArea(
+            child: FutureBuilder<DownloadedChatFile>(
+              future: fileFuture,
+              builder: (context, snapshot) {
+                final file = snapshot.data;
+                return Stack(
+                  children: [
+                    Positioned.fill(
+                      child: _buildBody(context, snapshot),
+                    ),
+                    Positioned(
+                      left: 16,
+                      top: 12,
+                      right: 16,
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              file?.name ??
+                                  message.fileName ??
+                                  message.resolvedFileLabel,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w800,
+                                fontSize: 16,
+                              ),
+                            ),
                           ),
-                        ),
+                          _PreviewIconButton(
+                            tooltip: '保存图片',
+                            icon: Icons.download,
+                            onPressed: file == null
+                                ? null
+                                : () => unawaited(onDownload(
+                                      file,
+                                      ScaffoldMessenger.of(context),
+                                    )),
+                          ),
+                          const SizedBox(width: 8),
+                          _PreviewIconButton(
+                            tooltip: '转发图片',
+                            iconWidget: const _ForwardPreviewGlyph(),
+                            onPressed: file == null
+                                ? null
+                                : () => unawaited(onForward(file)),
+                          ),
+                          const SizedBox(width: 8),
+                          _PreviewIconButton(
+                            tooltip: '关闭',
+                            icon: Icons.close,
+                            onPressed: () => Navigator.of(context).pop(),
+                          ),
+                        ],
                       ),
-                      _PreviewIconButton(
-                        tooltip: '保存图片',
-                        icon: Icons.download,
-                        onPressed: file == null
-                            ? null
-                            : () => unawaited(onDownload(file)),
-                      ),
-                      const SizedBox(width: 8),
-                      _PreviewIconButton(
-                        tooltip: '转发图片',
-                        iconWidget: const _ForwardPreviewGlyph(),
-                        onPressed: file == null
-                            ? null
-                            : () => unawaited(onForward(file)),
-                      ),
-                      const SizedBox(width: 8),
-                      _PreviewIconButton(
-                        tooltip: '关闭',
-                        icon: Icons.close,
-                        onPressed: () => Navigator.of(context).pop(),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            );
-          },
+                    ),
+                  ],
+                );
+              },
+            ),
+          ),
         ),
       ),
     );

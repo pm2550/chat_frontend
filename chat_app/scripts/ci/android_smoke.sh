@@ -26,6 +26,30 @@ check "后台常驻服务已启动" "grep -q 'ForegroundService' $OUT/services.t
 adb shell dumpsys notification --noredact > $OUT/notifications-1.txt
 check "常驻通知已显示" "grep -q 'PM chat 正在后台运行' $OUT/notifications-1.txt"
 
+# 保存别人发的图片：对方发图 → 进聊天 → 点开大图 → 点"保存图片" → 系统相册里应出现这张图
+IMG="cisave$(date +%s)"
+python3 scripts/ci/android_smoke_peer.py send-image "$IMG"
+sleep 8
+python3 scripts/ci/android_smoke_ui.py dump $OUT/ui-chatlist.txt
+PEER=$(python3 -c "import json;print(json.load(open('$OUT/smoke.json'))['peer_name'])")
+python3 scripts/ci/android_smoke_ui.py tap-text "$PEER"
+sleep 10
+python3 scripts/ci/android_smoke_ui.py dump $OUT/ui-chat.txt
+python3 scripts/ci/android_smoke_ui.py tap-image
+sleep 6
+python3 scripts/ci/android_smoke_ui.py dump $OUT/ui-preview.txt
+python3 scripts/ci/android_smoke_ui.py tap-text "^保存图片$"
+sleep 2
+python3 scripts/ci/android_smoke_ui.py dump $OUT/ui-after-save.txt
+sleep 3
+adb shell content query --uri content://media/external/images/media --projection _display_name:relative_path > $OUT/media.txt
+check "别人发的图片能保存到相册" "grep -q '$IMG' $OUT/media.txt"
+check "保存后提示已保存到相册" "grep -q '已保存到相册' $OUT/ui-after-save.txt"
+adb shell input keyevent KEYCODE_BACK
+sleep 2
+adb shell input keyevent KEYCODE_BACK
+sleep 2
+
 # 切到后台（按 Home 键），前台连接会断开，服务器改走后台连接
 adb shell input keyevent KEYCODE_HOME
 sleep 8

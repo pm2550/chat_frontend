@@ -20,70 +20,85 @@ class ChatVideoPreviewDialog extends StatelessWidget {
 
   final Message message;
   final Future<DownloadedChatFile> fileFuture;
-  final Future<void> Function(DownloadedChatFile file) onDownload;
+
+  /// [feedback] is the preview's own messenger, for the save result.
+  final Future<void> Function(
+    DownloadedChatFile file,
+    ScaffoldMessengerState feedback,
+  ) onDownload;
   final Future<void> Function(DownloadedChatFile file)? onForward;
 
   @override
   Widget build(BuildContext context) {
+    // Own ScaffoldMessenger: the save result must show on top of the
+    // preview, not on the chat page hidden underneath it.
     return Dialog.fullscreen(
       backgroundColor: Colors.black,
-      child: SafeArea(
-        child: FutureBuilder<DownloadedChatFile>(
-          future: fileFuture,
-          builder: (context, snapshot) {
-            final file = snapshot.data;
-            return Stack(
-              children: [
-                Positioned.fill(child: _buildBody(snapshot)),
-                Positioned(
-                  left: 16,
-                  top: 12,
-                  right: 16,
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          file?.name ??
-                              message.fileName ??
-                              message.resolvedFileLabel,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 16,
-                            fontWeight: FontWeight.w800,
+      child: ScaffoldMessenger(
+        child: Scaffold(
+          backgroundColor: Colors.transparent,
+          body: SafeArea(
+            child: FutureBuilder<DownloadedChatFile>(
+              future: fileFuture,
+              builder: (context, snapshot) {
+                final file = snapshot.data;
+                return Stack(
+                  children: [
+                    Positioned.fill(child: _buildBody(snapshot)),
+                    Positioned(
+                      left: 16,
+                      top: 12,
+                      right: 16,
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              file?.name ??
+                                  message.fileName ??
+                                  message.resolvedFileLabel,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 16,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
                           ),
-                        ),
+                          _VideoPreviewButton(
+                            tooltip: '保存视频',
+                            icon: Icons.download,
+                            onPressed: file == null
+                                ? null
+                                : () => unawaited(onDownload(
+                                      file,
+                                      ScaffoldMessenger.of(context),
+                                    )),
+                          ),
+                          if (onForward != null) ...[
+                            const SizedBox(width: 8),
+                            _VideoPreviewButton(
+                              tooltip: '转发视频',
+                              icon: Icons.forward,
+                              onPressed: file == null
+                                  ? null
+                                  : () => unawaited(onForward!(file)),
+                            ),
+                          ],
+                          const SizedBox(width: 8),
+                          _VideoPreviewButton(
+                            tooltip: '关闭',
+                            icon: Icons.close,
+                            onPressed: () => Navigator.of(context).pop(),
+                          ),
+                        ],
                       ),
-                      _VideoPreviewButton(
-                        tooltip: '保存视频',
-                        icon: Icons.download,
-                        onPressed: file == null
-                            ? null
-                            : () => unawaited(onDownload(file)),
-                      ),
-                      if (onForward != null) ...[
-                        const SizedBox(width: 8),
-                        _VideoPreviewButton(
-                          tooltip: '转发视频',
-                          icon: Icons.forward,
-                          onPressed: file == null
-                              ? null
-                              : () => unawaited(onForward!(file)),
-                        ),
-                      ],
-                      const SizedBox(width: 8),
-                      _VideoPreviewButton(
-                        tooltip: '关闭',
-                        icon: Icons.close,
-                        onPressed: () => Navigator.of(context).pop(),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            );
-          },
+                    ),
+                  ],
+                );
+              },
+            ),
+          ),
         ),
       ),
     );

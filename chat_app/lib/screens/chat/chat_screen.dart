@@ -104,6 +104,7 @@ class ChatScreen extends StatefulWidget {
     this.botService,
     this.imagePicker,
     this.filePicker,
+    this.fileSaver,
   });
 
   final ChatDataService? chatService;
@@ -115,6 +116,7 @@ class ChatScreen extends StatefulWidget {
   final BotService? botService;
   final ChatAttachmentPicker? imagePicker;
   final ChatAttachmentPicker? filePicker;
+  final file_save.FileSaver? fileSaver;
 
   @visibleForTesting
   static void clearMessageCacheForTesting() {
