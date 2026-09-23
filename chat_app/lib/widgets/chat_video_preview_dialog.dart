@@ -409,16 +409,21 @@ class _VideoPreviewButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Tooltip(
-      message: tooltip,
-      child: IconButton(
-        onPressed: onPressed,
-        icon: Icon(icon),
-        color: Colors.white,
-        disabledColor: Colors.white38,
-        style: IconButton.styleFrom(
-          backgroundColor: Colors.white.withValues(alpha: 0.14),
-          disabledBackgroundColor: Colors.white.withValues(alpha: 0.07),
+    // Label as well as tooltip: Android does not expose tooltips as the
+    // button's name to TalkBack or UI automation.
+    return Semantics(
+      label: tooltip,
+      child: Tooltip(
+        message: tooltip,
+        child: IconButton(
+          onPressed: onPressed,
+          icon: Icon(icon),
+          color: Colors.white,
+          disabledColor: Colors.white38,
+          style: IconButton.styleFrom(
+            backgroundColor: Colors.white.withValues(alpha: 0.14),
+            disabledBackgroundColor: Colors.white.withValues(alpha: 0.07),
+          ),
         ),
       ),
     );

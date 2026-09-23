@@ -488,16 +488,21 @@ class _PreviewIconButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Tooltip(
-      message: tooltip,
-      child: IconButton(
-        onPressed: onPressed,
-        icon: iconWidget ?? Icon(icon!),
-        color: Colors.white,
-        disabledColor: Colors.white38,
-        style: IconButton.styleFrom(
-          backgroundColor: Colors.white.withValues(alpha: 0.14),
-          disabledBackgroundColor: Colors.white.withValues(alpha: 0.07),
+    // Android only reports a tooltip as tooltip text, which TalkBack and
+    // UI automation do not read as the button's name; label it as well.
+    return Semantics(
+      label: tooltip,
+      child: Tooltip(
+        message: tooltip,
+        child: IconButton(
+          onPressed: onPressed,
+          icon: iconWidget ?? Icon(icon!),
+          color: Colors.white,
+          disabledColor: Colors.white38,
+          style: IconButton.styleFrom(
+            backgroundColor: Colors.white.withValues(alpha: 0.14),
+            disabledBackgroundColor: Colors.white.withValues(alpha: 0.07),
+          ),
         ),
       ),
     );

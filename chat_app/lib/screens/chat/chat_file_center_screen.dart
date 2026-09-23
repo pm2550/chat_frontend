@@ -524,25 +524,28 @@ class _FileCenterImagePreviewDialog extends StatelessWidget {
                               ),
                             ),
                           ),
-                          Tooltip(
-                            message: '保存图片',
-                            child: IconButton(
-                              onPressed: file == null
-                                  ? null
-                                  : () {
-                                      onDownload(
-                                        file,
-                                        ScaffoldMessenger.of(context),
-                                      );
-                                    },
-                              icon: const Icon(Icons.download),
-                              color: Colors.white,
-                              disabledColor: Colors.white38,
-                              style: IconButton.styleFrom(
-                                backgroundColor:
-                                    Colors.white.withValues(alpha: 0.14),
-                                disabledBackgroundColor:
-                                    Colors.white.withValues(alpha: 0.07),
+                          Semantics(
+                            label: '保存图片',
+                            child: Tooltip(
+                              message: '保存图片',
+                              child: IconButton(
+                                onPressed: file == null
+                                    ? null
+                                    : () {
+                                        onDownload(
+                                          file,
+                                          ScaffoldMessenger.of(context),
+                                        );
+                                      },
+                                icon: const Icon(Icons.download),
+                                color: Colors.white,
+                                disabledColor: Colors.white38,
+                                style: IconButton.styleFrom(
+                                  backgroundColor:
+                                      Colors.white.withValues(alpha: 0.14),
+                                  disabledBackgroundColor:
+                                      Colors.white.withValues(alpha: 0.07),
+                                ),
                               ),
                             ),
                           ),
