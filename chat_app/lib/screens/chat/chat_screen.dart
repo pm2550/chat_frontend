@@ -24,6 +24,7 @@ import '../../services/anonymous_service.dart';
 import '../../services/bot_service.dart';
 import '../../services/chat_data_service.dart';
 import '../../services/memory_service.dart';
+import '../../services/pending_call_invite.dart';
 import '../../services/chat_call_service.dart';
 import '../../services/contact_data_service.dart';
 import '../../services/chat_drop_paste.dart'
@@ -606,6 +607,11 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     _callSubscription = _webSocketService.onCallSignal.listen((signal) {
       unawaited(_handleCallSignal(signal));
     });
+    // 从"来电"通知点进来的：按正常来电流程弹出接听框。
+    final pendingInvite = PendingCallInvite.takeFor(_chat.id);
+    if (pendingInvite != null) {
+      unawaited(_handleCallSignal(pendingInvite));
+    }
     await _webSocketService.connect();
   }
 

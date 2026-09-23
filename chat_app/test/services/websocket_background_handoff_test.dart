@@ -21,9 +21,26 @@ void main() {
     expect(handsOff(isWeb: true, platform: TargetPlatform.linux), isFalse);
   });
 
-  test('native apps keep the socket because they notify from it in background',
+  test('native apps keep the socket unless the Android background service runs',
       () {
     expect(handsOff(isWeb: false, platform: TargetPlatform.android), isFalse);
     expect(handsOff(isWeb: false, platform: TargetPlatform.iOS), isFalse);
+    expect(
+      WebSocketService.shouldHandOffToPushInBackground(
+        isWeb: false,
+        platform: TargetPlatform.android,
+        nativeBackgroundService: true,
+      ),
+      isTrue,
+    );
+    // iOS 没有这个常驻服务
+    expect(
+      WebSocketService.shouldHandOffToPushInBackground(
+        isWeb: false,
+        platform: TargetPlatform.iOS,
+        nativeBackgroundService: true,
+      ),
+      isFalse,
+    );
   });
 }

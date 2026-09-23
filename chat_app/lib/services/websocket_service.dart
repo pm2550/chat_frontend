@@ -5,6 +5,7 @@ import 'package:flutter/widgets.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import '../constants/api_constants.dart';
 import '../models/message.dart';
+import 'active_call_tracker.dart';
 import 'agent_client_tools.dart';
 import 'auth_service.dart';
 
@@ -147,19 +148,41 @@ class WebSocketService extends ChangeNotifier implements ChatRealtimeService {
     )) {
       return;
     }
+    _attachBackgroundHandoff();
+  }
+
+  /// Android App 的后台常驻服务启动后调用：前台连接在切后台时断开，
+  /// 由服务里的后台连接接收通知（见 BackgroundMessageService）。
+  void enableNativeBackgroundHandoff() {
+    if (!shouldHandOffToPushInBackground(
+      isWeb: kIsWeb,
+      platform: defaultTargetPlatform,
+      nativeBackgroundService: true,
+    )) {
+      return;
+    }
+    _attachBackgroundHandoff();
+  }
+
+  void _attachBackgroundHandoff() {
     if (_backgroundHandoff != null) return;
     final handoff = _BackgroundPushHandoff(this);
     _backgroundHandoff = handoff;
     WidgetsBinding.instance.addObserver(handoff);
+    ActiveCallTracker.active.addListener(handoff.onCallActivityChanged);
   }
 
   @visibleForTesting
   static bool shouldHandOffToPushInBackground({
     required bool isWeb,
     required TargetPlatform platform,
+    bool nativeBackgroundService = false,
   }) {
-    return isWeb &&
-        (platform == TargetPlatform.iOS || platform == TargetPlatform.android);
+    if (isWeb) {
+      return platform == TargetPlatform.iOS ||
+          platform == TargetPlatform.android;
+    }
+    return nativeBackgroundService && platform == TargetPlatform.android;
   }
 
   /// Disconnect from WebSocket server
@@ -437,6 +460,7 @@ class _BackgroundPushHandoff with WidgetsBindingObserver {
 
   final WebSocketService _service;
   bool _disconnectedForBackground = false;
+  bool _inBackground = false;
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
@@ -444,11 +468,10 @@ class _BackgroundPushHandoff with WidgetsBindingObserver {
       case AppLifecycleState.hidden:
       case AppLifecycleState.paused:
         // inactive 只是失去焦点（拉下通知栏、弹出键盘），不算切后台。
-        if (_service.isConnected) {
-          _disconnectedForBackground = true;
-          _service.disconnect();
-        }
+        _inBackground = true;
+        _handOffIfIdle();
       case AppLifecycleState.resumed:
+        _inBackground = false;
         if (_disconnectedForBackground) {
           _disconnectedForBackground = false;
           unawaited(_service.reconnect());
@@ -456,6 +479,20 @@ class _BackgroundPushHandoff with WidgetsBindingObserver {
       case AppLifecycleState.inactive:
       case AppLifecycleState.detached:
         break;
+    }
+  }
+
+  /// 通话中切到后台不断开（否则收不到对方挂断、发不出自己的挂断）；
+  /// 通话在后台结束后再补一次交接。
+  void onCallActivityChanged() {
+    if (_inBackground) _handOffIfIdle();
+  }
+
+  void _handOffIfIdle() {
+    if (ActiveCallTracker.active.value) return;
+    if (_service.isConnected) {
+      _disconnectedForBackground = true;
+      _service.disconnect();
     }
   }
 }

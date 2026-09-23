@@ -1,0 +1,77 @@
+name: Android smoke test
+
+# 在 Android 模拟器里验证原生端：App 能启动、后台常驻服务能起来、
+# 切到后台后能弹出新消息和来电通知。不发布任何东西。
+on:
+  push:
+    branches:
+      - "smoke/**"
+  workflow_dispatch:
+
+env:
+  FLUTTER_VERSION: 3.41.6
+  API_BASE_URL: https://gateway.chat.pm2550.com/api/v1
+  WS_BASE_URL: wss://gateway.chat.pm2550.com
+  WEB_APP_URL: https://gateway.chat.pm2550.com
+  WEBRTC_ICE_SERVERS: stun:stun.l.google.com:19302,turn:192.9.134.169:3478?transport=udp,turn:192.9.134.169:3478?transport=tcp
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: chat_app
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Enable KVM for the emulator
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Build debug APK
+        run: |
+          flutter pub get
+          flutter build apk --debug \
+            --dart-define=API_BASE_URL="$API_BASE_URL" \
+            --dart-define=WS_BASE_URL="$WS_BASE_URL" \
+            --dart-define=WEB_APP_URL="$WEB_APP_URL" \
+            --dart-define=WEBRTC_ICE_SERVERS="$WEBRTC_ICE_SERVERS"
+
+      - name: Prepare test accounts
+        run: |
+          python3 -m pip install --quiet requests websockets
+          python3 scripts/ci/android_smoke_accounts.py
+
+      - name: Run on emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          working-directory: chat_app
+          script: bash scripts/ci/android_smoke.sh
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: android-smoke-logs
+          # 只传日志；smoke-out 里还有测试账号的登录令牌，不上传。
+          path: |
+            chat_app/smoke-out/*.txt
+          if-no-files-found: ignore

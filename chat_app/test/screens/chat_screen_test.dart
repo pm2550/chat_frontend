@@ -17,6 +17,7 @@ import 'package:chat_app/services/chat_call_service.dart';
 import 'package:chat_app/services/contact_data_service.dart';
 import 'package:chat_app/services/auth_service.dart';
 import 'package:chat_app/services/bot_service.dart';
+import 'package:chat_app/services/pending_call_invite.dart';
 import 'package:chat_app/services/websocket_service.dart';
 import 'package:chat_app/widgets/message_bubble.dart';
 import 'package:http/http.dart' as http;
@@ -1395,6 +1396,96 @@ void main() {
       expect(find.byTooltip('更多'), findsOneWidget);
     });
 
+    Future<void> pumpChatOverBase(
+      WidgetTester tester,
+      Chat chat,
+      ChatCallService callService,
+    ) async {
+      final navigatorKey = GlobalKey<NavigatorState>();
+      await tester.pumpWidget(MaterialApp(
+        navigatorKey: navigatorKey,
+        home: const Scaffold(body: Text('BASE PAGE')),
+      ));
+      navigatorKey.currentState!.push(MaterialPageRoute<void>(
+        settings: RouteSettings(arguments: chat),
+        builder: (_) => ChatScreen(
+          chatService: FakeChatDataService(messages: testMessages),
+          callService: callService,
+          webSocketService:
+              WebSocketService.forTesting(authService: _NoSocketAuthService()),
+        ),
+      ));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+    }
+
+    /// 按真实帧率（约 16ms 一帧）推进，让弹窗退出动画期间的每一帧都跑到。
+    Future<void> pumpFrames(WidgetTester tester, {int frames = 40}) async {
+      for (var i = 0; i < frames; i++) {
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+    }
+
+    Map<String, dynamic> incomingInvite(String roomId) => {
+          'type': 'call',
+          'action': 'invite',
+          'chatRoomId': int.parse(roomId),
+          'callId': 'call-dialog',
+          'fromUserId': 7,
+          'fromName': '好友',
+          'mediaType': 'AUDIO',
+        };
+
+    testWidgets('accepting an incoming call keeps the chat open',
+        (tester) async {
+      final chat = createTestChat(id: '42', participantId: '7');
+      final callService = AnswerableCallService();
+      PendingCallInvite.put(incomingInvite('42'));
+
+      await pumpChatOverBase(tester, chat, callService);
+      expect(find.text('好友 的语音来电'), findsOneWidget);
+
+      await tester.tap(find.text('接听'));
+      await pumpFrames(tester);
+
+      // 行为约束：接听后聊天页必须还在（通话服务挂在聊天页上，页面没了通话就断）。
+      // 注意：线上出现过的"弹窗被关两次、把聊天页也弹掉"在这个测试环境里复现不出来，
+      // 那次修复是靠真实浏览器新旧版本对照验证的。
+      expect(callService.accepted, isTrue);
+      expect(find.byType(ChatScreen), findsOneWidget);
+      expect(find.text('BASE PAGE'), findsNothing);
+      expect(find.text('好友 的语音来电'), findsNothing);
+    });
+
+    testWidgets('rejecting an incoming call keeps the chat open',
+        (tester) async {
+      final chat = createTestChat(id: '43', participantId: '7');
+      final callService = AnswerableCallService();
+      PendingCallInvite.put(incomingInvite('43'));
+
+      await pumpChatOverBase(tester, chat, callService);
+      await tester.tap(find.text('拒绝'));
+      await pumpFrames(tester);
+
+      expect(callService.rejected, isTrue);
+      expect(find.byType(ChatScreen), findsOneWidget);
+      expect(find.text('BASE PAGE'), findsNothing);
+    });
+
+    testWidgets('caller cancelling closes only the dialog', (tester) async {
+      final chat = createTestChat(id: '44', participantId: '7');
+      final callService = AnswerableCallService();
+      PendingCallInvite.put(incomingInvite('44'));
+
+      await pumpChatOverBase(tester, chat, callService);
+      callService.cancelByCaller();
+      await pumpFrames(tester);
+
+      expect(find.byType(ChatScreen), findsOneWidget);
+      expect(find.text('BASE PAGE'), findsNothing);
+      expect(find.text('好友 的语音来电'), findsNothing);
+    });
+
     testWidgets('voice call passes private peer id to call service',
         (tester) async {
       final chat = createTestChat(id: '42', participantId: '7');
@@ -2334,5 +2425,69 @@ class FixedStateCallService extends ChatCallService {
   ChatCallState get state => fixedState;
 
   @override
-  Future<void> hangUp() async {}
+  Future<void> hangUp({bool sendSignal = true}) async {}
+}
+
+/// 能进入来电/接听/拒绝状态、但不碰真实媒体的通话服务。
+class AnswerableCallService extends ChatCallService {
+  AnswerableCallService() : super(webSocketService: WebSocketService());
+
+  ChatCallState _fakeState = const ChatCallState();
+  bool accepted = false;
+  bool rejected = false;
+
+  @override
+  ChatCallState get state => _fakeState;
+
+  @override
+  bool get isSupported => true;
+
+  void _set(ChatCallState next) {
+    _fakeState = next;
+    notifyListeners();
+  }
+
+  @override
+  Future<void> handleSignal(Map<String, dynamic> signal) async {
+    if (signal['action'] == 'invite') {
+      _set(ChatCallState(
+        phase: CallPhase.incoming,
+        callId: signal['callId']?.toString(),
+        chatRoomId: int.tryParse(signal['chatRoomId'].toString()),
+        mediaKind: CallMediaKind.audio,
+        participants: [
+          CallParticipant(
+            userId: 7,
+            displayName: signal['fromName']?.toString() ?? '好友',
+          ),
+        ],
+      ));
+    }
+  }
+
+  // 真实的接听/拒绝是异步的：状态在按钮回调之后的几帧里才变化。
+  @override
+  Future<void> acceptIncoming() async {
+    accepted = true;
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    _set(_fakeState.copyWith(phase: CallPhase.connecting));
+  }
+
+  @override
+  void rejectIncoming() {
+    rejected = true;
+    Future<void>.delayed(const Duration(milliseconds: 20), () {
+      _set(const ChatCallState());
+    });
+  }
+
+  void cancelByCaller() {
+    _set(const ChatCallState(
+      phase: CallPhase.ended,
+      errorMessage: '对方已取消通话',
+    ));
+  }
+
+  @override
+  Future<void> hangUp({bool sendSignal = true}) async {}
 }

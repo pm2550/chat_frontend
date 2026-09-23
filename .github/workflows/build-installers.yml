@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - main
+      # smoke/** 分支只构建全平台安装包，不发布（见 release 任务的条件）。
+      - "smoke/**"
   workflow_dispatch:
     inputs:
       version_name:
@@ -67,7 +69,8 @@ jobs:
       - name: Install Linux desktop dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libstdc++-12-dev
+          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libstdc++-12-dev \
+            libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libpulse-dev
 
       - name: Configure optional Android release key
         env:
@@ -332,7 +335,8 @@ jobs:
   release:
     name: GitHub Release
     runs-on: ubuntu-latest
-    if: always()
+    # 只有 main 推送或手动触发才发布（会推给所有用户）；smoke/** 分支只验证能否构建。
+    if: always() && (github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch')
     needs:
       - linux-android
       - windows

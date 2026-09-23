@@ -86,7 +86,14 @@ extension _ChatScreenCallParts on _ChatScreenState {
             final liveState = _callService.state;
             if (liveState.phase != CallPhase.incoming) {
               WidgetsBinding.instance.addPostFrameCallback((_) {
-                if (dialogContext.mounted) {
+                // 只在弹窗还在场时自动关：点"接听/拒绝"或 _dismissIncomingCallDialog
+                // 已经关过一次后，弹窗还在播退出动画、context 仍 mounted，这时再 pop
+                // 弹掉的是聊天页本身（聊天页销毁，通话也跟着断）。
+                if (_incomingCallDialogVisible &&
+                    dialogContext.mounted &&
+                    (ModalRoute.of(dialogContext)?.isCurrent ?? false)) {
+                  _incomingCallDialogVisible = false;
+                  _incomingCallDialogContext = null;
                   Navigator.of(dialogContext, rootNavigator: true).pop();
                 }
               });
@@ -141,7 +148,8 @@ extension _ChatScreenCallParts on _ChatScreenState {
     final dialogContext = _incomingCallDialogContext;
     if (_incomingCallDialogVisible &&
         dialogContext != null &&
-        dialogContext.mounted) {
+        dialogContext.mounted &&
+        (ModalRoute.of(dialogContext)?.isCurrent ?? false)) {
       Navigator.of(dialogContext, rootNavigator: true).pop();
     }
     _incomingCallDialogVisible = false;

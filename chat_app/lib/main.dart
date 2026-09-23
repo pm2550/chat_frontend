@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -12,14 +14,17 @@ import 'screens/settings/points_screen.dart';
 import 'constants/app_brand.dart';
 import 'constants/app_colors.dart';
 import 'services/agent_client_tools.dart';
+import 'services/notification_launch.dart';
 import 'services/websocket_service.dart';
 import 'widgets/app_update_listener.dart';
 import 'widgets/auth_guard.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
+  ColdStartRoute.capture(Uri.base.fragment);
   AgentClientToolRegistry().registerDefaults();
   WebSocketService().enableMobileWebBackgroundHandoff();
+  unawaited(initNotificationLaunchRouting(ChatApp.navigatorKey));
   runApp(
     const ProviderScope(
       child: ChatApp(),
@@ -133,6 +138,15 @@ class ChatApp extends StatelessWidget {
         ),
       ),
       initialRoute: '/',
+      // 冷启动只建启动页一层，深链接由启动页登录检查完再跳。
+      // 默认行为会把 /chat/591 拆成 /、/chat、/chat/591 三层，两层都是同一个聊天页：
+      // 来电被处理两次、弹两个窗；启动页之后的 pushReplacement 还会把最上面的聊天页换掉。
+      onGenerateInitialRoutes: (_) => [
+        MaterialPageRoute<void>(
+          settings: const RouteSettings(name: '/'),
+          builder: (_) => const SplashScreen(),
+        ),
+      ],
       builder: (context, child) => AppUpdateListener(
         child: child ?? const SizedBox.shrink(),
       ),

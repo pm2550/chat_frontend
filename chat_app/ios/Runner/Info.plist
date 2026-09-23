@@ -45,5 +45,9 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>PM chat 需要使用麦克风来发送语音消息和进行语音/视频通话。</string>
+	<key>NSCameraUsageDescription</key>
+	<string>PM chat 需要使用摄像头来进行视频通话。</string>
 </dict>
 </plist>

@@ -6,6 +6,7 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
 import 'desktop_notification_backend.dart';
+import 'notification_tap_router.dart';
 
 DesktopNotificationBackend createDesktopNotificationBackend() =>
     IoDesktopNotificationBackend();
@@ -130,7 +131,10 @@ class IoDesktopNotificationBackend
       android: AndroidInitializationSettings('@mipmap/ic_launcher'),
       iOS: DarwinInitializationSettings(),
     );
-    await _notifications.initialize(initializationSettings);
+    await _notifications.initialize(
+      initializationSettings,
+      onDidReceiveNotificationResponse: NotificationTapRouter.handleResponse,
+    );
     final android = _notifications.resolvePlatformSpecificImplementation<
         AndroidFlutterLocalNotificationsPlugin>();
     await android?.createNotificationChannel(_messageChannel);

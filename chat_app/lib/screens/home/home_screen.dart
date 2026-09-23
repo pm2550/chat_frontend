@@ -8,6 +8,8 @@ import '../../design/pm_symbol_icon.dart';
 import '../../widgets/pm_brand.dart';
 import '../../widgets/pm_responsive.dart';
 import '../../services/auth_service.dart';
+import '../../services/background_message_service.dart';
+import '../../services/notification_launch.dart';
 import 'chat_list_page.dart';
 import 'contacts_page.dart';
 import 'profile_page.dart';
@@ -52,6 +54,9 @@ class _HomeScreenState extends State<HomeScreen> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
+      // Android：登录后启动后台常驻服务；补上"点通知冷启动"时还没来得及跳的聊天。
+      unawaited(BackgroundMessageService.ensureStarted());
+      flushPendingNotificationRoute();
       _cacheWarmupTimer = Timer(widget.cacheWarmupDelay, () {
         unawaited((widget.cacheWarmer ?? _warmHiddenHomeCaches)());
       });

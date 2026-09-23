@@ -4,6 +4,32 @@ import '../services/update_service.dart';
 import '../widgets/pm_brand.dart';
 import '../widgets/update_dialog.dart';
 
+/// 冷启动时地址栏里请求的页面（网页端 `/#/chat/591` 这类深链接，比如点推送通知打开）。
+///
+/// 必须在 main() 一开始记下来：之后 Flutter 建路由时会改写地址栏，
+/// 等启动页动画播完再读 Uri.base 就已经丢了。
+class ColdStartRoute {
+  ColdStartRoute._();
+
+  static String? _fragment;
+
+  static void capture(String fragment) => _fragment = fragment;
+
+  /// 解析成可以跳转的路由；空或不允许冷启动直达的页面返回 null。
+  static String? requested() => resolve(_fragment ?? Uri.base.fragment);
+
+  @visibleForTesting
+  static String? resolve(String fragment) {
+    if (fragment.isEmpty || fragment == '/') return null;
+    final requestedRoute = fragment.startsWith('/') ? fragment : '/$fragment';
+    final route = requestedRoute.split('?').first;
+    if (route == '/home' || route.startsWith('/home/')) return requestedRoute;
+    if (route == '/chat' || route.startsWith('/chat/')) return requestedRoute;
+    const allowedColdStartRoutes = {'/settings', '/register'};
+    return allowedColdStartRoutes.contains(route) ? requestedRoute : null;
+  }
+}
+
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
 
@@ -66,9 +92,15 @@ class _SplashScreenState extends State<SplashScreen>
     }
 
     final route = await _resolveInitialRoute();
-    if (mounted) {
-      Navigator.of(context).pushReplacementNamed(route);
+    if (!mounted) return;
+    final navigator = Navigator.of(context);
+    if (route.startsWith('/chat/')) {
+      // 深链接进某个聊天：下面垫一层首页，按返回回到首页而不是退出。
+      navigator.pushNamedAndRemoveUntil('/home', (_) => false);
+      navigator.pushNamed(route);
+      return;
     }
+    navigator.pushReplacementNamed(route);
   }
 
   Future<String> _resolveInitialRoute() async {
@@ -85,27 +117,7 @@ class _SplashScreenState extends State<SplashScreen>
     return requestedRoute ?? '/home';
   }
 
-  String? _requestedColdStartRoute() {
-    final fragment = Uri.base.fragment;
-    if (fragment.isEmpty || fragment == '/') {
-      return null;
-    }
-
-    final requestedRoute = fragment.startsWith('/') ? fragment : '/$fragment';
-    final route = requestedRoute.split('?').first;
-    if (route == '/home' || route.startsWith('/home/')) {
-      return requestedRoute;
-    }
-    if (route == '/chat' || route.startsWith('/chat/')) {
-      return requestedRoute;
-    }
-
-    const allowedColdStartRoutes = {
-      '/settings',
-      '/register',
-    };
-    return allowedColdStartRoutes.contains(route) ? requestedRoute : null;
-  }
+  String? _requestedColdStartRoute() => ColdStartRoute.requested();
 
   @override
   void dispose() {

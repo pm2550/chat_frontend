@@ -9,19 +9,19 @@ void main() {
   group('ChatCallService', () {
     final webServiceSource = _ChatCallServiceWebSource();
 
-    test('incoming call moves to ended when caller hangs up before answer',
-        () async {
+    Map<String, dynamic> invite(String callId, {String media = 'AUDIO'}) => {
+          'action': 'invite',
+          'chatRoomId': 42,
+          'callId': callId,
+          'fromUserId': 7,
+          'fromName': 'Alice',
+          'mediaType': media,
+        };
+
+    test('caller hanging up before answer ends the incoming call', () async {
       final service = ChatCallService(webSocketService: WebSocketService());
 
-      await service.handleSignal({
-        'action': 'invite',
-        'chatRoomId': 42,
-        'callId': 'call-1',
-        'fromUserId': 7,
-        'fromName': 'Alice',
-        'mediaType': 'AUDIO',
-      });
-
+      await service.handleSignal(invite('call-1'));
       expect(service.state.phase, CallPhase.incoming);
       expect(service.state.callId, 'call-1');
       expect(service.state.primaryPeerName, 'Alice');
@@ -32,70 +32,66 @@ void main() {
         'chatRoomId': 42,
         'callId': 'call-1',
         'fromUserId': 7,
-        'fromName': 'Alice',
         'mediaType': 'AUDIO',
       });
 
       expect(service.state.phase, CallPhase.ended);
-      expect(service.state.statusLabel, '通话已结束');
+      expect(service.state.isActive, isFalse);
+      expect(service.state.statusLabel, '对方已取消通话');
     });
 
-    test('incoming call moves to ended when caller rejects/cancels', () async {
+    test('a missed call does not make the next call look busy', () async {
       final service = ChatCallService(webSocketService: WebSocketService());
 
+      await service.handleSignal(invite('call-1'));
       await service.handleSignal({
-        'action': 'invite',
+        'action': 'hangup',
         'chatRoomId': 42,
-        'callId': 'call-2',
+        'callId': 'call-1',
         'fromUserId': 7,
-        'mediaType': 'VIDEO',
       });
+      // 以前这里状态卡在"来电中"，下一通会被当成占线自动拒掉。
+      await service.handleSignal(invite('call-2'));
 
+      expect(service.state.phase, CallPhase.incoming);
+      expect(service.state.callId, 'call-2');
+    });
+
+    test('caller cancelling with reject declines the incoming call', () async {
+      final service = ChatCallService(webSocketService: WebSocketService());
+
+      await service.handleSignal(invite('call-3', media: 'VIDEO'));
       await service.handleSignal({
         'action': 'reject',
         'chatRoomId': 42,
-        'callId': 'call-2',
+        'callId': 'call-3',
         'fromUserId': 7,
         'mediaType': 'VIDEO',
       });
 
-      expect(service.state.phase, CallPhase.ended);
+      expect(service.state.isActive, isFalse);
       expect(service.state.statusLabel, '对方已拒绝通话');
     });
 
-    test('rejectIncoming clears unsupported incoming call state', () async {
+    test('rejectIncoming clears the incoming call state', () async {
       final service = ChatCallService(webSocketService: WebSocketService());
 
-      await service.handleSignal({
-        'action': 'invite',
-        'chatRoomId': 42,
-        'callId': 'call-3',
-        'fromUserId': 7,
-        'fromName': 'Alice',
-        'mediaType': 'AUDIO',
-      });
-
+      await service.handleSignal(invite('call-4'));
       service.rejectIncoming();
 
       expect(service.state.isIdle, isTrue);
       expect(service.state.participants, isEmpty);
     });
 
-    test('acceptIncoming fails cleanly on unsupported platforms', () async {
+    test('acceptIncoming fails cleanly when media cannot start', () async {
+      // 测试环境没有真实的麦克风/WebRTC 插件，接听应干净地失败而不是抛异常。
       final service = ChatCallService(webSocketService: WebSocketService());
 
-      await service.handleSignal({
-        'action': 'invite',
-        'chatRoomId': 42,
-        'callId': 'call-4',
-        'fromUserId': 7,
-        'mediaType': 'VIDEO',
-      });
-
+      await service.handleSignal(invite('call-5', media: 'VIDEO'));
       await service.acceptIncoming();
 
       expect(service.state.phase, CallPhase.failed);
-      expect(service.state.statusLabel, '当前平台暂不支持浏览器实时通话');
+      expect(service.state.isActive, isFalse);
     });
 
     test('outgoing call source keeps outgoing until remote media connects', () {
