@@ -10,7 +10,51 @@ extension _ChatScreenAttachmentParts on _ChatScreenState {
       await _showVideoPreview(message);
       return;
     }
+    if (message.isVoiceMessage && _voicePlayback.isSupported) {
+      await _toggleVoicePlayback(message);
+      return;
+    }
     await _downloadAttachment(message);
+  }
+
+  /// 点语音消息：播放；正在播的再点一次：停止。
+  Future<void> _toggleVoicePlayback(Message message) async {
+    if (_playingVoiceMessageId == message.id) {
+      _voicePlayback.stop();
+      _setViewState(() => _playingVoiceMessageId = null);
+      return;
+    }
+    try {
+      _setViewState(() => _playingVoiceMessageId = message.id);
+      final downloaded = await _chatService.downloadFile(message);
+      if (!mounted || _playingVoiceMessageId != message.id) return;
+      await _voicePlayback.play(
+        downloaded.bytes,
+        mimeType: downloaded.mimeType ?? message.fileType,
+        onEnded: () {
+          if (mounted && _playingVoiceMessageId == message.id) {
+            _setViewState(() => _playingVoiceMessageId = null);
+          }
+        },
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(const SnackBar(
+            content: Text('正在播放语音 · 再点一次停止'),
+            duration: Duration(seconds: 2),
+          ));
+      }
+    } catch (e) {
+      if (!mounted) return;
+      _setViewState(() => _playingVoiceMessageId = null);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('语音播放失败: $e'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    }
   }
 
   Future<void> _downloadAttachment(

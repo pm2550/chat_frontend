@@ -32,6 +32,7 @@ import '../../services/file_save.dart' as file_save;
 import '../../services/platform_chat_file_picker.dart'
     if (dart.library.js_interop) '../../services/platform_chat_file_picker_web.dart';
 import '../../services/user_profile_service.dart';
+import '../../services/voice_playback.dart';
 import '../../services/voice_recorder.dart'
     if (dart.library.js_interop) '../../services/voice_recorder_web.dart';
 import '../../services/websocket_service.dart';
@@ -202,6 +203,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   String? _announcementSeenKey;
   ChatDropPasteController? _dropPasteController;
   final List<_PendingAttachment> _pendingAttachments = [];
+  final VoicePlayback _voicePlayback = VoicePlayback();
+  String? _playingVoiceMessageId;
   bool _isDragUploadActive = false;
   int _dragUploadFileCount = 0;
   UserAppSettings _appSettings = const UserAppSettings();
@@ -394,6 +397,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    _voicePlayback.dispose();
     WidgetsBinding.instance.removeObserver(this);
     _messageSubscription?.cancel();
     _statusSubscription?.cancel();
