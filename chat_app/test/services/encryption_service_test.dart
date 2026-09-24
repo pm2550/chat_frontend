@@ -115,8 +115,15 @@ void main() {
     await bob.roomState(dm('42'), refresh: true);
     final envelope = await alice.sealText(dm('42'), 'from alice');
 
-    // 服务器把 alice 的消息说成是 bob 自己发的。
-    final relabelled = incoming(id: '102', senderId: '2', envelope: envelope!);
+    // 先正常解开一次（结果会被缓存）。
+    expect(
+      bob
+          .reveal(incoming(id: '101', senderId: '1', envelope: envelope!))
+          .content,
+      'from alice',
+    );
+    // 服务器把 alice 的消息说成是 bob 自己发的：不能沿用缓存里的结果。
+    final relabelled = incoming(id: '102', senderId: '2', envelope: envelope);
     expect(bob.revealResult(relabelled).status, E2eeRevealStatus.failed);
     // 服务器把它挪到别的会话。
     final moved =

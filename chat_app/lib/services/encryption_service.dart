@@ -333,14 +333,17 @@ class EncryptionService extends ChangeNotifier {
     if (ciphertext == null || ciphertext.isEmpty) {
       return const E2eeReveal(E2eeRevealStatus.failed);
     }
-    final cached = _reveals[ciphertext];
+    // 缓存键带上服务器声称的发送者和会话：同一段密文被服务器安到别人名下、
+    // 或挪到别的会话时，必须重新校验，不能直接拿上次的结果。
+    final cacheKey = '${message.senderId}|${message.chatRoomId}|$ciphertext';
+    final cached = _reveals[cacheKey];
     if (cached != null) return cached;
 
     final result = _computeReveal(message, ciphertext);
     if (result.status != E2eeRevealStatus.locked &&
         result.status != E2eeRevealStatus.pending &&
         result.status != E2eeRevealStatus.keyLost) {
-      _reveals[ciphertext] = result;
+      _reveals[cacheKey] = result;
       while (_reveals.length > _maxCachedReveals) {
         _reveals.remove(_reveals.keys.first);
       }
