@@ -158,4 +158,35 @@ void main() {
     expect(service.isConnected, isFalse);
     service.disconnect();
   });
+
+  test('logging out closes the socket so the server stops counting us online',
+      () async {
+    final auth = _LogoutAuthService();
+    final service = WebSocketService.forTesting(
+      authService: auth,
+      channelFactory: (_) => FakeWebSocketChannel(),
+    );
+    await service.connect();
+    expect(service.isConnected, isTrue);
+
+    // 续期换 token 不算退出。
+    auth.setToken('renewed-token');
+    expect(service.isConnected, isTrue);
+
+    auth.setToken(null);
+    expect(service.isConnected, isFalse);
+    service.dispose();
+  });
+}
+
+class _LogoutAuthService extends SocketAuthService {
+  String? _token = 'test-access-token';
+
+  @override
+  String? get accessToken => _token;
+
+  void setToken(String? token) {
+    _token = token;
+    notifyListeners();
+  }
 }

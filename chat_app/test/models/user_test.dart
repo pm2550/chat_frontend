@@ -82,6 +82,21 @@ void main() {
       expect(user.roles, isEmpty);
     });
 
+    test('lastSeen without a zone is server UTC, not device-local time', () {
+      final user = User.fromJson({
+        'id': 3,
+        'username': 'u3',
+        'email': 'u3@example.com',
+        'lastSeen': '2026-09-24T08:00:00',
+        'createdAt': '2024-01-01T00:00:00.000Z',
+      });
+
+      expect(user.lastSeen!.toUtc(), DateTime.utc(2026, 9, 24, 8));
+      expect(user.lastSeen!.isUtc, isFalse, reason: 'shown in local time');
+      // 缓存再读回来不能再平移一次时区。
+      expect(User.fromJson(user.toJson()).lastSeen, user.lastSeen);
+    });
+
     test('toJson produces correct output', () {
       final user = User(
         id: '1',

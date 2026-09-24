@@ -207,7 +207,7 @@ extension _ChatScreenMembersPanelParts on _ChatScreenState {
             title: Text(participant.displayName.isNotEmpty
                 ? participant.displayName
                 : participant.username),
-            subtitle: Text(participant.onlineStatus.name),
+            subtitle: Text(_presenceLabel(participant)),
             onSecondaryTap: () => _insertMentionForUser(participant),
             onLongPress: () => _insertMentionForUser(participant),
             trailing: Wrap(
@@ -523,7 +523,7 @@ extension _ChatScreenMembersPanelParts on _ChatScreenState {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  other.onlineStatus.name,
+                  _presenceLabel(other),
                   style: const TextStyle(
                       color: AppColors.textSecondary, fontSize: 12),
                 ),

@@ -968,6 +968,52 @@ void main() {
       expect(editable.controller.text, '@alice ');
     });
 
+    testWidgets('member panel shows presence in Chinese with last seen',
+        (tester) async {
+      tester.view.physicalSize = const Size(1400, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      final now = DateTime.now();
+      final groupChat = Chat(
+        id: 'group1',
+        name: 'Presence Room',
+        type: ChatType.group,
+        createdAt: now,
+        participants: [
+          User(
+            id: '2',
+            username: 'alice',
+            email: 'alice@test.com',
+            displayName: 'Alice',
+            onlineStatus: OnlineStatus.away,
+            createdAt: now,
+          ),
+          User(
+            id: '3',
+            username: 'bob',
+            email: 'bob@test.com',
+            displayName: 'Bob',
+            lastSeen: now.subtract(const Duration(hours: 2)),
+            createdAt: now,
+          ),
+        ],
+      );
+
+      await tester.pumpWidget(buildTestWidget(
+        groupChat,
+        chatService: FakeChatDataService(messages: const []),
+      ));
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.text('离开'), findsOneWidget);
+      expect(find.textContaining('最后在线'), findsOneWidget);
+      expect(find.text('away'), findsNothing);
+      expect(find.text('offline'), findsNothing);
+    });
+
     testWidgets('long-press message avatar inserts mention on mobile',
         (tester) async {
       final now = DateTime.now();

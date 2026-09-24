@@ -172,6 +172,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   late final TypingIndicatorSender _typingSender;
   bool _removedFromRoom = false;
 
+  /// 每个读者在本会话里已经计入到哪条（来自实时已读回执），重复或乱序的回执不会重复加已读数。
+  final Map<String, int> _readerMarks = {};
+
   List<Message> _messages = [];
   final Map<String, GlobalKey> _messageKeys = {};
   final Map<String, Future<LinkPreview?>> _linkPreviewFutures = {};

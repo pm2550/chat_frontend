@@ -298,14 +298,7 @@ extension _ChatScreenChromeParts on _ChatScreenState {
     if (_chat.type == ChatType.private) {
       final participant = _privatePeer();
       if (participant == null) return '私聊';
-      if (participant.onlineStatus != OnlineStatus.offline) {
-        // 在线 / 离开 / 忙碌
-        return participant.onlineStatus.description;
-      }
-      if (participant.lastSeen != null) {
-        return '最后在线 ${timeago.format(participant.lastSeen!, locale: 'zh')}';
-      }
-      return '离线';
+      return _presenceLabel(participant);
     }
     if (_chat.type == ChatType.group) {
       return '${_chat.effectiveMemberCount}人';
@@ -378,4 +371,16 @@ extension _ChatScreenChromeParts on _ChatScreenState {
           : null,
     );
   }
+}
+
+/// 在线 / 离开 / 忙碌 直接显示；离线时显示"最后在线 X"（最后一个连接断开的时间）。
+String _presenceLabel(User user) {
+  if (user.onlineStatus != OnlineStatus.offline) {
+    return user.onlineStatus.description;
+  }
+  final lastSeen = user.lastSeen;
+  if (lastSeen != null) {
+    return '最后在线 ${timeago.format(lastSeen, locale: 'zh')}';
+  }
+  return OnlineStatus.offline.description;
 }
