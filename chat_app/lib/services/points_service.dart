@@ -192,8 +192,8 @@ class PointsService {
     return const [];
   }
 
-  /// Spring 的 JSON 响应不带 charset，http 包会按 latin1 解码 `body`，
-  /// 中文错误文案会变成乱码；统一按 UTF-8 解码原始字节。
+  /// 统一按 UTF-8 解码原始字节：响应缺少 JSON content-type 时（例如被网关
+  /// 改写的错误页），http 包会按 latin1 解码 `body`，中文文案会变成乱码。
   String _bodyText(http.Response response) {
     try {
       return utf8.decode(response.bodyBytes);
