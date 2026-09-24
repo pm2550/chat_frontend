@@ -710,20 +710,30 @@ class EncryptionService extends ChangeNotifier {
   /// 只看状态、决定这个会话发东西要不要加密（附件先加密文件再发）。
   /// 该加密却做不到时同样抛 [E2eeSendBlockedException]。
   Future<bool> shouldEncrypt(Chat chat) async {
-    var state = await roomState(chat);
-    if (state.mode == E2eeRoomMode.needsUnlock && _myKeys.isNotEmpty) {
-      state = await roomState(chat, refresh: true);
-    }
+    final state = await _stateForSend(chat);
     _throwIfBlocked(state);
     return state.encrypts;
   }
 
-  Future<String?> _seal(Chat chat, E2eePayload payload) async {
-    var state = await roomState(chat);
-    if (state.mode == E2eeRoomMode.needsUnlock && _myKeys.isNotEmpty) {
-      // 可能刚刚才解锁，缓存还是旧的。
-      state = await roomState(chat, refresh: true);
+  /// 发送前用的会话状态。"不加密"的缓存可能已经过时——对方刚开启加密、
+  /// 这边还缓存着"对方尚未启用"——这时按缓存发就会把本该加密的消息发成明文，
+  /// 所以不加密的判断在发送前总要找服务器再确认一次（加密的会话不多花请求）。
+  /// 刚解锁、缓存还是"未解锁"时同理。
+  Future<E2eeRoomState> _stateForSend(Chat chat) async {
+    final state = await roomState(chat);
+    final checkedAt = state.checkedAt;
+    final justChecked = checkedAt != null &&
+        DateTime.now().difference(checkedAt) < const Duration(seconds: 2);
+    final unlockedSince =
+        state.mode == E2eeRoomMode.needsUnlock && _myKeys.isNotEmpty;
+    if (unlockedSince || (!state.encrypts && !justChecked)) {
+      return roomState(chat, refresh: true);
     }
+    return state;
+  }
+
+  Future<String?> _seal(Chat chat, E2eePayload payload) async {
+    final state = await _stateForSend(chat);
     _throwIfBlocked(state);
     if (!state.encrypts) return null;
     final me = _currentUserId();

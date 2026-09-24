@@ -333,7 +333,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
 
   void _startChatSession() {
     _restoreCachedMessages();
-    unawaited(_refreshE2eeRoomState());
+    // 进聊天页总是找服务器确认一次加密状态，别用别的页面留下的旧缓存。
+    unawaited(_refreshE2eeRoomState(refresh: true));
     unawaited(_loadCustomizationSettings());
     unawaited(_loadAnonymousModePreference());
     unawaited(_prepareAnnouncementBanner());

@@ -157,6 +157,24 @@ void main() {
     expect(await alice.sealText(dm('42'), 'bot can read this'), isNull);
   });
 
+  test(
+      'peer enables encryption after we cached "peer off": the very next '
+      'send is encrypted, not plaintext', () async {
+    final alice = device(server, '1');
+    final bob = device(server, '2');
+    await alice.enable('alice-pw');
+
+    final before = await alice.roomState(dm('42'), refresh: true);
+    expect(before.mode, E2eeRoomMode.peerOff);
+
+    await bob.enable('bob-pw');
+    // The cached state still says "peer off" (TTL not expired), but sending
+    // must not trust it.
+    await Future<void>.delayed(const Duration(milliseconds: 2100));
+    final sealed = await alice.sealText(dm('42'), 'should be encrypted');
+    expect(sealed, isNotNull);
+  });
+
   test('turning encryption off keeps history readable and stops encrypting',
       () async {
     final alice = device(server, '1');
