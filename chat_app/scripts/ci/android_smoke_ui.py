@@ -15,8 +15,11 @@ import xml.etree.ElementTree as ET
 
 def dump():
     for _ in range(5):
-        xml = subprocess.run(["adb", "exec-out", "uiautomator", "dump", "/dev/tty"],
-                             capture_output=True, text=True).stdout
+        try:
+            xml = subprocess.run(["adb", "exec-out", "uiautomator", "dump", "/dev/tty"],
+                                 capture_output=True, text=True, timeout=45).stdout
+        except subprocess.TimeoutExpired:
+            xml = ""
         xml = xml[: xml.rfind(">") + 1] if ">" in xml else ""
         if xml.startswith("<?xml"):
             return ET.fromstring(xml)
@@ -32,7 +35,7 @@ def bounds(node):
 def tap(node):
     x1, y1, x2, y2 = bounds(node)
     x, y = (x1 + x2) // 2, (y1 + y2) // 2
-    subprocess.run(["adb", "shell", "input", "tap", str(x), str(y)], check=True)
+    subprocess.run(["adb", "shell", "input", "tap", str(x), str(y)], check=True, timeout=30)
     print(f"tap {x},{y} {node.get('text')!r} {node.get('content-desc')!r}")
 
 
