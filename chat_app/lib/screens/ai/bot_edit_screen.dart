@@ -9,6 +9,7 @@ import '../../constants/app_colors.dart';
 import '../../design/design.dart';
 import '../../services/bot_service.dart';
 import '../../widgets/pm_brand.dart';
+import 'bot_model_capabilities.dart';
 import 'widgets/bot_image_provider_section.dart';
 
 class BotEditScreen extends StatefulWidget {
@@ -181,6 +182,8 @@ class _BotEditScreenState extends State<BotEditScreen> {
     _showAdvancedTriggerModes = _defaultTriggerMode.contains('REGEX');
     _accessPolicy = bot?.accessPolicy ?? 'PRIVATE';
     _providerController.addListener(_loadCredentialsForProvider);
+    // 模型/Provider 变化会决定 Temperature、思考强度是否生效，需要重绘。
+    _modelController.addListener(_onModelChanged);
     _promptFocusNode.addListener(_restorePromptScrollAnchor);
     _temperature = bot?.temperature ?? 0.7;
     _maxTokens = bot?.maxTokens ?? 2048;
@@ -201,6 +204,32 @@ class _BotEditScreenState extends State<BotEditScreen> {
       _loadImageCredentials();
     });
   }
+
+  void _onModelChanged() {
+    if (mounted) setState(() {});
+  }
+
+  String get _selectedProvider => _providerController.text.trim().toUpperCase();
+
+  String get _effectiveModel {
+    String? override;
+    for (final credential in _credentials) {
+      if (credential.id == _selectedCredentialId) {
+        override = credential.modelOverride;
+      }
+    }
+    return effectiveBotModel(
+      _selectedProvider,
+      _modelController.text,
+      modelOverride: override,
+    );
+  }
+
+  bool get _temperatureTakesEffect =>
+      botSupportsTemperature(_selectedProvider, _effectiveModel);
+
+  bool get _reasoningEffortTakesEffect =>
+      botSupportsReasoningEffort(_selectedProvider, _effectiveModel);
 
   void _rememberPromptScrollAnchor() {
     if (_pageScrollController.hasClients) {
@@ -249,6 +278,7 @@ class _BotEditScreenState extends State<BotEditScreen> {
     _imageModelController.dispose();
     _imageNegativePromptController.dispose();
     _defaultTriggerController.dispose();
+    _modelController.removeListener(_onModelChanged);
     _promptFocusNode.removeListener(_restorePromptScrollAnchor);
     _promptFocusNode.dispose();
     _pageScrollController.dispose();
@@ -379,16 +409,7 @@ class _BotEditScreenState extends State<BotEditScreen> {
                             ),
                           ),
                           const SizedBox(height: PMSpacing.xl),
-                          _buildSlider(
-                            label: 'Temperature',
-                            value: _temperature,
-                            display: _temperature.toStringAsFixed(1),
-                            min: 0,
-                            max: 2,
-                            divisions: 20,
-                            onChanged: (value) =>
-                                setState(() => _temperature = value),
-                          ),
+                          _buildTemperatureControl(),
                           const SizedBox(height: PMSpacing.l),
                           _buildSlider(
                             label: 'Max Tokens',
@@ -400,8 +421,7 @@ class _BotEditScreenState extends State<BotEditScreen> {
                             onChanged: (value) =>
                                 setState(() => _maxTokens = value.round()),
                           ),
-                          if (_providerController.text.trim().toUpperCase() ==
-                              'OLLAMA') ...[
+                          if (_reasoningEffortTakesEffect) ...[
                             const SizedBox(height: PMSpacing.l),
                             _buildReasoningEffortSection(),
                           ],
@@ -724,6 +744,34 @@ class _BotEditScreenState extends State<BotEditScreen> {
     );
   }
 
+  Widget _buildTemperatureControl() {
+    if (!_temperatureTakesEffect) {
+      final reason = _selectedProvider == 'CLAUDE'
+          ? '当前 Claude 模型不接受 Temperature（Claude 4.7 及之后的模型已移除采样参数）。'
+          : '当前模型是推理模型（gpt-5 / o 系列），不接受 Temperature。';
+      return PMCard(
+        key: const Key('bot-temperature-unsupported'),
+        elevated: false,
+        background: AppColors.cloud,
+        padding: const EdgeInsets.all(PMSpacing.m),
+        child: Text(
+          '$reason该参数不会发送给模型，已有值保存时保持不变。',
+          style: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
+        ),
+      );
+    }
+    final max = botTemperatureMax(_selectedProvider);
+    return _buildSlider(
+      label: max < 2 ? 'Temperature（Claude 取值 0 ~ 1）' : 'Temperature',
+      value: _temperature.clamp(0, max).toDouble(),
+      display: _temperature.clamp(0, max).toStringAsFixed(1),
+      min: 0,
+      max: max,
+      divisions: (max * 10).round(),
+      onChanged: (value) => setState(() => _temperature = value),
+    );
+  }
+
   Widget _buildReasoningEffortSection() {
     const options = <(String, String)>[
       ('AUTO', '模型默认'),
@@ -751,7 +799,7 @@ class _BotEditScreenState extends State<BotEditScreen> {
           ),
           const SizedBox(height: PMSpacing.s),
           const Text(
-            'Ollama/Kimi 的思考会占用 Max Tokens。聊天 Bot 可关闭思考；复杂任务可提高强度并同步提高 Token。',
+            '仅对 Ollama 上的 kimi-k2 系列模型生效。思考会占用 Max Tokens：聊天 Bot 可关闭思考；复杂任务可提高强度并同步提高 Token。',
             style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
           ),
           const SizedBox(height: PMSpacing.m),
@@ -1438,9 +1486,7 @@ class _BotEditScreenState extends State<BotEditScreen> {
       );
       return;
     }
-    final provider = _providerController.text.trim().toUpperCase();
-    final model = _modelController.text.trim().toLowerCase();
-    if (provider == 'OLLAMA' && model.startsWith('kimi-k2')) {
+    if (_reasoningEffortTakesEffect) {
       final minimum = switch (_reasoningEffort) {
         'NONE' => 256,
         'LOW' => 2048,
@@ -1459,17 +1505,20 @@ class _BotEditScreenState extends State<BotEditScreen> {
       }
     }
     setState(() => _saving = true);
+    // 编辑时清空的文本框发空串（= 清空），不能发 null（后端把 null 当"不修改"）。
+    String? textOrClear(TextEditingController controller) {
+      final value = controller.text.trim();
+      if (value.isNotEmpty) return value;
+      return _isEditing ? '' : null;
+    }
+
     final config = BotConfig(
       id: widget.bot?.id,
       botName: _nameController.text.trim(),
       botAvatar: _botAvatarUrl,
       llmProvider: _providerController.text.trim(),
-      modelName: _modelController.text.trim().isEmpty
-          ? null
-          : _modelController.text.trim(),
-      systemPrompt: _promptController.text.trim().isEmpty
-          ? null
-          : _promptController.text.trim(),
+      modelName: textOrClear(_modelController),
+      systemPrompt: textOrClear(_promptController),
       temperature: _temperature,
       maxTokens: _maxTokens,
       reasoningEffort: _reasoningEffort,
@@ -1480,9 +1529,7 @@ class _BotEditScreenState extends State<BotEditScreen> {
       replyMode: _replyMode,
       replyIntervalSeconds: _replyIntervalSeconds,
       defaultTriggerMode: _defaultTriggerMode,
-      defaultTriggerKeywords: _defaultTriggerController.text.trim().isEmpty
-          ? null
-          : _defaultTriggerController.text.trim(),
+      defaultTriggerKeywords: textOrClear(_defaultTriggerController),
       isActive: widget.bot?.isActive ?? true,
       enabledTools: _composeEnabledTools(),
       accessPolicy: _accessPolicy,
@@ -1491,15 +1538,13 @@ class _BotEditScreenState extends State<BotEditScreen> {
       providerCredentialId: _selectedCredentialId,
       imageGenerationProvider: _imageProvider,
       imageProviderCredentialId: _selectedImageCredentialId,
-      imageModel: _imageModelController.text.trim().isEmpty
-          ? null
-          : _imageModelController.text.trim(),
-      imageNegativePrompt: _imageNegativePromptController.text.trim().isEmpty
-          ? null
-          : _imageNegativePromptController.text.trim(),
+      imageModel: textOrClear(_imageModelController),
+      imageNegativePrompt: textOrClear(_imageNegativePromptController),
       imagePromptMode: _imagePromptMode,
       imageInvocationMode: _imageInvocationMode,
       imageRewriteFailurePolicy: _imageRewriteFailurePolicy,
+      // 编辑器不展示的字段原样带回（以前漏了它，保存阿雷时被默认值改成了 SINGLE_PASS）。
+      workflowMode: widget.bot?.workflowMode,
     );
 
     try {

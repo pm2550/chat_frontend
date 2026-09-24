@@ -32,7 +32,8 @@ class BotConfig {
   final double replyIntervalSeconds;
   final String defaultTriggerMode;
   final String? defaultTriggerKeywords;
-  final String workflowMode;
+  /// 编辑器不展示这个字段；null 表示"不知道/不修改"，序列化时省略，交给后端保留原值。
+  final String? workflowMode;
   final String imageGenerationProvider;
   final int? imageProviderCredentialId;
   final String? imageProviderCredentialLabel;
@@ -88,7 +89,7 @@ class BotConfig {
     this.replyIntervalSeconds = 2.0,
     this.defaultTriggerMode = 'MENTION',
     this.defaultTriggerKeywords,
-    this.workflowMode = 'SINGLE_PASS',
+    this.workflowMode,
     this.imageGenerationProvider = 'HERMES',
     this.imageProviderCredentialId,
     this.imageProviderCredentialLabel,
@@ -147,7 +148,7 @@ class BotConfig {
           (json['replyIntervalSeconds'] as num?)?.toDouble() ?? 2.0,
       defaultTriggerMode: json['defaultTriggerMode']?.toString() ?? 'MENTION',
       defaultTriggerKeywords: json['defaultTriggerKeywords']?.toString(),
-      workflowMode: json['workflowMode']?.toString() ?? 'SINGLE_PASS',
+      workflowMode: json['workflowMode']?.toString(),
       imageGenerationProvider:
           json['imageGenerationProvider']?.toString() ?? 'HERMES',
       imageProviderCredentialId: json['imageProviderCredentialId'] is int
@@ -231,7 +232,7 @@ class BotConfig {
         'defaultTriggerMode': defaultTriggerMode,
         if (defaultTriggerKeywords != null)
           'defaultTriggerKeywords': defaultTriggerKeywords,
-        'workflowMode': workflowMode,
+        if (workflowMode != null) 'workflowMode': workflowMode,
         'imageGenerationProvider': imageGenerationProvider,
         if (imageProviderCredentialId != null)
           'imageProviderCredentialId': imageProviderCredentialId,
