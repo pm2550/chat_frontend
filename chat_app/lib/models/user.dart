@@ -1,3 +1,5 @@
+import '../utils/date_time_utils.dart';
+
 class User {
   final String id;
   final String username;
@@ -62,10 +64,8 @@ class User {
                 .toUpperCase(),
         orElse: () => OnlineStatus.offline,
       ),
-      lastSeen: json['lastSeen'] != null || json['last_seen'] != null
-          ? DateTime.tryParse(
-              (json['lastSeen'] ?? json['last_seen']).toString())
-          : null,
+      // 服务器时间不带时区（UTC），按 UTC 解析再转本地，否则"最后在线"会差出时区的小时数。
+      lastSeen: parseServerDateTime(json['lastSeen'] ?? json['last_seen']),
       isActive: json['isActive'] ?? json['is_active'] ?? true,
       createdAt: DateTime.tryParse(
               (json['createdAt'] ?? json['created_at']).toString()) ??
@@ -99,7 +99,8 @@ class User {
       'titleEffect': titleEffect,
       'bio': bio,
       'onlineStatus': onlineStatus.name.toUpperCase(),
-      'lastSeen': lastSeen?.toIso8601String(),
+      // 带上 Z，读回来时不会被当成不带时区的服务器时间再平移一次。
+      'lastSeen': lastSeen?.toUtc().toIso8601String(),
       'isActive': isActive,
       'createdAt': createdAt.toIso8601String(),
       'updatedAt': updatedAt?.toIso8601String(),

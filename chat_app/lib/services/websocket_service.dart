@@ -90,14 +90,34 @@ class WebSocketService extends ChangeNotifier implements ChatRealtimeService {
   factory WebSocketService() => _instance;
   WebSocketService._internal({AuthService? authService})
       : _authService = authService ?? AuthService(),
-        _channelFactory = WebSocketChannel.connect;
+        _channelFactory = WebSocketChannel.connect {
+    _watchLogout();
+  }
 
   @visibleForTesting
   WebSocketService.forTesting({
     required AuthService authService,
     WebSocketChannel Function(Uri uri)? channelFactory,
   })  : _authService = authService,
-        _channelFactory = channelFactory ?? WebSocketChannel.connect;
+        _channelFactory = channelFactory ?? WebSocketChannel.connect {
+    _watchLogout();
+  }
+
+  String? _authToken;
+
+  /// 退出登录（或登录失效被清掉）时立刻断开：连接还开着的话，服务器会一直把这个账号
+  /// 算作在线，也还会往这台设备推消息。
+  void _watchLogout() {
+    _authToken = _authService.accessToken;
+    _authService.addListener(_handleAuthChanged);
+  }
+
+  void _handleAuthChanged() {
+    final token = _authService.accessToken;
+    final loggedOut = _authToken != null && token == null;
+    _authToken = token;
+    if (loggedOut) disconnect();
+  }
 
   final WebSocketChannel Function(Uri uri) _channelFactory;
 
@@ -644,6 +664,7 @@ class WebSocketService extends ChangeNotifier implements ChatRealtimeService {
 
   @override
   void dispose() {
+    _authService.removeListener(_handleAuthChanged);
     disconnect();
     _messageController.close();
     _messageUpdateController.close();
