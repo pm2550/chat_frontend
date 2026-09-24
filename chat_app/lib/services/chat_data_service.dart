@@ -1160,6 +1160,25 @@ class ChatDataService {
     return _messagePageFromData(data, messages);
   }
 
+  /// 在当前用户所在的全部聊天里搜索消息（遵守各自的“清空记录”起点）。
+  Future<MessagePage> searchAllMessages(
+    String keyword, {
+    int page = 0,
+    int size = 20,
+  }) async {
+    final uri = Uri.parse(ApiConstants.searchAllMessages).replace(
+      queryParameters: {
+        'q': keyword,
+        'page': page.toString(),
+        'size': size.toString(),
+      },
+    );
+    final response = await _request('GET', uri.toString());
+    final data = _decodeResponse(response);
+    final messages = _extractMessages(data, '');
+    return _messagePageFromData(data, messages);
+  }
+
   Future<LinkPreview> fetchUrlPreview(String url) async {
     final response = await _request(
       'POST',

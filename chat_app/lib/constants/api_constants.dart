@@ -170,6 +170,8 @@ class ApiConstants {
   static String messageReaction(int messageId, String emoji) =>
       '$apiBaseUrl/messages/$messageId/reactions/${Uri.encodeComponent(emoji)}';
   static const String searchMessages = '$apiBaseUrl/messages/search';
+  static const String searchAllMessages =
+      '$apiBaseUrl/chat-rooms/messages/search';
   static String searchMessagesInRoom(int roomId) =>
       '$apiBaseUrl/chat-rooms/$roomId/messages/search';
   static const String unreadCount = '$apiBaseUrl/messages/unread-count';
