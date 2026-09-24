@@ -196,13 +196,15 @@ extension _ChatScreenMessageListParts on _ChatScreenState {
     }
     _setViewState(() {
       _messages.removeWhere((item) => item.id == message.id);
-      _messageController.text = message.type == MessageType.text
-          ? message.content
-          : _messageController.text;
     });
     _saveMessageCache();
     if (message.type == MessageType.text) {
-      await _sendMessage();
+      // 直接重发这条（连同引用），不去动输入框里正在打的字。
+      await _deliverTextMessage(
+        message.content,
+        replyToMessage: message.replyToMessage,
+        sendIdentity: message.isAnonymous ? _activeSendIdentity() : null,
+      );
     } else if (message.type == MessageType.imageGeneration) {
       await _generateImageMessage(message.imageGenPrompt ?? message.content);
     } else {

@@ -8,7 +8,6 @@ extension _ChatScreenComposerParts on _ChatScreenState {
     await _sendPendingAttachments();
     if (content.isEmpty) return;
     final replyToMessage = _replyingToMessage;
-    final replyToId = replyToMessage?.id;
     final sendIdentity = _activeSendIdentity();
 
     _setViewState(() {
@@ -20,66 +19,79 @@ extension _ChatScreenComposerParts on _ChatScreenState {
       _mentionSelectedIndex = 0;
     });
 
+    await _deliverTextMessage(
+      content,
+      replyToMessage: replyToMessage,
+      sendIdentity: sendIdentity,
+    );
+  }
+
+  /// 先在列表里放一条"发送中"的本地消息（id 就是 clientMessageId），再发出去：
+  /// 服务器推回正式消息时 [_upsertMessage] 按 clientMessageId 把它换掉；
+  /// 服务器拒收或超时就把它标成失败并提示原因，气泡上可以重发。
+  Future<void> _deliverTextMessage(
+    String content, {
+    Message? replyToMessage,
+    AnonymousIdentity? sendIdentity,
+  }) async {
+    final replyToId = replyToMessage?.id;
+    final clientMessageId = WebSocketService.newClientMessageId();
+    final currentUser = _authService.currentUser;
+    final pending = Message(
+      id: clientMessageId,
+      clientMessageId: clientMessageId,
+      content: content,
+      senderId: currentUser?.id ?? '',
+      senderName:
+          sendIdentity?.anonymousName ?? currentUser?.displayName ?? '我',
+      senderAvatar: sendIdentity?.anonymousAvatar ?? currentUser?.avatarUrl,
+      chatRoomId: _chat.id,
+      type: MessageType.text,
+      status: MessageStatus.sending,
+      timestamp: DateTime.now(),
+      replyToMessage: replyToMessage,
+      replyToMessageId: replyToId,
+      isAnonymous: sendIdentity != null,
+      anonymousName: sendIdentity?.anonymousName,
+      anonymousAvatar: sendIdentity?.anonymousAvatar,
+    );
+    _upsertMessage(pending);
+    _scrollToBottom();
+
     try {
       await _webSocketService.connect();
       final roomId = int.tryParse(_chat.id);
-      if (replyToId == null &&
-          roomId != null &&
-          _webSocketService.sendTextMessage(
-            roomId,
-            content,
-            isAnonymous: sendIdentity != null,
-          )) {
-        _afterOutgoingMessage();
-        return;
-      }
-
-      final sent = await _chatService.sendTextMessage(
-        _chat.id,
-        content,
-        isAnonymous: sendIdentity != null,
-        replyToId: replyToId,
-      );
-      _afterOutgoingMessage();
-      _upsertMessage(
-        replyToMessage != null && sent.replyToMessage == null
-            ? sent.copyWith(
-                replyToId: replyToId,
-                replyToMessage: replyToMessage,
-                replyToMessageId: replyToId,
-              )
-            : sent,
-      );
-      _scrollToBottom();
-    } catch (e) {
-      final currentUser = _authService.currentUser;
-      _upsertMessage(Message(
-        id: 'local-${DateTime.now().microsecondsSinceEpoch}',
-        content: content,
-        senderId: currentUser?.id ?? '',
-        senderName:
-            sendIdentity?.anonymousName ?? currentUser?.displayName ?? '我',
-        senderAvatar: sendIdentity?.anonymousAvatar ?? currentUser?.avatarUrl,
-        chatRoomId: _chat.id,
-        type: MessageType.text,
-        status: MessageStatus.failed,
-        timestamp: DateTime.now(),
-        replyToId: replyToId,
-        replyToMessage: replyToMessage,
-        replyToMessageId: replyToId,
-        isAnonymous: sendIdentity != null,
-        anonymousName: sendIdentity?.anonymousName,
-        anonymousAvatar: sendIdentity?.anonymousAvatar,
-      ));
-      _scrollToBottom();
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('发送失败: $e'),
-            backgroundColor: AppColors.error,
-          ),
+      final Message sent;
+      if (roomId != null && _webSocketService.isConnected) {
+        sent = await _webSocketService.sendTextMessageAwaitingEcho(
+          roomId,
+          content,
+          clientMessageId: clientMessageId,
+          isAnonymous: sendIdentity != null,
+          replyToId: replyToId,
+        );
+      } else {
+        sent = await _chatService.sendTextMessage(
+          _chat.id,
+          content,
+          isAnonymous: sendIdentity != null,
+          replyToId: replyToId,
         );
       }
+      _afterOutgoingMessage();
+      _upsertMessage(sent.copyWith(clientMessageId: clientMessageId));
+    } catch (e) {
+      if (!mounted) return;
+      final stillPending = _messages.any((item) => item.id == clientMessageId);
+      if (!stillPending) return; // 迟到的回显已经把它换成正式消息了
+      _upsertMessage(pending.copyWith(status: MessageStatus.failed));
+      final reason = e is TimeoutException ? '发送超时，请重试' : '$e';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('发送失败: $reason'),
+          backgroundColor: AppColors.error,
+        ),
+      );
     }
   }
 

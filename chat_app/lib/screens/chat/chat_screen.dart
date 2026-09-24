@@ -146,6 +146,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   final ScrollController _scrollController = ScrollController();
   final FocusNode _focusNode = FocusNode();
   StreamSubscription<Message>? _messageSubscription;
+  StreamSubscription<Message>? _messageUpdateSubscription;
   StreamSubscription<Map<String, dynamic>>? _statusSubscription;
   StreamSubscription<Map<String, dynamic>>? _typingSubscription;
   StreamSubscription<Map<String, dynamic>>? _callSubscription;
@@ -403,6 +404,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     _voicePlayback.dispose();
     WidgetsBinding.instance.removeObserver(this);
     _messageSubscription?.cancel();
+    _messageUpdateSubscription?.cancel();
     _statusSubscription?.cancel();
     _typingSubscription?.cancel();
     _callSubscription?.cancel();
@@ -567,7 +569,12 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       if (!mounted) return;
       final wasNearBottom = _isNearBottom();
       setState(() {
-        _messages = List<Message>.from(page.messages);
+        // 还在发送中/发送失败的本地消息服务器那边没有，整页刷新时要留着，
+        // 否则回显或失败提示到来时已经找不到它，消息就无声无息地没了。
+        _messages = [
+          ...page.messages,
+          ..._messages.where(_isLocalUnsentMessage),
+        ]..sort((a, b) => a.timestamp.compareTo(b.timestamp));
         _hasMoreMessages = page.hasNext;
         _nextMessagePage = page.currentPage + 1;
         _isLoadingMessages = false;
@@ -602,6 +609,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   Future<void> _connectRealtime() async {
     _messageSubscription =
         _webSocketService.onMessage.listen(_handleRealtimeMessage);
+    _messageUpdateSubscription =
+        _webSocketService.onMessageUpdated.listen(_handleRealtimeMessageUpdate);
     _statusSubscription =
         _webSocketService.onStatusChange.listen(_handleRealtimeStatus);
     _typingSubscription =
@@ -732,6 +741,14 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     });
   }
 
+  /// 已有消息被编辑/撤回/删除/状态变化：原地替换，不算新消息、不挪滚动位置。
+  /// 本页没加载到的旧消息不插进来（否则历史里会凭空多出一条）。
+  void _handleRealtimeMessageUpdate(Message message) {
+    if (message.chatRoomId != _chat.id || !mounted) return;
+    if (!_messages.any((item) => item.id == message.id)) return;
+    _upsertMessage(message);
+  }
+
   void _handleRealtimeStatus(Map<String, dynamic> event) {
     final roomId = event['chatRoomId']?.toString();
     if (roomId != _chat.id || !mounted) return;
@@ -812,16 +829,48 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   void _upsertMessage(Message message) {
     if (!mounted) return;
     setState(() {
+      // 服务器回显的正式消息替换掉同一 clientMessageId 的本地"发送中"气泡。
+      final clientMessageId = message.clientMessageId;
+      if (clientMessageId != null && clientMessageId != message.id) {
+        _messages.removeWhere((m) => m.id == clientMessageId);
+      }
       final index = _messages.indexWhere((m) => m.id == message.id);
+      final merged = _withReplyQuote(
+        message,
+        previous: index == -1 ? null : _messages[index],
+      );
       if (index == -1) {
-        _messages.add(message);
+        _messages.add(merged);
       } else {
-        _messages[index] = message;
+        _messages[index] = merged;
       }
       _messages.sort((a, b) => a.timestamp.compareTo(b.timestamp));
     });
     _saveMessageCache();
   }
+
+  /// 消息只带了 replyToMessageId 而没带被引用的内容时（老服务器、缓存），
+  /// 用本地已有的那条补上，不要让气泡误显示"原消息已删除"。
+  Message _withReplyQuote(Message message, {Message? previous}) {
+    if (message.replyToMessage != null) return message;
+    final replyId = message.replyToMessageId ?? message.replyToId;
+    if (replyId == null || replyId.isEmpty) return message;
+    if (previous?.replyToMessage?.id == replyId) {
+      return message.copyWith(replyToMessage: previous!.replyToMessage);
+    }
+    for (final candidate in _messages) {
+      if (candidate.id == replyId) {
+        return message.copyWith(replyToMessage: candidate);
+      }
+    }
+    return message;
+  }
+
+  static bool _isLocalUnsentMessage(Message message) =>
+      message.clientMessageId != null &&
+      message.id == message.clientMessageId &&
+      (message.status == MessageStatus.sending ||
+          message.status == MessageStatus.failed);
 
   void _scrollToBottom() {
     _scheduleScrollToBottom(animated: true);

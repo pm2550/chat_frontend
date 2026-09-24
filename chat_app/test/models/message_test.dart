@@ -489,6 +489,40 @@ void main() {
           message.previewImageUrl, '/api/files/chat/image-generation-100.png');
       expect(message.resolvedFileLabel, '[AI图片]');
     });
+
+    test('backend AUDIO messages are audio attachments, not text', () {
+      final message = Message.fromJson({
+        'id': 101,
+        'content': 'song.mp3',
+        'senderId': 7,
+        'senderName': 'Bot',
+        'chatRoomId': 42,
+        'messageType': 'AUDIO',
+        'fileUrl': '/api/files/chat/song.mp3',
+        'fileName': 'song.mp3',
+        'createdAt': '2026-06-01T09:00:00',
+      });
+
+      expect(message.type, MessageType.audio);
+      expect(message.isVoiceMessage, isTrue);
+      expect(message.isFileMessage, isFalse);
+      expect(message.resolvedFileLabel, '[音频] song.mp3');
+      expect(message.toJson()['type'], 'AUDIO');
+    });
+
+    test('clientMessageId survives json round trip and copyWith', () {
+      final message = Message.fromJson({
+        'id': 'local-1',
+        'content': 'hi',
+        'senderId': 'u1',
+        'senderName': '我',
+        'chatRoomId': '1',
+        'clientMessageId': 'local-1',
+      });
+      expect(message.clientMessageId, 'local-1');
+      expect(Message.fromJson(message.toJson()).clientMessageId, 'local-1');
+      expect(message.copyWith(id: '9').clientMessageId, 'local-1');
+    });
   });
 
   group('MessageType', () {
