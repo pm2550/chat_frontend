@@ -13,6 +13,7 @@ import '../design/design.dart';
 import '../models/message.dart';
 import '../models/poll.dart';
 import '../services/auth_service.dart';
+import '../utils/link_utils.dart';
 import 'chat_video_thumbnail.dart';
 import 'qq_face_message.dart';
 
@@ -545,20 +546,66 @@ class MessageBubble extends StatelessWidget {
       height: 1.32,
     );
     final content = message.displayContent;
-    if (!content.contains('@')) {
+    final links = LinkUtils.findUrls(content);
+    if (!content.contains('@') && links.isEmpty) {
       return Text(content, style: baseStyle);
     }
 
+    final accent = isMe ? Colors.white : AppColors.primary;
+    final spans = <InlineSpan>[];
+    var cursor = 0;
+
+    void addPlain(int end) {
+      if (end > cursor) {
+        spans.addAll(_mentionSpans(content.substring(cursor, end), baseStyle));
+      }
+    }
+
+    // 链接优先切分：链接里的 @（如 https://x.com/@user）不当成提及。
+    for (final link in links) {
+      addPlain(link.start);
+      spans.add(WidgetSpan(
+        alignment: PlaceholderAlignment.baseline,
+        baseline: TextBaseline.alphabetic,
+        child: GestureDetector(
+          // 只接管单击；长按仍交给气泡弹出操作菜单（复制等）。
+          onTap: () => LinkUtils.openExternal(link.url),
+          child: MouseRegion(
+            cursor: SystemMouseCursors.click,
+            child: Text(
+              link.url,
+              key: ValueKey('message-link-${link.url}'),
+              style: baseStyle.copyWith(
+                color: accent,
+                decoration: TextDecoration.underline,
+                decorationColor: accent,
+              ),
+            ),
+          ),
+        ),
+      ));
+      cursor = link.end;
+    }
+    addPlain(content.length);
+
+    if (spans.length == 1 && spans.first is TextSpan) {
+      return Text(content, style: baseStyle);
+    }
+    return Text.rich(TextSpan(style: baseStyle, children: spans));
+  }
+
+  List<InlineSpan> _mentionSpans(String text, TextStyle baseStyle) {
+    if (!text.contains('@')) return [TextSpan(text: text)];
     final spans = <InlineSpan>[];
     final matcher = RegExp(r'@([\p{L}\p{N}_\-.]+)', unicode: true);
     var cursor = 0;
-    for (final match in matcher.allMatches(content)) {
-      final escaped = match.start > 0 && content[match.start - 1] == r'\';
+    for (final match in matcher.allMatches(text)) {
+      final escaped = match.start > 0 && text[match.start - 1] == r'\';
       if (escaped) {
         continue;
       }
       if (match.start > cursor) {
-        spans.add(TextSpan(text: content.substring(cursor, match.start)));
+        spans.add(TextSpan(text: text.substring(cursor, match.start)));
       }
       final label = match.group(1) ?? '';
       spans.add(WidgetSpan(
@@ -580,13 +627,10 @@ class MessageBubble extends StatelessWidget {
       ));
       cursor = match.end;
     }
-    if (cursor == 0) {
-      return Text(content, style: baseStyle);
+    if (cursor < text.length) {
+      spans.add(TextSpan(text: text.substring(cursor)));
     }
-    if (cursor < content.length) {
-      spans.add(TextSpan(text: content.substring(cursor)));
-    }
-    return Text.rich(TextSpan(style: baseStyle, children: spans));
+    return spans;
   }
 
   Widget _buildImageAttachment(BuildContext context) {
@@ -1175,72 +1219,100 @@ class MessageBubble extends StatelessWidget {
     final cardBackground =
         isMe ? Colors.white.withValues(alpha: 0.15) : Colors.white;
 
+    final openable = LinkUtils.safeWebUri(resolvedUrl) != null;
     return ConstrainedBox(
       constraints: const BoxConstraints(maxWidth: 320),
-      child: Container(
-        decoration: BoxDecoration(
-          color: cardBackground,
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(
-            color: isMe
-                ? Colors.white.withValues(alpha: 0.20)
-                : AppColors.borderLight,
+      child: GestureDetector(
+        key: const ValueKey('message-link-preview-card'),
+        onTap: openable ? () => LinkUtils.openExternal(resolvedUrl) : null,
+        child: MouseRegion(
+          cursor: openable ? SystemMouseCursors.click : MouseCursor.defer,
+          child: _buildLinkPreviewCardBody(
+            preview,
+            title: title,
+            subtitle: subtitle,
+            siteName: siteName,
+            foreground: foreground,
+            muted: muted,
+            cardBackground: cardBackground,
           ),
         ),
-        clipBehavior: Clip.antiAlias,
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _buildLinkPreviewMedia(preview.imageUrl),
-            Flexible(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(10, 9, 10, 9),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
+      ),
+    );
+  }
+
+  Widget _buildLinkPreviewCardBody(
+    LinkPreview preview, {
+    required String title,
+    required String? subtitle,
+    required String siteName,
+    required Color foreground,
+    required Color muted,
+    required Color cardBackground,
+  }) {
+    return Container(
+      decoration: BoxDecoration(
+        color: cardBackground,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: isMe
+              ? Colors.white.withValues(alpha: 0.20)
+              : AppColors.borderLight,
+        ),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _buildLinkPreviewMedia(preview.imageUrl),
+          Flexible(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(10, 9, 10, 9),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    title,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: foreground,
+                      fontSize: 13,
+                      height: 1.22,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  if (subtitle != null && subtitle.isNotEmpty) ...[
+                    const SizedBox(height: 4),
                     Text(
-                      title,
+                      subtitle,
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
-                        color: foreground,
-                        fontSize: 13,
-                        height: 1.22,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                    if (subtitle != null && subtitle.isNotEmpty) ...[
-                      const SizedBox(height: 4),
-                      Text(
-                        subtitle,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: muted,
-                          fontSize: 12,
-                          height: 1.25,
-                        ),
-                      ),
-                    ],
-                    const SizedBox(height: 6),
-                    Text(
-                      siteName,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
                         color: muted,
-                        fontSize: 11,
-                        fontWeight: FontWeight.w700,
+                        fontSize: 12,
+                        height: 1.25,
                       ),
                     ),
                   ],
-                ),
+                  const SizedBox(height: 6),
+                  Text(
+                    siteName,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: muted,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
               ),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -1306,8 +1378,12 @@ class MessageBubble extends StatelessWidget {
     final foreground = isMe ? Colors.white : AppColors.textPrimary;
     final secondary = isMe ? Colors.white70 : AppColors.textSecondary;
     final label = message.content.isNotEmpty ? message.content : '[位置]';
+    final mapUri = LinkUtils.mapUriForLocation(message.content);
     return InkWell(
-      onTap: null,
+      key: const ValueKey('message-location-card'),
+      onTap: mapUri == null
+          ? null
+          : () => LinkUtils.openExternal(mapUri.toString()),
       borderRadius: BorderRadius.circular(8),
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 240),
@@ -1344,7 +1420,7 @@ class MessageBubble extends StatelessWidget {
                       ),
                     ),
                     Text(
-                      '位置消息',
+                      mapUri == null ? '位置消息' : '位置消息 · 点击打开地图',
                       style: TextStyle(color: secondary, fontSize: 12),
                     ),
                   ],
@@ -1407,17 +1483,7 @@ class MessageBubble extends StatelessWidget {
     return parsed == null ? null : Color(parsed);
   }
 
-  String? _firstUrl(String value) {
-    final match = RegExp(
-      r'https?://[^\s<>()\[\]{}"]+',
-      caseSensitive: false,
-    ).firstMatch(value);
-    final url = match?.group(0)?.trim();
-    if (url == null || url.isEmpty) {
-      return null;
-    }
-    return url.replaceFirst(RegExp(r'[.,;:!?]+$'), '');
-  }
+  String? _firstUrl(String value) => LinkUtils.firstUrl(value);
 
   String? _hostFromUrl(String value) {
     try {
