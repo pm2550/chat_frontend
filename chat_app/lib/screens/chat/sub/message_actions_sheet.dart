@@ -30,7 +30,10 @@ extension _ChatScreenActionSheetParts on _ChatScreenState {
     }
   }
 
-  Future<void> _clearChatHistoryAndLeave() async {
+  /// “删除聊天”：先清空自己这边的聊天记录，再把会话移出自己的消息列表，
+  /// 然后离开聊天页。两步都只影响当前用户；对方发来新消息时会话会重新出现。
+  Future<void> _deleteChatForMe() async {
+    final messenger = ScaffoldMessenger.of(context);
     try {
       await _chatService.clearChatHistory(_chat.id);
       if (!mounted) return;
@@ -38,15 +41,18 @@ extension _ChatScreenActionSheetParts on _ChatScreenState {
         _messages = [];
       });
       _saveMessageCache();
+      await _chatService.hideChatRoom(_chat.id);
+      if (!mounted) return;
+      ChatScreen._messageCache.remove(_chat.id);
       Navigator.pop(context);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('聊天记录已清空')),
+      messenger.showSnackBar(
+        SnackBar(content: Text('已删除聊天「${_displayChatTitle()}」')),
       );
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      messenger.showSnackBar(
         SnackBar(
-          content: Text('清空失败: $e'),
+          content: Text('删除失败: $e'),
           backgroundColor: AppColors.error,
         ),
       );
@@ -156,7 +162,7 @@ extension _ChatScreenActionSheetParts on _ChatScreenState {
 
   Future<void> _pinMessage(Message message) async {
     try {
-      await _chatService.pinMessage(_chat.id, message.id);
+      await _pinnedMessages.pin(message.id);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('消息已置顶')),
@@ -172,18 +178,81 @@ extension _ChatScreenActionSheetParts on _ChatScreenState {
     }
   }
 
-  Future<void> _starMessage(Message message) async {
+  Future<void> _unpinMessage(Message message) async {
     try {
-      await _chatService.starMessage(message.id);
+      await _pinnedMessages.unpin(message.id);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('已收藏')),
+        const SnackBar(content: Text('已取消置顶')),
       );
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('收藏失败: $e'),
+          content: Text('取消置顶失败: $e'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    }
+  }
+
+  /// 群聊里只有群主/管理员能管理置顶（与后端 RoomPinController 一致）。
+  /// [members] 来自成员列表接口；没有成员数据时只能按建群人判断。
+  void _syncPinPermissions([List<ChatRoomMember>? members]) {
+    final currentUserId = _authService.currentUser?.id;
+    var isAdmin = currentUserId != null && _chat.createdBy == currentUserId;
+    if (!isAdmin && currentUserId != null && members != null) {
+      isAdmin = members.any((member) {
+        if (member.userId != currentUserId) return false;
+        final role = member.role.toUpperCase();
+        return member.isAdmin || role == 'ADMIN' || role == 'OWNER';
+      });
+    }
+    _pinnedMessages.updatePermissions(
+      // 后端只对私聊放开成员置顶；群聊、频道都要管理员。
+      isGroup: _chat.type != ChatType.private,
+      viewerIsAdmin: isAdmin,
+    );
+  }
+
+  Widget _buildPinnedMessagesBar() {
+    return PinnedMessagesBar(
+      controller: _pinnedMessages,
+      onOpenList: _openPinnedMessagesList,
+    );
+  }
+
+  void _openPinnedMessagesList() {
+    unawaited(showPinnedMessagesSheet(
+      context,
+      controller: _pinnedMessages,
+      onJumpTo: _openSearchResult,
+      onUnpin: _unpinMessage,
+      formatTime: _formatMessageTime,
+    ));
+  }
+
+  Future<void> _toggleStarMessage(Message message) async {
+    final starring = !message.starredByMe;
+    try {
+      await (starring
+          ? _chatService.starMessage(message.id)
+          : _chatService.unstarMessage(message.id));
+      if (!mounted) return;
+      // 只更新收藏状态，保留本地已有的消息内容（响应里的消息不带聚合数据）。
+      final current = _messages.firstWhere(
+        (item) => item.id == message.id,
+        orElse: () => message,
+      );
+      _upsertMessage(current.copyWith(starredByMe: starring));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(starring ? '已收藏' : '已取消收藏')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('${starring ? '收藏' : '取消收藏'}失败: $e'),
           backgroundColor: AppColors.error,
         ),
       );
@@ -315,20 +384,30 @@ extension _ChatScreenActionSheetParts on _ChatScreenState {
                       unawaited(_forwardMessage(message));
                     },
                   ),
+                  if (_pinnedMessages.canManage)
+                    _pinnedMessages.isPinned(message.id)
+                        ? _buildChatOption(
+                            icon: Icons.push_pin_outlined,
+                            title: '取消置顶',
+                            onTap: () {
+                              Navigator.pop(context);
+                              unawaited(_unpinMessage(message));
+                            },
+                          )
+                        : _buildChatOption(
+                            icon: Icons.push_pin,
+                            title: '置顶消息',
+                            onTap: () {
+                              Navigator.pop(context);
+                              unawaited(_pinMessage(message));
+                            },
+                          ),
                   _buildChatOption(
-                    icon: Icons.push_pin,
-                    title: '置顶消息',
+                    icon: message.starredByMe ? Icons.star : Icons.star_border,
+                    title: message.starredByMe ? '取消收藏' : '收藏',
                     onTap: () {
                       Navigator.pop(context);
-                      unawaited(_pinMessage(message));
-                    },
-                  ),
-                  _buildChatOption(
-                    icon: Icons.star_border,
-                    title: '收藏',
-                    onTap: () {
-                      Navigator.pop(context);
-                      unawaited(_starMessage(message));
+                      unawaited(_toggleStarMessage(message));
                     },
                   ),
                   _buildChatOption(
@@ -756,6 +835,15 @@ extension _ChatScreenActionSheetParts on _ChatScreenState {
                         _showSearchSheet();
                       },
                     ),
+                    if (_pinnedMessages.pins.isNotEmpty)
+                      _buildChatOption(
+                        icon: Icons.push_pin_outlined,
+                        title: '置顶消息（${_pinnedMessages.pins.length}）',
+                        onTap: () {
+                          Navigator.pop(context);
+                          _openPinnedMessagesList();
+                        },
+                      ),
                     _buildChatOption(
                       icon: Icons.volume_off,
                       title: _chat.isMuted ? '取消静音' : '静音通知',
@@ -822,7 +910,10 @@ extension _ChatScreenActionSheetParts on _ChatScreenState {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('删除聊天'),
-        content: const Text('确定要删除这个聊天吗？此操作无法撤销。'),
+        content: const Text(
+          '将清空你这边的聊天记录，并把这个聊天从你的消息列表移除。'
+          '其他成员的记录不受影响；对方发来新消息时，聊天会重新出现在列表中。',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
@@ -831,7 +922,7 @@ extension _ChatScreenActionSheetParts on _ChatScreenState {
           TextButton(
             onPressed: () {
               Navigator.pop(context);
-              unawaited(_clearChatHistoryAndLeave());
+              unawaited(_deleteChatForMe());
             },
             style: TextButton.styleFrom(
               foregroundColor: AppColors.error,

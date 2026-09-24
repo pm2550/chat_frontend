@@ -33,9 +33,9 @@ class UpdateService {
     if (update == null || update.isEmpty) return false;
     final current = (currentPlatform ?? _platformName()).trim().toUpperCase();
 
-    // Native/desktop apps are strict. Web is also used as a production
-    // smoke/redirect surface, so it can surface any published client build.
-    return current == update || current == 'WEB';
+    // 每个端只处理自己平台的发布：Web 用户收到 Android/Windows 的包时
+    // “立即更新”只会去下载一个原生安装包，对网页本身毫无作用。
+    return current == update;
   }
 
   static AppVersionCheck checkFromWebSocketPayload(

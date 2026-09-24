@@ -12,6 +12,7 @@ extension _ChatScreenChromeParts on _ChatScreenState {
                 _buildDesktopConversationHeader(),
                 _buildCallPanel(),
                 _buildAnonymousBanner(),
+                _buildPinnedMessagesBar(),
                 Expanded(
                   child: _buildMessageArea(),
                 ),

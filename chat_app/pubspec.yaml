@@ -103,6 +103,10 @@ dependencies:
   path_provider: ^2.1.6
   gal: ^2.3.3
 
+  # 加好友二维码：生成（纯 Dart）+ 手机端摄像头扫码（Android/iOS）
+  qr_flutter: ^4.1.0
+  mobile_scanner: ^7.4.2
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

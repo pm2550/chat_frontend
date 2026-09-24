@@ -242,7 +242,9 @@ void main() {
       await tester.pumpAndSettle();
       await tester.pump();
 
-      expect(find.text('看看 https://example.com/post'), findsOneWidget);
+      // The URL is rendered as its own tappable link span.
+      expect(find.textContaining('看看', findRichText: true), findsOneWidget);
+      expect(find.text('https://example.com/post'), findsOneWidget);
       expect(find.text('Example title'), findsOneWidget);
       expect(find.text('Example description'), findsOneWidget);
       expect(find.text('example.com'), findsOneWidget);

@@ -1,14 +1,16 @@
 import 'package:flutter/material.dart';
 
 import '../../constants/api_constants.dart';
-import '../../constants/app_brand.dart';
 import '../../constants/app_colors.dart';
 import '../../models/user.dart';
 import '../../services/auth_service.dart';
 import '../../services/user_profile_service.dart';
 import '../../widgets/pm_brand.dart';
 import '../../widgets/pm_responsive.dart';
+import '../profile/about_app_dialog.dart';
+import 'add_friend_screen.dart';
 import '../profile/profile_edit_screen.dart';
+import '../profile/starred_messages_screen.dart';
 import '../settings/settings_screen.dart';
 
 class ProfilePage extends StatefulWidget {
@@ -128,6 +130,18 @@ class _ProfilePageState extends State<ProfilePage>
       if (!mounted) return;
       Navigator.of(context).pushReplacementNamed('/login');
     }
+  }
+
+  void _showMyFriendCode() {
+    final user = _currentUser;
+    if (user == null) return;
+    showMyFriendCode(context, user);
+  }
+
+  void _openStarredMessages() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(builder: (_) => const StarredMessagesScreen()),
+    );
   }
 
   Future<void> _openNotificationSettings() async {
@@ -305,6 +319,16 @@ class _ProfilePageState extends State<ProfilePage>
                     ),
                     const SizedBox(height: 14),
                     _buildMenuItem(
+                      icon: Icons.star_rounded,
+                      title: '我的收藏',
+                      onTap: _openStarredMessages,
+                    ),
+                    _buildMenuItem(
+                      icon: Icons.qr_code_2,
+                      title: '我的二维码',
+                      onTap: _showMyFriendCode,
+                    ),
+                    _buildMenuItem(
                       icon: Icons.notifications,
                       title: '通知设置',
                       onTap: _openNotificationSettings,
@@ -317,7 +341,7 @@ class _ProfilePageState extends State<ProfilePage>
                     _buildMenuItem(
                       icon: Icons.info_outline,
                       title: '关于',
-                      onTap: () => _showSnackBar(AppBrand.name),
+                      onTap: () => showAboutAppDialog(context),
                     ),
                   ],
                 ),
@@ -396,6 +420,16 @@ class _ProfilePageState extends State<ProfilePage>
         _buildAccountInfo(user),
         const SizedBox(height: 16),
         _buildMenuItem(
+          icon: Icons.star_rounded,
+          title: '我的收藏',
+          onTap: _openStarredMessages,
+        ),
+        _buildMenuItem(
+          icon: Icons.qr_code_2,
+          title: '我的二维码',
+          onTap: _showMyFriendCode,
+        ),
+        _buildMenuItem(
           icon: Icons.notifications,
           title: '通知设置',
           onTap: _openNotificationSettings,
@@ -408,7 +442,7 @@ class _ProfilePageState extends State<ProfilePage>
         _buildMenuItem(
           icon: Icons.info_outline,
           title: '关于',
-          onTap: () => _showSnackBar(AppBrand.name),
+          onTap: () => showAboutAppDialog(context),
         ),
         const SizedBox(height: 16),
         SizedBox(

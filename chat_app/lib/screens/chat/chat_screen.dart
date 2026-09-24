@@ -14,6 +14,7 @@ import '../../constants/app_colors.dart';
 import '../../design/design.dart';
 import '../../models/call_state.dart';
 import '../../models/chat.dart';
+import '../../models/chat_room_member.dart';
 import '../../models/chat_customization.dart';
 import '../../models/message.dart';
 import '../../models/sticker.dart';
@@ -52,6 +53,7 @@ import '../../widgets/typing_indicator.dart';
 import 'chat_file_center_screen.dart';
 import 'chat_room_bot_config_screen.dart';
 import 'chat_room_settings_screen.dart';
+import 'pinned_messages.dart';
 import 'sticker_pack_upload_screen.dart';
 
 part 'sub/chat_app_bar.dart';
@@ -77,10 +79,14 @@ class ChatScreenArguments {
   const ChatScreenArguments({
     required this.chat,
     this.startCall,
+    this.focusMessage,
   });
 
   final Chat chat;
   final CallMediaKind? startCall;
+
+  /// 打开后定位并高亮这条消息（例如从“我的收藏”跳转过来）。
+  final Message? focusMessage;
 }
 
 class _CachedChatMessages {
@@ -205,6 +211,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   bool _incomingCallDialogVisible = false;
   BuildContext? _incomingCallDialogContext;
   CallMediaKind? _pendingStartCall;
+  Message? _pendingFocusMessage;
+  late final PinnedMessagesController _pinnedMessages;
   bool _isResolvingRouteChat = false;
   String? _routeChatIdToResolve;
   String? _routeChatError;
@@ -240,6 +248,10 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           webSocketService: _webSocketService,
           authService: _authService,
         );
+    _pinnedMessages = PinnedMessagesController(
+      chatService: _chatService,
+      roomId: () => _chat.id,
+    );
     _scrollController.addListener(_handleScroll);
     _typingSender = TypingIndicatorSender(send: _sendTypingState);
     _messageController.addListener(_handleComposerTextForTyping);
@@ -257,6 +269,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       _initializeResolvedChat(
         routeArgs.chat,
         startCall: routeArgs.startCall,
+        focusMessage: routeArgs.focusMessage,
       );
       return;
     }
@@ -283,9 +296,11 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   void _initializeResolvedChat(
     Chat chat, {
     CallMediaKind? startCall,
+    Message? focusMessage,
   }) {
     _chat = chat;
     _pendingStartCall = startCall;
+    _pendingFocusMessage = focusMessage;
     _didInitialize = true;
     _syncAgentClientToolState();
     _startChatSession();
@@ -307,7 +322,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     unawaited(_loadAnonymousModePreference());
     unawaited(_prepareAnnouncementBanner());
     _attachDropPasteHandlers();
-    unawaited(_bootstrapMessages());
+    _syncPinPermissions();
+    unawaited(_pinnedMessages.load());
+    unawaited(_bootstrapMessages().then((_) => _focusPendingMessage()));
     unawaited(_loadMentionMembers());
     _loadRoomBots();
     _loadFriendshipState();
@@ -322,6 +339,15 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         }
       });
     }
+  }
+
+  void _focusPendingMessage() {
+    final message = _pendingFocusMessage;
+    if (message == null || !mounted) return;
+    _pendingFocusMessage = null;
+    // 首屏的“滚到最新”会和定位抢滚动位置，先停掉它。
+    _cancelInitialBottomAnchor();
+    _openSearchResult(message);
   }
 
   void _startMessageReconciliation() {
@@ -413,6 +439,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     _messageController.removeListener(_handleComposerTextForTyping);
     _focusNode.removeListener(_handleComposerFocusForTyping);
     _voicePlayback.dispose();
+    _pinnedMessages.dispose();
     WidgetsBinding.instance.removeObserver(this);
     _messageSubscription?.cancel();
     _messageUpdateSubscription?.cancel();
@@ -1166,6 +1193,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           _buildCallPanel(),
           _buildAnonymousBanner(),
           _buildAnnouncementBanner(),
+          _buildPinnedMessagesBar(),
           Expanded(
             child: _buildMessageArea(),
           ),

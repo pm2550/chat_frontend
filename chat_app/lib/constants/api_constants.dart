@@ -69,6 +69,7 @@ class ApiConstants {
   static const String userProfile = profile;
   static const String searchUsers = '$apiBaseUrl/users/search';
   static const String profileSearch = '$profileBaseUrl/search';
+  static const String userLookup = '$apiBaseUrl/users/lookup';
   static String getUserById(int id) => '$apiBaseUrl/users/$id';
   static String uploadAvatar(int id) => '$apiBaseUrl/users/$id/avatar';
   static const String myTitle = '$apiBaseUrl/users/me/title';
@@ -170,6 +171,8 @@ class ApiConstants {
   static String messageReaction(int messageId, String emoji) =>
       '$apiBaseUrl/messages/$messageId/reactions/${Uri.encodeComponent(emoji)}';
   static const String searchMessages = '$apiBaseUrl/messages/search';
+  static const String searchAllMessages =
+      '$apiBaseUrl/chat-rooms/messages/search';
   static String searchMessagesInRoom(int roomId) =>
       '$apiBaseUrl/chat-rooms/$roomId/messages/search';
   static const String unreadCount = '$apiBaseUrl/messages/unread-count';

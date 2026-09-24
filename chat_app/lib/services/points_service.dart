@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import 'package:http/http.dart' as http;
+
 import '../constants/api_constants.dart';
 import '../models/points.dart';
 import '../models/user.dart';
@@ -22,8 +24,8 @@ class PointsService {
       'GET',
       ApiConstants.pointsMe,
     );
-    _throwIfFailed(response.statusCode, response.body);
-    return PointsBalance.fromJson(_decodeMap(response.body));
+    _throwIfFailed(response);
+    return PointsBalance.fromJson(_decodeMap(response));
   }
 
   Future<List<PointsLedgerEntry>> fetchLedger({
@@ -37,7 +39,7 @@ class PointsService {
       },
     );
     final response = await _auth.authenticatedRequest('GET', uri.toString());
-    _throwIfFailed(response.statusCode, response.body);
+    _throwIfFailed(response);
     final decoded = jsonDecode(utf8.decode(response.bodyBytes));
     if (decoded is List) {
       return decoded
@@ -53,8 +55,8 @@ class PointsService {
       'POST',
       ApiConstants.pointsPreview(featureKey),
     );
-    _throwIfFailed(response.statusCode, response.body);
-    return CostPreview.fromJson(_decodeMap(response.body));
+    _throwIfFailed(response);
+    return CostPreview.fromJson(_decodeMap(response));
   }
 
   Future<RedeemResult> redeem(String code) async {
@@ -63,8 +65,8 @@ class PointsService {
       ApiConstants.pointsRedeem,
       body: {'code': code},
     );
-    _throwIfFailed(response.statusCode, response.body);
-    return RedeemResult.fromJson(_decodeMap(response.body));
+    _throwIfFailed(response);
+    return RedeemResult.fromJson(_decodeMap(response));
   }
 
   Future<List<User>> searchUsers(String keyword, {int limit = 10}) async {
@@ -76,7 +78,7 @@ class PointsService {
       },
     );
     final response = await _auth.authenticatedRequest('GET', uri.toString());
-    _throwIfFailed(response.statusCode, response.body);
+    _throwIfFailed(response);
     final decoded = jsonDecode(utf8.decode(response.bodyBytes));
     final rawList =
         _extractList(decoded, keys: const ['data', 'users', 'content']);
@@ -91,8 +93,8 @@ class PointsService {
       'GET',
       ApiConstants.adminUserPoints(userId),
     );
-    _throwIfFailed(response.statusCode, response.body);
-    return PointsBalance.fromJson(_decodeMap(response.body));
+    _throwIfFailed(response);
+    return PointsBalance.fromJson(_decodeMap(response));
   }
 
   Future<List<PointsLedgerEntry>> adminFetchUserLedger(
@@ -107,7 +109,7 @@ class PointsService {
       },
     );
     final response = await _auth.authenticatedRequest('GET', uri.toString());
-    _throwIfFailed(response.statusCode, response.body);
+    _throwIfFailed(response);
     final decoded = jsonDecode(utf8.decode(response.bodyBytes));
     if (decoded is List) {
       return decoded
@@ -131,8 +133,8 @@ class PointsService {
         if (memo != null && memo.trim().isNotEmpty) 'memo': memo.trim(),
       },
     );
-    _throwIfFailed(response.statusCode, response.body);
-    return PointsBalance.fromJson(_decodeMap(response.body));
+    _throwIfFailed(response);
+    return PointsBalance.fromJson(_decodeMap(response));
   }
 
   Future<PointsBalance> adminDebitUser(
@@ -148,8 +150,8 @@ class PointsService {
         if (memo != null && memo.trim().isNotEmpty) 'memo': memo.trim(),
       },
     );
-    _throwIfFailed(response.statusCode, response.body);
-    return PointsBalance.fromJson(_decodeMap(response.body));
+    _throwIfFailed(response);
+    return PointsBalance.fromJson(_decodeMap(response));
   }
 
   Future<IssueCodesResult> adminIssueCodes({
@@ -169,12 +171,12 @@ class PointsService {
         if (memo != null && memo.trim().isNotEmpty) 'memo': memo.trim(),
       },
     );
-    _throwIfFailed(response.statusCode, response.body);
-    return IssueCodesResult.fromJson(_decodeMap(response.body));
+    _throwIfFailed(response);
+    return IssueCodesResult.fromJson(_decodeMap(response));
   }
 
-  Map<String, dynamic> _decodeMap(String body) {
-    final decoded = jsonDecode(body);
+  Map<String, dynamic> _decodeMap(http.Response response) {
+    final decoded = jsonDecode(_bodyText(response));
     if (decoded is Map<String, dynamic>) return decoded;
     throw Exception('响应格式错误');
   }
@@ -190,17 +192,33 @@ class PointsService {
     return const [];
   }
 
-  void _throwIfFailed(int statusCode, String body) {
-    if (statusCode >= 200 && statusCode < 300) return;
+  /// 统一按 UTF-8 解码原始字节：响应缺少 JSON content-type 时（例如被网关
+  /// 改写的错误页），http 包会按 latin1 解码 `body`，中文文案会变成乱码。
+  String _bodyText(http.Response response) {
     try {
-      final decoded = jsonDecode(body);
-      if (decoded is Map) {
-        throw Exception(
-          (decoded['message'] ?? decoded['error'] ?? '请求失败').toString(),
-        );
-      }
+      return utf8.decode(response.bodyBytes);
+    } on FormatException {
+      return response.body;
+    }
+  }
+
+  void _throwIfFailed(http.Response response) {
+    final statusCode = response.statusCode;
+    if (statusCode >= 200 && statusCode < 300) return;
+    final body = _bodyText(response);
+    // 只有解析 JSON 本身可以失败回退；服务端给出的错误文案必须原样抛出，
+    // 不能被同一个 catch 吞掉变成笼统的“请求失败”。
+    Object? decoded;
+    try {
+      decoded = jsonDecode(body);
     } catch (_) {
-      // Fall through to generic message.
+      decoded = null;
+    }
+    if (decoded is Map) {
+      final serverMessage = decoded['message'] ?? decoded['error'];
+      if (serverMessage != null && serverMessage.toString().trim().isNotEmpty) {
+        throw Exception(serverMessage.toString());
+      }
     }
     throw Exception('请求失败 ($statusCode)');
   }

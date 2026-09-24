@@ -12,12 +12,15 @@ import '../../models/message.dart';
 import '../../models/user.dart';
 import '../../services/auth_service.dart';
 import '../../services/chat_data_service.dart';
+import '../../services/contact_data_service.dart';
 import '../../services/desktop_notification_service.dart';
 import '../../services/native_push_service.dart';
 import '../../services/user_profile_service.dart';
 import '../../services/websocket_service.dart';
 import '../../widgets/pm_brand.dart';
 import '../../widgets/pm_responsive.dart';
+import '../chat/chat_screen.dart' show ChatScreenArguments;
+import 'hidden_chats_screen.dart';
 
 enum _ChatRoomMenuAction { togglePin, clearHistory, hide, block }
 
@@ -29,9 +32,11 @@ class ChatListPage extends StatefulWidget {
     this.notificationService,
     this.profileService,
     this.currentUserId,
+    this.contactService,
   });
 
   final ChatDataService? chatService;
+  final ContactDataService? contactService;
   final ChatRealtimeService? realtimeService;
   final DesktopNotificationService? notificationService;
 
@@ -64,6 +69,17 @@ class _ChatListPageState extends State<ChatListPage>
   String? _mentionErrorMessage;
   bool _wasBackgrounded = false;
   bool _isRefreshingAfterResume = false;
+
+  // 搜索：本地过滤会话 + 好友，并在服务器上搜索全部聊天里的消息。
+  static const Duration _messageSearchDebounce = Duration(milliseconds: 350);
+  Timer? _messageSearchTimer;
+  int _messageSearchGeneration = 0;
+  List<Message> _messageHits = const [];
+  bool _isSearchingMessages = false;
+  String? _messageSearchError;
+  List<User>? _friends;
+  bool _isLoadingFriends = false;
+  String? _openingSearchTarget;
 
   @override
   void initState() {
@@ -490,14 +506,162 @@ class _ChatListPageState extends State<ChatListPage>
   }
 
   List<Chat> get _filteredChats {
-    if (_searchQuery.isEmpty) {
+    final query = _searchQuery.trim().toLowerCase();
+    if (query.isEmpty) {
       return _chats;
     }
+    bool matches(String? value) =>
+        value != null && value.toLowerCase().contains(query);
     return _chats.where((chat) {
-      final lastMessageText = chat.lastMessage?.resolvedFileLabel ?? '';
-      return chat.name.toLowerCase().contains(_searchQuery.toLowerCase()) ||
-          lastMessageText.toLowerCase().contains(_searchQuery.toLowerCase());
+      if (matches(chat.name) || matches(chat.lastMessage?.resolvedFileLabel)) {
+        return true;
+      }
+      // 私聊的会话名可能是备注或旧昵称，也按对方的昵称/用户名匹配。
+      return chat.type == ChatType.private &&
+          chat.participants.any(
+            (user) =>
+                user.id != _currentUserId &&
+                (matches(user.displayName) || matches(user.username)),
+          );
     }).toList();
+  }
+
+  List<User> get _filteredFriends {
+    final query = _searchQuery.trim().toLowerCase();
+    final friends = _friends;
+    if (query.isEmpty || friends == null) return const [];
+    return friends
+        .where((user) =>
+            user.displayName.toLowerCase().contains(query) ||
+            user.username.toLowerCase().contains(query))
+        .toList();
+  }
+
+  bool get _isSearching => _searchQuery.trim().isNotEmpty;
+
+  void _onSearchChanged(String value) {
+    setState(() {
+      _searchQuery = value;
+    });
+    _messageSearchTimer?.cancel();
+    final query = value.trim();
+    if (query.isEmpty) {
+      _messageSearchGeneration++;
+      setState(() {
+        _messageHits = const [];
+        _isSearchingMessages = false;
+        _messageSearchError = null;
+      });
+      return;
+    }
+    unawaited(_ensureFriendsLoaded());
+    setState(() => _isSearchingMessages = true);
+    _messageSearchTimer = Timer(
+      _messageSearchDebounce,
+      () => unawaited(_searchMessages(query)),
+    );
+  }
+
+  void _clearSearch() {
+    _searchController.clear();
+    _onSearchChanged('');
+  }
+
+  Future<void> _ensureFriendsLoaded() async {
+    if (_friends != null || _isLoadingFriends) return;
+    _isLoadingFriends = true;
+    try {
+      final friends =
+          await (widget.contactService ?? ContactDataService()).getFriends();
+      if (!mounted) return;
+      setState(() => _friends = friends);
+    } catch (_) {
+      // 联系人只是搜索的附加结果；拿不到时只显示会话和消息。
+    } finally {
+      _isLoadingFriends = false;
+    }
+  }
+
+  Future<void> _searchMessages(String query) async {
+    final generation = ++_messageSearchGeneration;
+    setState(() {
+      _isSearchingMessages = true;
+      _messageSearchError = null;
+    });
+    try {
+      final page = await _chatService.searchAllMessages(query);
+      if (!mounted || generation != _messageSearchGeneration) return;
+      setState(() {
+        _messageHits = page.messages;
+        _isSearchingMessages = false;
+      });
+    } catch (e) {
+      if (!mounted || generation != _messageSearchGeneration) return;
+      setState(() {
+        _messageHits = const [];
+        _messageSearchError = e.toString();
+        _isSearchingMessages = false;
+      });
+    }
+  }
+
+  Future<void> _openChatFromSearch(Chat chat, {Message? focus}) async {
+    await Navigator.pushNamed(
+      context,
+      '/chat/${chat.id}',
+      arguments: focus == null
+          ? chat
+          : ChatScreenArguments(chat: chat, focusMessage: focus),
+    );
+    if (mounted) {
+      unawaited(_loadChats(showLoading: false));
+    }
+  }
+
+  Future<void> _openMessageHit(Message message) async {
+    if (_openingSearchTarget != null) return;
+    setState(() => _openingSearchTarget = 'message:${message.id}');
+    try {
+      final chat = _chats.firstWhere(
+        (item) => item.id == message.chatRoomId,
+        orElse: () => Chat(id: '', name: '', createdAt: DateTime.now()),
+      );
+      final resolved = chat.id.isNotEmpty
+          ? chat
+          : await _chatService.getChatRoom(message.chatRoomId);
+      if (!mounted) return;
+      await _openChatFromSearch(resolved, focus: message);
+    } catch (e) {
+      _showSnackBar('打开聊天失败: $e');
+    } finally {
+      if (mounted) setState(() => _openingSearchTarget = null);
+    }
+  }
+
+  Future<void> _openFriendChat(User friend) async {
+    if (_openingSearchTarget != null) return;
+    setState(() => _openingSearchTarget = 'user:${friend.id}');
+    try {
+      final chat = await (widget.contactService ?? ContactDataService())
+          .createPrivateChat(friend.id);
+      if (!mounted) return;
+      await _openChatFromSearch(chat);
+    } catch (e) {
+      _showSnackBar('打开私聊失败: $e');
+    } finally {
+      if (mounted) setState(() => _openingSearchTarget = null);
+    }
+  }
+
+  Future<void> _openHiddenChats() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => HiddenChatsScreen(chatService: _chatService),
+      ),
+    );
+    if (mounted) {
+      unawaited(_loadChats(showLoading: false, forceRefresh: true));
+    }
   }
 
   Future<void> _toggleMentionsOnly() async {
@@ -573,8 +737,15 @@ class _ChatListPageState extends State<ChatListPage>
               title: const Text('清除搜索'),
               onTap: () {
                 Navigator.pop(context);
-                _searchController.clear();
-                setState(() => _searchQuery = '');
+                _clearSearch();
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.visibility_off_outlined),
+              title: const Text('已移出的聊天'),
+              onTap: () {
+                Navigator.pop(context);
+                unawaited(_openHiddenChats());
               },
             ),
           ],
@@ -724,6 +895,7 @@ class _ChatListPageState extends State<ChatListPage>
           () => _chatService.hideChatRoom(chat.id),
           successMessage: '已从消息列表移出 ${chat.name}',
           removeFromList: true,
+          undo: () => _chatService.restoreChatRoom(chat.id),
         );
       case _ChatRoomMenuAction.block:
         final confirmed = await _confirmChatAction(
@@ -798,6 +970,7 @@ class _ChatListPageState extends State<ChatListPage>
     Future<void> Function() action, {
     required String successMessage,
     required bool removeFromList,
+    Future<void> Function()? undo,
   }) async {
     try {
       await action();
@@ -811,9 +984,42 @@ class _ChatListPageState extends State<ChatListPage>
       } else {
         unawaited(_loadChats(showLoading: false));
       }
-      _showSnackBar(successMessage);
+      if (undo == null) {
+        _showSnackBar(successMessage);
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(successMessage),
+            action: SnackBarAction(
+              label: '撤销',
+              onPressed: () => unawaited(_undoChatStateAction(chat, undo)),
+            ),
+          ),
+        );
+      }
     } catch (e) {
       _showSnackBar(e.toString());
+    }
+  }
+
+  Future<void> _undoChatStateAction(
+    Chat chat,
+    Future<void> Function() undo,
+  ) async {
+    try {
+      await undo();
+      await _loadChats(showLoading: false, forceRefresh: true);
+      if (!mounted) return;
+      if (!_chats.any((item) => item.id == chat.id)) {
+        // 刷新失败时至少把本地这一项放回去。
+        setState(() {
+          _chats.add(chat);
+          _sortChatsInPlace();
+        });
+        _syncDesktopUnreadBadge();
+      }
+    } catch (e) {
+      _showSnackBar('撤销失败: $e');
     }
   }
 
@@ -868,11 +1074,7 @@ class _ChatListPageState extends State<ChatListPage>
               child: TextField(
                 controller: _searchController,
                 focusNode: _searchFocusNode,
-                onChanged: (value) {
-                  setState(() {
-                    _searchQuery = value;
-                  });
-                },
+                onChanged: _onSearchChanged,
                 decoration: InputDecoration(
                   hintText: '搜索消息、群聊或联系人',
                   prefixIcon:
@@ -889,12 +1091,7 @@ class _ChatListPageState extends State<ChatListPage>
                             Icons.clear,
                             color: AppColors.textSecondary,
                           ),
-                          onPressed: () {
-                            _searchController.clear();
-                            setState(() {
-                              _searchQuery = '';
-                            });
-                          },
+                          onPressed: _clearSearch,
                         )
                       : null,
                 ),
@@ -923,27 +1120,29 @@ class _ChatListPageState extends State<ChatListPage>
                           onRefresh: _loadChats,
                           child: _showMentionsOnly
                               ? _buildMentionHitsList()
-                              : _filteredChats.isEmpty
-                                  ? ListView(
-                                      children: [
-                                        SizedBox(
-                                          height: MediaQuery.of(context)
-                                                  .size
-                                                  .height *
-                                              0.55,
-                                          child: _buildEmptyState(),
+                              : _isSearching
+                                  ? _buildSearchResults()
+                                  : _filteredChats.isEmpty
+                                      ? ListView(
+                                          children: [
+                                            SizedBox(
+                                              height: MediaQuery.of(context)
+                                                      .size
+                                                      .height *
+                                                  0.55,
+                                              child: _buildEmptyState(),
+                                            ),
+                                          ],
+                                        )
+                                      : ListView.builder(
+                                          padding:
+                                              const EdgeInsets.only(bottom: 14),
+                                          itemCount: _filteredChats.length,
+                                          itemBuilder: (context, index) {
+                                            final chat = _filteredChats[index];
+                                            return _buildChatItem(chat);
+                                          },
                                         ),
-                                      ],
-                                    )
-                                  : ListView.builder(
-                                      padding:
-                                          const EdgeInsets.only(bottom: 14),
-                                      itemCount: _filteredChats.length,
-                                      itemBuilder: (context, index) {
-                                        final chat = _filteredChats[index];
-                                        return _buildChatItem(chat);
-                                      },
-                                    ),
                         ),
             ),
           ],
@@ -989,6 +1188,12 @@ class _ChatListPageState extends State<ChatListPage>
                       icon: Icons.refresh,
                       label: '刷新',
                       onTap: _loadChats,
+                    ),
+                    const SizedBox(width: 10),
+                    _buildDesktopHeaderButton(
+                      icon: Icons.visibility_off_outlined,
+                      label: '已移出',
+                      onTap: () => unawaited(_openHiddenChats()),
                     ),
                   ],
                 ),
@@ -1064,28 +1269,34 @@ class _ChatListPageState extends State<ChatListPage>
                                       onRefresh: _loadChats,
                                       child: _showMentionsOnly
                                           ? _buildMentionHitsList()
-                                          : chats.isEmpty
-                                              ? ListView(
-                                                  children: [
-                                                    SizedBox(
-                                                      height: 420,
-                                                      child: _buildEmptyState(),
+                                          : _isSearching
+                                              ? _buildSearchResults()
+                                              : chats.isEmpty
+                                                  ? ListView(
+                                                      children: [
+                                                        SizedBox(
+                                                          height: 420,
+                                                          child:
+                                                              _buildEmptyState(),
+                                                        ),
+                                                      ],
+                                                    )
+                                                  : ListView.separated(
+                                                      padding:
+                                                          const EdgeInsets.all(
+                                                              12),
+                                                      itemBuilder:
+                                                          (context, index) {
+                                                        return _buildChatItem(
+                                                          chats[index],
+                                                        );
+                                                      },
+                                                      separatorBuilder:
+                                                          (_, __) =>
+                                                              const SizedBox(
+                                                                  height: 6),
+                                                      itemCount: chats.length,
                                                     ),
-                                                  ],
-                                                )
-                                              : ListView.separated(
-                                                  padding:
-                                                      const EdgeInsets.all(12),
-                                                  itemBuilder:
-                                                      (context, index) {
-                                                    return _buildChatItem(
-                                                      chats[index],
-                                                    );
-                                                  },
-                                                  separatorBuilder: (_, __) =>
-                                                      const SizedBox(height: 6),
-                                                  itemCount: chats.length,
-                                                ),
                                     ),
                         ),
                       ],
@@ -1149,21 +1360,14 @@ class _ChatListPageState extends State<ChatListPage>
     return TextField(
       controller: _searchController,
       focusNode: _searchFocusNode,
-      onChanged: (value) {
-        setState(() {
-          _searchQuery = value;
-        });
-      },
+      onChanged: _onSearchChanged,
       decoration: InputDecoration(
         hintText: '搜索消息、群聊或联系人',
         prefixIcon: const Icon(Icons.search, color: AppColors.textSecondary),
         suffixIcon: _searchQuery.isNotEmpty
             ? IconButton(
                 icon: const Icon(Icons.clear, color: AppColors.textSecondary),
-                onPressed: () {
-                  _searchController.clear();
-                  setState(() => _searchQuery = '');
-                },
+                onPressed: _clearSearch,
               )
             : null,
       ),
@@ -1281,6 +1485,111 @@ class _ChatListPageState extends State<ChatListPage>
           ],
         ],
       ),
+    );
+  }
+
+  Widget _buildSearchSectionTitle(String title) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 14, 20, 6),
+      child: Text(
+        title,
+        style: const TextStyle(
+          color: AppColors.textSecondary,
+          fontSize: 13,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSearchResults() {
+    final chats = _filteredChats;
+    final friends = _filteredFriends;
+    final query = _searchQuery.trim();
+    final noLocalHits = chats.isEmpty && friends.isEmpty;
+    return ListView(
+      key: const ValueKey('chat-list-search-results'),
+      padding: const EdgeInsets.only(bottom: 14),
+      children: [
+        if (chats.isNotEmpty) ...[
+          _buildSearchSectionTitle('聊天'),
+          for (final chat in chats) _buildChatItem(chat),
+        ],
+        if (friends.isNotEmpty) ...[
+          _buildSearchSectionTitle('联系人'),
+          for (final friend in friends)
+            PMListRow(
+              key: ValueKey('search-friend-${friend.id}'),
+              leading: PMUserAvatar(user: friend),
+              title: Text(
+                friend.displayName.isNotEmpty
+                    ? friend.displayName
+                    : friend.username,
+              ),
+              subtitle: Text('@${friend.username}'),
+              trailing: _openingSearchTarget == 'user:${friend.id}'
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : null,
+              onTap: () => unawaited(_openFriendChat(friend)),
+            ),
+        ],
+        _buildSearchSectionTitle('消息'),
+        if (_isSearchingMessages)
+          const Padding(
+            padding: EdgeInsets.all(16),
+            child: Center(child: CircularProgressIndicator()),
+          )
+        else if (_messageSearchError != null)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+            child: Text(
+              '消息搜索失败: $_messageSearchError',
+              style: const TextStyle(color: AppColors.error),
+            ),
+          )
+        else if (_messageHits.isEmpty)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+            child: Text(
+              noLocalHits ? '没有找到与“$query”相关的内容' : '没有相关消息',
+              style: const TextStyle(color: AppColors.textSecondary),
+            ),
+          )
+        else
+          for (final message in _messageHits) _buildMessageHit(message),
+      ],
+    );
+  }
+
+  Widget _buildMessageHit(Message message) {
+    final chat = _chats.where((item) => item.id == message.chatRoomId);
+    final chatName = chat.isEmpty ? '聊天' : chat.first.name;
+    return PMListRow(
+      key: ValueKey('search-message-${message.id}'),
+      leading: const Icon(Icons.chat_bubble_outline, color: AppColors.primary),
+      title: Text(
+        message.resolvedFileLabel,
+        maxLines: 2,
+        overflow: TextOverflow.ellipsis,
+      ),
+      subtitle: Text(
+        '$chatName · ${message.senderName} · '
+        '${timeago.format(message.timestamp, locale: 'zh')}',
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+      ),
+      trailing: _openingSearchTarget == 'message:${message.id}'
+          ? const SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
+          : null,
+      onTap: () => unawaited(_openMessageHit(message)),
     );
   }
 
@@ -1600,6 +1909,7 @@ class _ChatListPageState extends State<ChatListPage>
     _messageSubscription?.cancel();
     _messageUpdateSubscription?.cancel();
     _statusSubscription?.cancel();
+    _messageSearchTimer?.cancel();
     _searchController.dispose();
     _searchFocusNode.dispose();
     super.dispose();

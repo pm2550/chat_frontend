@@ -162,6 +162,8 @@ class Message {
   /// 发送端生成的临时 id：本地"发送中"气泡用它当 id，服务器推回（或拒绝）时原样带回，
   /// 据此把临时气泡换成正式消息或标成失败。只在本机有意义，服务器不存。
   final String? clientMessageId;
+  /// 当前用户是否收藏了这条消息（后端按请求用户填充 `starredByMe`）。
+  final bool starredByMe;
 
   const Message({
     required this.id,
@@ -210,6 +212,7 @@ class Message {
     this.reactions = const [],
     this.readCount = 0,
     this.clientMessageId,
+    this.starredByMe = false,
   });
 
   factory Message.fromJson(Map<String, dynamic> json,
@@ -353,6 +356,7 @@ class Message {
       reactions: _parseReactions(json['reactions']),
       readCount: _parseInt(json['readCount'] ?? json['read_count']) ?? 0,
       clientMessageId: _stringOrNull(json['clientMessageId']),
+      starredByMe: _parseBool(json['starredByMe'] ?? json['starred_by_me']),
     );
   }
 
@@ -403,6 +407,7 @@ class Message {
       'reactions': reactions.map((item) => item.toJson()).toList(),
       'readCount': readCount,
       if (clientMessageId != null) 'clientMessageId': clientMessageId,
+      'starredByMe': starredByMe,
     };
   }
 
@@ -453,6 +458,7 @@ class Message {
     List<MessageReaction>? reactions,
     int? readCount,
     String? clientMessageId,
+    bool? starredByMe,
   }) {
     return Message(
       id: id ?? this.id,
@@ -503,6 +509,7 @@ class Message {
       reactions: reactions ?? this.reactions,
       readCount: readCount ?? this.readCount,
       clientMessageId: clientMessageId ?? this.clientMessageId,
+      starredByMe: starredByMe ?? this.starredByMe,
     );
   }
 

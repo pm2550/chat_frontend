@@ -177,6 +177,26 @@ class ContactDataService {
         .toList();
   }
 
+  /// 按用户名或用户 ID **精确**查找用户（加好友二维码/手动输入用）。
+  /// 查不到时返回 null；绝不做模糊匹配。
+  Future<User?> lookupUser({String? username, String? id}) async {
+    final params = <String, String>{
+      if (username != null && username.trim().isNotEmpty)
+        'username': username.trim(),
+      if (id != null && id.trim().isNotEmpty) 'id': id.trim(),
+    };
+    if (params.isEmpty) return null;
+    final uri = Uri.parse(ApiConstants.userLookup).replace(
+      queryParameters: params,
+    );
+    final response = await _request('GET', uri.toString());
+    if (response.statusCode == 404) return null;
+    final data = _decodeResponse(response);
+    final userJson = data['user'] ?? data['data'];
+    if (userJson is! Map<String, dynamic>) return null;
+    return User.fromJson(userJson);
+  }
+
   Future<FriendshipRequest> sendFriendRequest(String userId) async {
     final response = await _request(
       'POST',
