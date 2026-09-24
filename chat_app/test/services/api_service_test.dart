@@ -95,8 +95,9 @@ void main() {
     });
 
     test('key exchange dynamic endpoints include user ID', () {
-      expect(ApiConstants.getKeyBundle(15), contains('15'));
-      expect(ApiConstants.keyExists(15), contains('15'));
+      expect(ApiConstants.e2eeUserKeys('15'), contains('/e2ee/users/15/keys'));
+      expect(
+          ApiConstants.e2eeRoomStatus('15'), contains('/e2ee/rooms/15/status'));
     });
 
     test('requestTimeout is 30 seconds', () {

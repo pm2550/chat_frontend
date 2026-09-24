@@ -94,34 +94,20 @@ extension _ChatScreenActionSheetParts on _ChatScreenState {
   }
 
   Future<void> _editMessage(Message message) async {
-    final controller = TextEditingController(text: message.content);
     final nextContent = await showDialog<String>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('编辑消息'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          maxLines: 4,
-          minLines: 1,
-          decoration: const InputDecoration(hintText: '输入新的消息内容'),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(controller.text.trim()),
-            child: const Text('保存'),
-          ),
-        ],
-      ),
+      builder: (context) => _EditMessageDialog(initialText: message.content),
     );
-    controller.dispose();
     if (nextContent == null || nextContent.isEmpty) return;
     try {
-      final updated = await _chatService.editMessage(message.id, nextContent);
+      // 加密消息改完仍是密文：服务器不接受把它改成明文。
+      final updated = await _chatService.editMessage(
+        message.id,
+        nextContent,
+        encryptedContent: message.isEncrypted
+            ? _e2ee.sealEditedText(message, nextContent)
+            : null,
+      );
       _upsertMessage(updated.chatRoomId.isEmpty
           ? updated.copyWith(chatRoomId: _chat.id)
           : updated);
@@ -137,10 +123,29 @@ extension _ChatScreenActionSheetParts on _ChatScreenState {
   }
 
   Future<void> _forwardMessage(Message message) async {
+    if (message.isEncrypted && message.fileUrl?.isNotEmpty == true) {
+      // 加密附件：下载解密后按目标会话的状态重新发送（目标也加密就重新加密）。
+      await _forwardAttachment(message);
+      return;
+    }
     final target = await _selectForwardTarget();
     if (target == null) return;
     try {
-      final sent = await _chatService.forwardMessage(message.id, target.id);
+      final Message sent;
+      if (message.isEncrypted) {
+        // 密文和本会话双方的密钥绑定，服务器照搬过去谁也解不开：
+        // 用本机解出的明文重新发送，目标是加密私聊就重新加密。
+        final encryptedContent = target.type == ChatType.private
+            ? await _e2ee.sealText(target, message.content)
+            : null;
+        sent = await _chatService.sendTextMessage(
+          target.id,
+          message.content,
+          encryptedContent: encryptedContent,
+        );
+      } else {
+        sent = await _chatService.forwardMessage(message.id, target.id);
+      }
       if (!mounted) return;
       if (target.id == _chat.id) {
         _upsertMessage(sent);
@@ -263,6 +268,7 @@ extension _ChatScreenActionSheetParts on _ChatScreenState {
     if (message.id.startsWith('local-') || message.isRemoved) {
       return;
     }
+    final readable = _canUseMessageContent(message);
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
@@ -339,7 +345,7 @@ extension _ChatScreenActionSheetParts on _ChatScreenState {
                         _recallMessage(message);
                       },
                     ),
-                  if (isMe && message.type == MessageType.text)
+                  if (isMe && message.type == MessageType.text && readable)
                     _buildChatOption(
                       icon: Icons.edit,
                       title: '编辑',
@@ -348,25 +354,27 @@ extension _ChatScreenActionSheetParts on _ChatScreenState {
                         unawaited(_editMessage(message));
                       },
                     ),
-                  _buildChatOption(
-                    icon: Icons.copy,
-                    title: '复制',
-                    onTap: () {
-                      Navigator.pop(context);
-                      Clipboard.setData(ClipboardData(text: message.content));
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('已复制')),
-                      );
-                    },
-                  ),
-                  _buildChatOption(
-                    icon: Icons.reply,
-                    title: '引用',
-                    onTap: () {
-                      Navigator.pop(context);
-                      _quoteMessage(message);
-                    },
-                  ),
+                  if (readable)
+                    _buildChatOption(
+                      icon: Icons.copy,
+                      title: '复制',
+                      onTap: () {
+                        Navigator.pop(context);
+                        Clipboard.setData(ClipboardData(text: message.content));
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('已复制')),
+                        );
+                      },
+                    ),
+                  if (readable)
+                    _buildChatOption(
+                      icon: Icons.reply,
+                      title: '引用',
+                      onTap: () {
+                        Navigator.pop(context);
+                        _quoteMessage(message);
+                      },
+                    ),
                   _buildChatOption(
                     icon: Icons.delete_outline,
                     title: '删除消息',
@@ -376,14 +384,15 @@ extension _ChatScreenActionSheetParts on _ChatScreenState {
                       _deleteMessage(message);
                     },
                   ),
-                  _buildChatOption(
-                    icon: Icons.forward,
-                    title: '转发',
-                    onTap: () {
-                      Navigator.pop(context);
-                      unawaited(_forwardMessage(message));
-                    },
-                  ),
+                  if (readable)
+                    _buildChatOption(
+                      icon: Icons.forward,
+                      title: '转发',
+                      onTap: () {
+                        Navigator.pop(context);
+                        unawaited(_forwardMessage(message));
+                      },
+                    ),
                   if (_pinnedMessages.canManage)
                     _pinnedMessages.isPinned(message.id)
                         ? _buildChatOption(
@@ -418,7 +427,7 @@ extension _ChatScreenActionSheetParts on _ChatScreenState {
                       unawaited(_showReadReceipts(message));
                     },
                   ),
-                  if (message.fileUrl?.isNotEmpty == true) ...[
+                  if (message.fileUrl?.isNotEmpty == true && readable) ...[
                     _buildChatOption(
                       icon: Icons.download,
                       title: message.isImageMessage ? '保存图片' : '下载附件',
@@ -566,7 +575,8 @@ extension _ChatScreenActionSheetParts on _ChatScreenState {
           try {
             final page = await _chatService.searchMessages(_chat.id, keyword);
             setSheetState(() {
-              results = page.messages;
+              // 服务器搜不到加密消息，本机已加载、能解开的那部分在这里补上。
+              results = _withLocalEncryptedMatches(page.messages, keyword);
               isSearching = false;
             });
           } catch (e) {
@@ -624,6 +634,17 @@ extension _ChatScreenActionSheetParts on _ChatScreenState {
                         onSubmitted: (_) => runSearch(setSheetState),
                       ),
                     ),
+                    if (_hasEncryptedHistory)
+                      const Padding(
+                        padding: EdgeInsets.fromLTRB(24, 8, 24, 0),
+                        child: Text(
+                          '端到端加密的消息只在本机已加载的记录里搜索',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: AppColors.textSecondary,
+                          ),
+                        ),
+                      ),
                     const SizedBox(height: 12),
                     if (isSearching)
                       const Expanded(
@@ -931,6 +952,52 @@ extension _ChatScreenActionSheetParts on _ChatScreenState {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// 编辑消息的对话框。输入框的控制器归对话框自己的 State 管：
+/// 以前在 showDialog 返回后立刻 dispose，对话框的关闭动画还在用它，会报"控制器已释放"。
+class _EditMessageDialog extends StatefulWidget {
+  const _EditMessageDialog({required this.initialText});
+
+  final String initialText;
+
+  @override
+  State<_EditMessageDialog> createState() => _EditMessageDialogState();
+}
+
+class _EditMessageDialogState extends State<_EditMessageDialog> {
+  late final TextEditingController _controller =
+      TextEditingController(text: widget.initialText);
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('编辑消息'),
+      content: TextField(
+        controller: _controller,
+        autofocus: true,
+        maxLines: 4,
+        minLines: 1,
+        decoration: const InputDecoration(hintText: '输入新的消息内容'),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('取消'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(context).pop(_controller.text.trim()),
+          child: const Text('保存'),
+        ),
+      ],
     );
   }
 }

@@ -137,6 +137,16 @@ class MessageBubble extends StatelessWidget {
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
+                            if (message.isEncrypted) ...[
+                              Icon(
+                                Icons.lock,
+                                key: const ValueKey('message-e2ee-lock'),
+                                size: 11,
+                                color: bubbleVisual.secondaryTextColor,
+                                semanticLabel: '端到端加密',
+                              ),
+                              const SizedBox(width: 3),
+                            ],
                             Text(
                               _formatTime(message.timestamp),
                               style: TextStyle(
@@ -1137,7 +1147,8 @@ class MessageBubble extends StatelessWidget {
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw Exception('Image load failed: ${response.statusCode}');
     }
-    return response.bodyBytes;
+    // 端到端加密的图片在这里解密。
+    return AuthenticatedImage.transformFetchedBytes(fileUrl, response.bodyBytes);
   }
 
   Future<_LoadedChatImage> _loadChatImage(String fileUrl) async {

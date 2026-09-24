@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
@@ -14,6 +15,7 @@ import '../models/read_receipt.dart';
 import '../models/sticker.dart';
 import '../models/user.dart';
 import 'auth_service.dart';
+import 'encryption_service.dart';
 import 'persistent_data_cache.dart';
 import 'request_coordinator.dart';
 
@@ -97,12 +99,16 @@ class ChatDataService {
     AuthenticatedRequest? authenticatedRequest,
     AuthenticatedMultipartRequest? multipartRequest,
     AuthenticatedMultipartFilesRequest? multipartFilesRequest,
+    EncryptionService? encryptionService,
   })  : _authService = authService ?? AuthService(),
         _authenticatedRequest = authenticatedRequest,
         _multipartRequest = multipartRequest,
-        _multipartFilesRequest = multipartFilesRequest;
+        _multipartFilesRequest = multipartFilesRequest,
+        _encryptionService = encryptionService;
 
   final AuthService _authService;
+  final EncryptionService? _encryptionService;
+  EncryptionService get _e2ee => _encryptionService ?? EncryptionService();
   final AuthenticatedRequest? _authenticatedRequest;
   final AuthenticatedMultipartRequest? _multipartRequest;
   final AuthenticatedMultipartFilesRequest? _multipartFilesRequest;
@@ -803,19 +809,28 @@ class ChatDataService {
     return _extractMessages(data, chatRoomId);
   }
 
+  /// 发文本。[encryptedContent] 是端到端加密的密文信封：有它时 content 只发占位文字，
+  /// 明文不离开本机。
   Future<Message> sendTextMessage(
     String chatRoomId,
     String content, {
     bool isAnonymous = false,
     String? replyToId,
+    String? encryptedContent,
   }) async {
     final roomId = _parseRoomId(chatRoomId);
+    final encrypted = encryptedContent != null && encryptedContent.isNotEmpty;
     final response = await _request(
       'POST',
       ApiConstants.sendMessage,
       body: {
         'chatRoomId': roomId,
-        'content': content,
+        'content': encrypted ? kE2eeServerPlaceholder : content,
+        if (encrypted) ...{
+          'messageType': 'TEXT',
+          'encryptedContent': encryptedContent,
+          'encryptionVersion': kE2eeEncryptionVersion,
+        },
         if (replyToId != null) 'replyToId': _parseRoomId(replyToId),
         if (isAnonymous) 'isAnonymous': true,
       },
@@ -851,32 +866,6 @@ class ChatDataService {
     final messageJson = data['data'];
     if (messageJson is! Map<String, dynamic>) {
       throw const ChatDataException('发送成功但响应中没有消息数据');
-    }
-    return Message.fromJson(messageJson, fallbackChatRoomId: chatRoomId);
-  }
-
-  Future<Message> sendEncryptedTextMessage(
-    String chatRoomId, {
-    required String encryptedContent,
-    String content = '[加密消息]',
-    int encryptionVersion = 1,
-  }) async {
-    final roomId = _parseRoomId(chatRoomId);
-    final response = await _request(
-      'POST',
-      ApiConstants.sendMessage,
-      body: {
-        'chatRoomId': roomId,
-        'content': content,
-        'messageType': 'TEXT',
-        'encryptedContent': encryptedContent,
-        'encryptionVersion': encryptionVersion,
-      },
-    );
-    final data = _decodeResponse(response);
-    final messageJson = data['data'];
-    if (messageJson is! Map<String, dynamic>) {
-      throw const ChatDataException('发送成功但响应中没有加密消息数据');
     }
     return Message.fromJson(messageJson, fallbackChatRoomId: chatRoomId);
   }
@@ -1078,26 +1067,47 @@ class ChatDataService {
     return StickerPack.fromJson(value);
   }
 
+  /// 发附件。传了 [chat] 且它是双方都开了端到端加密的私聊时，文件先在本机加密：
+  /// 服务器只收到一个 encrypted.bin 和密文信封（真实文件名、类型、文件密钥都在信封里），
+  /// 也就不会转码语音。转发附件走同一条路：先下载解密，到了目标会话再按它的状态加密。
   Future<Message> sendFileMessage(
     String chatRoomId,
     PickedChatFile file, {
     MessageType? messageType,
-    String? encryptedContent,
-    int? encryptionVersion,
+    Chat? chat,
   }) async {
     final roomId = _parseRoomId(chatRoomId);
+    final sealed = chat == null
+        ? null
+        : await _e2ee.sealFile(
+            chat,
+            name: file.name,
+            mimeType: file.mimeType ??
+                _mimeTypeFromFileName(file.name) ??
+                'application/octet-stream',
+            kind: _attachmentKind(file, messageType),
+            readBytes: () => _readPickedFileBytes(file),
+          );
     final fields = {
       'chatRoomId': roomId.toString(),
-      if (messageType != null) 'messageType': messageType.name.toUpperCase(),
-      if (encryptedContent != null && encryptedContent.isNotEmpty)
-        'encryptedContent': encryptedContent,
-      if (encryptionVersion != null)
-        'encryptionVersion': encryptionVersion.toString(),
+      if (sealed != null) ...{
+        'messageType': 'FILE',
+        'encryptedContent': sealed.envelope,
+        'encryptionVersion': kE2eeEncryptionVersion.toString(),
+      } else if (messageType != null)
+        'messageType': messageType.name.toUpperCase(),
     };
     final response = await _requestMultipart(
       ApiConstants.sendFileMessage,
       fields: fields,
-      file: file,
+      file: sealed == null
+          ? file
+          : PickedChatFile(
+              name: 'encrypted.bin',
+              size: sealed.ciphertext.length,
+              mimeType: 'application/octet-stream',
+              bytes: sealed.ciphertext,
+            ),
     );
     final data = _decodeResponse(response);
     final messageJson = data['data'];
@@ -1105,6 +1115,50 @@ class ChatDataService {
       throw const ChatDataException('发送成功但响应中没有文件消息数据');
     }
     return Message.fromJson(messageJson, fallbackChatRoomId: chatRoomId);
+  }
+
+  static String _attachmentKind(PickedChatFile file, MessageType? type) {
+    switch (type) {
+      case MessageType.image:
+        return 'image';
+      case MessageType.voice:
+        return 'voice';
+      case MessageType.audio:
+        return 'audio';
+      case MessageType.video:
+        return 'video';
+      case MessageType.file:
+        return 'file';
+      default:
+        break;
+    }
+    final mime = (file.mimeType ?? '').toLowerCase();
+    final name = file.name.toLowerCase();
+    if (mime.startsWith('image/') ||
+        RegExp(r'\.(png|jpe?g|gif|webp)$').hasMatch(name)) {
+      return 'image';
+    }
+    if (mime.startsWith('video/') || RegExp(r'\.(mp4|mov)$').hasMatch(name)) {
+      return 'video';
+    }
+    if (mime.startsWith('audio/') ||
+        RegExp(r'\.(mp3|m4a|wav|aac|ogg|webm)$').hasMatch(name)) {
+      return 'voice';
+    }
+    return 'file';
+  }
+
+  /// 取文件字节：web 选的文件本来就在内存里，原生平台按路径读（借 http 的 fromPath，
+  /// 这样这个文件不用直接依赖 dart:io，web 照样能编译）。
+  static Future<Uint8List> _readPickedFileBytes(PickedChatFile file) async {
+    final bytes = file.bytes;
+    if (bytes != null) return Uint8List.fromList(bytes);
+    final path = file.path;
+    if (path == null || path.isEmpty) {
+      throw const ChatDataException('请选择有效文件');
+    }
+    final part = await http.MultipartFile.fromPath('file', path);
+    return part.finalize().toBytes();
   }
 
   /// 把远程图片取回来（不发消息），用于粘贴后在发送栏里预览。
@@ -1263,12 +1317,24 @@ class ChatDataService {
     return Message.fromJson(messageJson);
   }
 
-  Future<Message> editMessage(String messageId, String content) async {
+  /// 编辑。加密消息要传重新加密后的 [encryptedContent]（服务器不接受把它改成明文）。
+  Future<Message> editMessage(
+    String messageId,
+    String content, {
+    String? encryptedContent,
+  }) async {
     final id = _parseRoomId(messageId);
+    final encrypted = encryptedContent != null && encryptedContent.isNotEmpty;
     final response = await _request(
       'PUT',
       ApiConstants.editMessage(id),
-      body: {'content': content},
+      body: {
+        'content': encrypted ? kE2eeServerPlaceholder : content,
+        if (encrypted) ...{
+          'encryptedContent': encryptedContent,
+          'encryptionVersion': kE2eeEncryptionVersion,
+        },
+      },
     );
     final data = _decodeResponse(response);
     final messageJson = data['data'];
@@ -1377,6 +1443,19 @@ class ChatDataService {
             .timeout(ApiConstants.requestTimeout);
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw ChatDataException(_extractError(response.body));
+    }
+
+    if (message.isEncrypted) {
+      // 端到端加密附件：服务器上是密文，用消息密文里的文件密钥在本机解开。
+      final key = _e2ee.attachmentKeyFor(message);
+      if (key == null) {
+        throw const ChatDataException('无法解密这个附件');
+      }
+      return DownloadedChatFile(
+        name: key.name,
+        bytes: await _e2ee.openAttachment(message, response.bodyBytes),
+        mimeType: key.mimeType,
+      );
     }
 
     return DownloadedChatFile(

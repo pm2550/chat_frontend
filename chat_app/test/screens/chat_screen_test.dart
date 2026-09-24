@@ -2148,6 +2148,7 @@ class FakeChatDataService extends ChatDataService {
   final Chat? routeChat;
   final List<PickedChatFile> sentFiles = [];
   final List<String> sentTexts = [];
+  final List<String?> sentEncryptedContents = [];
   final List<String?> sentReplyIds = [];
   final List<String> searchKeywords = [];
   final List<String> deletedMessageIds = [];
@@ -2289,12 +2290,14 @@ class FakeChatDataService extends ChatDataService {
     String content, {
     bool isAnonymous = false,
     String? replyToId,
+    String? encryptedContent,
   }) async {
     final error = sendError;
     if (error != null) {
       throw error;
     }
     sentTexts.add(content);
+    sentEncryptedContents.add(encryptedContent);
     sentReplyIds.add(replyToId);
     return Message(
       id: 'sent-1',
@@ -2317,8 +2320,7 @@ class FakeChatDataService extends ChatDataService {
     String chatRoomId,
     PickedChatFile file, {
     MessageType? messageType,
-    String? encryptedContent,
-    int? encryptionVersion,
+    Chat? chat,
   }) async {
     sentFiles.add(file);
     final error = sendFileError;

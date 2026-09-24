@@ -106,6 +106,8 @@ class AgentClientToolState {
       ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
     return messages
         .where((message) => message.fileUrl?.trim().isNotEmpty == true)
+        // 端到端加密的附件：真实文件名、类型只在本机解出来，不能交给服务器上的 Agent。
+        .where((message) => !message.isEncrypted)
         .take(n.clamp(0, 20))
         .toList();
   }

@@ -28,6 +28,7 @@ import '../../services/memory_service.dart';
 import '../../services/pending_call_invite.dart';
 import '../../services/chat_call_service.dart';
 import '../../services/contact_data_service.dart';
+import '../../services/encryption_service.dart';
 import '../../services/chat_drop_paste.dart'
     if (dart.library.js_interop) '../../services/chat_drop_paste_web.dart';
 import '../../services/file_save.dart' as file_save;
@@ -48,6 +49,7 @@ import '../../widgets/message_bubble.dart';
 import '../../widgets/chat_video_thumbnail.dart';
 import '../../widgets/chat_video_preview_dialog.dart';
 import '../../widgets/desktop_drop_paste_region.dart';
+import '../../widgets/e2ee_widgets.dart';
 import '../../widgets/pm_brand.dart';
 import '../../widgets/pm_responsive.dart';
 import '../../widgets/sticker_tile.dart';
@@ -74,6 +76,7 @@ part 'sub/announcement_banner.dart';
 part 'sub/drag_paste_upload.dart';
 part 'sub/pending_attachments_strip.dart';
 part 'sub/realtime_sync.dart';
+part 'sub/e2ee_chat.dart';
 
 typedef ChatAttachmentPicker = Future<PickedChatFile?> Function();
 
@@ -116,6 +119,7 @@ class ChatScreen extends StatefulWidget {
     this.imagePicker,
     this.filePicker,
     this.fileSaver,
+    this.encryptionService,
   });
 
   final ChatDataService? chatService;
@@ -128,6 +132,7 @@ class ChatScreen extends StatefulWidget {
   final ChatAttachmentPicker? imagePicker;
   final ChatAttachmentPicker? filePicker;
   final file_save.FileSaver? fileSaver;
+  final EncryptionService? encryptionService;
 
   @visibleForTesting
   static void clearMessageCacheForTesting() {
@@ -151,6 +156,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   late final MemoryService _memoryService;
   late final UserProfileService _profileService;
   late final ContactDataService _contactService;
+  late final EncryptionService _e2ee;
+  E2eeRoomState _e2eeRoom = E2eeRoomState.none;
   late final bool _ownsCallService;
   final TextEditingController _messageController = TextEditingController();
   final TextEditingController _searchController = TextEditingController();
@@ -248,6 +255,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     _profileService =
         widget.profileService ?? UserProfileService(authService: _authService);
     _contactService = widget.contactService ?? ContactDataService();
+    _e2ee = widget.encryptionService ?? EncryptionService();
+    _e2ee.addListener(_handleE2eeChanged);
     _ownsCallService = widget.callService == null;
     _callService = widget.callService ??
         ChatCallService(
@@ -324,6 +333,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
 
   void _startChatSession() {
     _restoreCachedMessages();
+    unawaited(_refreshE2eeRoomState());
     unawaited(_loadCustomizationSettings());
     unawaited(_loadAnonymousModePreference());
     unawaited(_prepareAnnouncementBanner());
@@ -441,6 +451,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    _e2ee.removeListener(_handleE2eeChanged);
     _typingSender.stop();
     _messageController.removeListener(_handleComposerTextForTyping);
     _focusNode.removeListener(_handleComposerFocusForTyping);
@@ -1169,15 +1180,26 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                           ),
                         ),
                         if (_chat.type == ChatType.private)
-                          Text(
-                            _chatSubtitle(),
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: _privatePeer()?.onlineStatus ==
-                                      OnlineStatus.online
-                                  ? AppColors.online
-                                  : AppColors.textSecondary,
-                            ),
+                          Row(
+                            children: [
+                              Flexible(
+                                child: Text(
+                                  _chatSubtitle(),
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: _privatePeer()?.onlineStatus ==
+                                            OnlineStatus.online
+                                        ? AppColors.online
+                                        : AppColors.textSecondary,
+                                  ),
+                                ),
+                              ),
+                              if (_e2eeRoom.encrypts) ...[
+                                const SizedBox(width: 8),
+                                E2eeHeaderBadge(state: _e2eeRoom),
+                              ],
+                            ],
                           )
                         else if (_chat.type == ChatType.group)
                           Text(
@@ -1223,6 +1245,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       body: Column(
         children: [
           _buildCallPanel(),
+          _buildE2eeNotice(),
           _buildAnonymousBanner(),
           _buildAnnouncementBanner(),
           _buildPinnedMessagesBar(),

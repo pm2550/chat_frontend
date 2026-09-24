@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../constants/api_constants.dart';
 import '../models/user.dart';
 import 'crypto/password_hasher.dart';
+import 'e2ee/e2ee_key_store.dart';
 import 'persistent_data_cache.dart';
 
 class AuthService extends ChangeNotifier {
@@ -29,6 +30,14 @@ class AuthService extends ChangeNotifier {
   bool _passwordUpgradeRequired = false;
   final http.Client? _httpClient;
   final PasswordHasher _passwordHasher;
+
+  /// 登录时密码刚被服务器验证过：端到端加密借此在本机解开私钥（EncryptionService 装上）。
+  Future<void> Function(String password)? onPasswordVerified;
+
+  /// 改密码时附加到请求里的字段：端到端加密用新密码重新包装的私钥（EncryptionService 装上）。
+  /// 抛错就不改密码——宁可改不成，也不能让加密历史再也解不开。
+  Future<Map<String, dynamic>> Function(String oldPassword, String newPassword)?
+      passwordChangeExtras;
 
   User? get currentUser => _currentUser;
   String? get accessToken => _accessToken;
@@ -135,6 +144,7 @@ class AuthService extends ChangeNotifier {
       if (response.statusCode == 200 && data['code'] == 200) {
         await _persistLoginData(data['data']);
         _passwordUpgradeRequired = usedLegacyPath;
+        await _afterPasswordVerified(password);
         _isLoading = false;
         notifyListeners();
         return true;
@@ -150,6 +160,7 @@ class AuthService extends ChangeNotifier {
         if (retry.statusCode == 200 && retryData['code'] == 200) {
           await _persistLoginData(retryData['data']);
           _passwordUpgradeRequired = true;
+          await _afterPasswordVerified(password);
           _isLoading = false;
           notifyListeners();
           return true;
@@ -163,6 +174,45 @@ class AuthService extends ChangeNotifier {
     _isLoading = false;
     notifyListeners();
     return false;
+  }
+
+  /// 重新确认当前账号的登录密码（开启/重置端到端加密前用：私钥必须用真正的登录密码包装，
+  /// 输错一个字，别的设备登录后就再也解不开）。只支持客户端哈希方式的账号；
+  /// 成功时和登录一样换一组新令牌。
+  Future<bool> verifyPassword(String password) async {
+    final username = _currentUser?.username;
+    if (username == null || username.isEmpty) return false;
+    final saltParams = await _fetchClientSaltParams(username);
+    if (!saltParams.isClientArgon2) return false;
+    final clientHash = await _passwordHasher.hashWithSalt(
+      password: password,
+      salt: saltParams.salt,
+      argon2Params: saltParams.argon2Params,
+    );
+    final response = await _post(
+      Uri.parse(ApiConstants.login),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({'username': username, 'clientHash': clientHash}),
+    ).timeout(ApiConstants.requestTimeout);
+    final data = jsonDecode(utf8.decode(response.bodyBytes));
+    if (response.statusCode == 200 && data is Map && data['code'] == 200) {
+      await _persistLoginData(data['data']);
+      notifyListeners();
+      return true;
+    }
+    return false;
+  }
+
+  /// 等端到端加密解开私钥再进聊天，第一屏的加密消息就能直接显示；
+  /// 慢或失败都不耽误登录（之后可以在聊天里手动解锁）。
+  Future<void> _afterPasswordVerified(String password) async {
+    final hook = onPasswordVerified;
+    if (hook == null) return;
+    try {
+      await hook(password).timeout(const Duration(seconds: 15));
+    } catch (e) {
+      debugPrint('Post-login hook failed: $e');
+    }
   }
 
   Future<void> _persistLoginData(dynamic responseData) async {
@@ -395,8 +445,10 @@ class AuthService extends ChangeNotifier {
       throw Exception('请先登录');
     }
     final saltParams = await _fetchClientSaltParams(username);
+    final extras = passwordChangeExtras;
     final body = <String, dynamic>{
-      ...await _newPasswordChangeBundle(newPassword)
+      ...await _newPasswordChangeBundle(newPassword),
+      if (extras != null) ...await extras(oldPassword, newPassword),
     };
     if (saltParams.isClientArgon2) {
       body['oldClientHash'] = await _passwordHasher.hashWithSalt(
@@ -618,6 +670,8 @@ class AuthService extends ChangeNotifier {
     if (previousUserId != null) {
       await PersistentDataCache.clearUser(previousUserId);
     }
+    // 端到端加密的私钥不能留在退出了的设备上。
+    await E2eeKeyStore.clear();
   }
 
   Future<void> clearLocalSession() async {

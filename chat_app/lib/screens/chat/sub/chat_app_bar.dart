@@ -11,6 +11,7 @@ extension _ChatScreenChromeParts on _ChatScreenState {
               children: [
                 _buildDesktopConversationHeader(),
                 _buildCallPanel(),
+                _buildE2eeNotice(),
                 _buildAnonymousBanner(),
                 _buildPinnedMessagesBar(),
                 Expanded(
@@ -152,12 +153,23 @@ extension _ChatScreenChromeParts on _ChatScreenState {
                           ),
                         ),
                         const SizedBox(height: 3),
-                        Text(
-                          _chatSubtitle(),
-                          style: const TextStyle(
-                            color: AppColors.textSecondary,
-                            fontSize: 13,
-                          ),
+                        Row(
+                          children: [
+                            Flexible(
+                              child: Text(
+                                _chatSubtitle(),
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  color: AppColors.textSecondary,
+                                  fontSize: 13,
+                                ),
+                              ),
+                            ),
+                            if (_e2eeRoom.encrypts) ...[
+                              const SizedBox(width: 10),
+                              E2eeHeaderBadge(state: _e2eeRoom, fontSize: 13),
+                            ],
+                          ],
                         ),
                       ],
                     ),

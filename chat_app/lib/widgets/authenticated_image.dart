@@ -42,6 +42,16 @@ class AuthenticatedImage extends StatefulWidget {
   final WidgetBuilder? placeholder;
   final WidgetBuilder? errorBuilder;
 
+  /// 取到字节之后、渲染之前的处理：端到端加密附件在这里解密（main 里由 EncryptionService 装上）。
+  static Future<Uint8List> Function(String url, Uint8List bytes)?
+      bytesTransformer;
+
+  /// 本站文件取到的字节交给 [bytesTransformer]（没装就原样返回）。
+  static Future<Uint8List> transformFetchedBytes(String url, Uint8List bytes) {
+    final transform = bytesTransformer;
+    return transform == null ? Future.value(bytes) : transform(url, bytes);
+  }
+
   static const int _maxCachedImages = 96;
   static final Map<String, Future<Uint8List>> _cache = {};
 
@@ -65,7 +75,7 @@ class AuthenticatedImage extends StatefulWidget {
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw AuthenticatedImageException(response.statusCode);
     }
-    return response.bodyBytes;
+    return transformFetchedBytes(url, response.bodyBytes);
   }
 
   static bool looksLikeSvg(String url, Uint8List bytes) {

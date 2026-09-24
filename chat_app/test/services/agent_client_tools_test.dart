@@ -97,6 +97,29 @@ void main() {
     expect(attachments.single['mimeType'], 'image/png');
   });
 
+  test('get_recent_attachments never hands decrypted E2EE attachment names to the agent',
+      () async {
+    state.updateRoom(
+      roomId: 43,
+      muted: false,
+      pinnedToTop: false,
+      messages: [
+        message(
+          '3',
+          type: MessageType.image,
+          fileUrl: '/api/files/chat/x.bin',
+          fileName: '体检报告.jpg',
+          fileType: 'image/jpeg',
+        ).copyWith(encryptedContent: 'ZW52', encryptionVersion: 2),
+      ],
+    );
+
+    final result =
+        await GetRecentAttachmentsTool(state).execute({'roomId': 43, 'n': 20});
+
+    expect(result['attachments'], isEmpty);
+  });
+
   testWidgets('prompt_user_confirmation shows PM dialog and answers yes',
       (tester) async {
     final navigatorKey = GlobalKey<NavigatorState>();
