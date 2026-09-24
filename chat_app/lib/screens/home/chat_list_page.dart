@@ -353,7 +353,11 @@ class _ChatListPageState extends State<ChatListPage>
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(enabled ? '桌面通知已开启' : '浏览器没有允许桌面通知'),
+        content: Text(enabled
+            ? '桌面通知已开启'
+            : kIsWeb
+                ? '浏览器没有允许桌面通知'
+                : '系统没有允许 PM chat 发通知，请到系统设置里打开'),
         backgroundColor: enabled ? AppColors.success : AppColors.warning,
       ),
     );
@@ -364,14 +368,17 @@ class _ChatListPageState extends State<ChatListPage>
     bool mentionOverride = false,
   }) {
     final route = ModalRoute.of(context);
-    if (route != null && !route.isCurrent) return;
+    final onChatList = route == null || route.isCurrent;
+    if (!onChatList && !_notificationService.notifiesWhileInsideChat) return;
 
     final text = chat.lastMessage?.resolvedFileLabel ?? '收到新消息';
     _notificationService.notifyIncomingMessage(
       chatName: chat.name,
       body: text,
+      chatRoomId: chat.id,
       muted: chat.isMuted && !mentionOverride,
     );
+    if (!onChatList) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text('${chat.name}: $text'),
@@ -870,12 +877,15 @@ class _ChatListPageState extends State<ChatListPage>
                       onTap: _focusSearch,
                     ),
                     const SizedBox(width: 10),
-                    _buildDesktopHeaderButton(
-                      icon: Icons.notifications_active,
-                      label: '通知',
-                      onTap: _requestDesktopNotifications,
-                    ),
-                    const SizedBox(width: 10),
+                    // 发不了系统通知的平台不放这个按钮，免得点了只看到"没有允许"。
+                    if (_notificationService.isSupported) ...[
+                      _buildDesktopHeaderButton(
+                        icon: Icons.notifications_active,
+                        label: '通知',
+                        onTap: _requestDesktopNotifications,
+                      ),
+                      const SizedBox(width: 10),
+                    ],
                     _buildDesktopHeaderButton(
                       icon: Icons.refresh,
                       label: '刷新',

@@ -21,6 +21,10 @@ class WebDesktopNotificationBackend implements DesktopNotificationBackend {
   @override
   bool get pageIsVisible => web.document.visibilityState == 'visible';
 
+  // 网页端后台消息由 Web Push 负责，这里只在停留于会话列表时补一条。
+  @override
+  bool get notifiesWhileInsideChat => false;
+
   @override
   Future<bool> requestPermission() async {
     final permission = await web.Notification.requestPermission().toDart;
@@ -32,6 +36,7 @@ class WebDesktopNotificationBackend implements DesktopNotificationBackend {
     required String title,
     required String body,
     String? tag,
+    String? payload,
   }) {
     if (!hasPermission) return;
     web.Notification(

@@ -86,7 +86,7 @@ dependencies:
   # Push notifications
   firebase_core: ^3.9.0
   firebase_messaging: ^15.2.0
-  flutter_local_notifications: ^18.0.1
+  flutter_local_notifications: ^19.5.0
 
   # Additional UI
   emoji_picker_flutter: ^4.3.0
@@ -102,6 +102,9 @@ dependencies:
   flutter_foreground_task: ^10.0.0
   path_provider: ^2.1.6
   gal: ^2.3.3
+  # 桌面端（Windows/macOS/Linux）拖入文件、粘贴剪贴板里的图片/文件
+  desktop_drop: ^0.8.4
+  pasteboard: ^0.5.0
 
 dev_dependencies:
   flutter_test:
