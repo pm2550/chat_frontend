@@ -105,6 +105,7 @@ dependencies:
   # 桌面端（Windows/macOS/Linux）拖入文件、粘贴剪贴板里的图片/文件
   desktop_drop: ^0.8.4
   pasteboard: ^0.5.0
+  mime: ^2.0.0
 
 dev_dependencies:
   flutter_test:

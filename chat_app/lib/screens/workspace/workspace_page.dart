@@ -10,8 +10,10 @@ import '../../design/design.dart';
 import '../../models/user.dart';
 import '../../models/workspace.dart';
 import '../../services/file_save.dart' as file_save;
+import '../../services/os_dropped_files.dart';
 import '../../services/workspace_service.dart';
 import 'workspace_text_editor_page.dart';
+import '../../widgets/os_file_drop_target.dart';
 import '../../widgets/pm_brand.dart';
 import '../../widgets/pm_responsive.dart';
 
@@ -39,6 +41,7 @@ class _WorkspacePageState extends State<WorkspacePage>
   WorkspaceContents _contents = const WorkspaceContents(folders: [], files: []);
   bool _isLoading = true;
   bool _isLoadingContents = false;
+  bool _isOsDragActive = false;
   WorkspaceFileItem? _selectedPreviewFile;
   DownloadedWorkspaceFile? _selectedPreview;
   bool _isLoadingPreview = false;
@@ -249,6 +252,52 @@ class _WorkspacePageState extends State<WorkspacePage>
       _showSnackBar(replaceFile == null ? '文件已上传' : '新版本已上传');
     } catch (error) {
       _showSnackBar('上传失败: $error', isError: true);
+    }
+  }
+
+  /// 从系统拖进内容区的文件，逐个上传到当前文件夹。
+  Future<void> _uploadDroppedFiles(DroppedFileBatch batch) async {
+    final workspace = _selectedWorkspace;
+    if (workspace == null) return;
+    final skipped = batch.skippedMessage;
+    if (batch.files.isEmpty) {
+      if (skipped != null) _showSnackBar(skipped, isError: true);
+      return;
+    }
+    final folderId = _folderStack.isEmpty ? null : _folderStack.last.id;
+    var uploaded = 0;
+    final failures = <String>[];
+    for (final file in batch.files) {
+      try {
+        await _service.uploadFile(
+          workspaceId: workspace.id,
+          folderId: folderId,
+          file: PickedWorkspaceFile(
+            name: file.name,
+            size: file.size,
+            path: file.path,
+            bytes: file.bytes,
+          ),
+        );
+        uploaded++;
+      } catch (error) {
+        failures.add('${file.name}: $error');
+      }
+    }
+    if (!mounted) return;
+    if (uploaded > 0) {
+      await _loadContents();
+      await _refreshSelectedWorkspace();
+    }
+    if (failures.isNotEmpty) {
+      _showSnackBar('上传失败 ${failures.join('；')}', isError: true);
+    } else {
+      _showSnackBar(
+        [
+          '已上传 $uploaded 个文件',
+          if (skipped != null) skipped,
+        ].join('，'),
+      );
     }
   }
 
@@ -1655,28 +1704,28 @@ class _WorkspacePageState extends State<WorkspacePage>
           _buildBreadcrumbs(),
           const Divider(height: 1),
           Expanded(
-            child: DragTarget<Object>(
-              onWillAcceptWithDetails: (_) => true,
-              onAcceptWithDetails: (_) {
-                _showSnackBar('请使用上传按钮选择要放入此文件夹的文件');
+            // 从文件管理器把文件拖进来，直接上传到当前文件夹（桌面端和网页版）。
+            child: OsFileDropTarget(
+              key: const Key('workspace-os-drop-target'),
+              enabled: !workspace.isLocked,
+              onDragActiveChanged: (active) {
+                if (mounted) setState(() => _isOsDragActive = active);
               },
-              builder: (context, candidateData, rejectedData) {
-                final dragging = candidateData.isNotEmpty;
-                return AnimatedContainer(
-                  duration: PMMotion.fast,
-                  decoration: BoxDecoration(
-                    color: dragging
-                        ? AppColors.pixelBlue.withValues(alpha: 0.55)
-                        : Colors.transparent,
-                    border: dragging
-                        ? Border.all(color: AppColors.primary, width: 2)
-                        : null,
-                  ),
-                  child: _isLoadingContents
-                      ? const Center(child: CircularProgressIndicator())
-                      : _buildContentsList(),
-                );
-              },
+              onFilesDropped: (batch) => _uploadDroppedFiles(batch),
+              child: AnimatedContainer(
+                duration: PMMotion.fast,
+                decoration: BoxDecoration(
+                  color: _isOsDragActive
+                      ? AppColors.pixelBlue.withValues(alpha: 0.55)
+                      : Colors.transparent,
+                  border: _isOsDragActive
+                      ? Border.all(color: AppColors.primary, width: 2)
+                      : null,
+                ),
+                child: _isLoadingContents
+                    ? const Center(child: CircularProgressIndicator())
+                    : _buildContentsList(),
+              ),
             ),
           ),
         ],
