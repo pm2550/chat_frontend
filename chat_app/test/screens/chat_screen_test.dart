@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/services.dart';
@@ -1940,6 +1941,67 @@ void main() {
 
       expect(accepted, isTrue);
       expect(find.text('释放以发送 2 个文件'), findsOneWidget);
+    });
+
+    testWidgets(
+        'desktop Ctrl+V queues a clipboard image and plain text still pastes',
+        (tester) async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.linux;
+      final png = base64Decode(
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+      );
+      Uint8List? clipboardImage = png;
+      var clipboardText = '';
+      final messenger = tester.binding.defaultBinaryMessenger;
+      messenger.setMockMethodCallHandler(const MethodChannel('pasteboard'),
+          (call) async {
+        if (call.method == 'files') return <String>[];
+        if (call.method == 'image') return clipboardImage;
+        return null;
+      });
+      messenger.setMockMethodCallHandler(SystemChannels.platform,
+          (call) async {
+        if (call.method == 'Clipboard.getData') {
+          return {'text': clipboardText};
+        }
+        if (call.method == 'Clipboard.hasStrings') {
+          return {'value': clipboardText.isNotEmpty};
+        }
+        return null;
+      });
+      addTearDown(() {
+        messenger.setMockMethodCallHandler(
+            const MethodChannel('pasteboard'), null);
+        messenger.setMockMethodCallHandler(SystemChannels.platform, null);
+      });
+
+      final chat = createTestChat();
+      final service = FakeChatDataService(messages: const []);
+      await tester.pumpWidget(buildTestWidget(chat, chatService: service));
+      await tester.pump();
+      await tester.tap(find.byType(TextField).last);
+      await tester.pump();
+
+      Future<void> pressPaste() async {
+        await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+        await tester.sendKeyEvent(LogicalKeyboardKey.keyV);
+        await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+        await tester.pumpAndSettle();
+      }
+
+      await pressPaste();
+      // 图片进待发送栏，不直接发出去，输入框里也没多出文字。
+      expect(find.byKey(const ValueKey('chat-pending-attachment-0')),
+          findsOneWidget);
+      expect(service.sentFiles, isEmpty);
+
+      clipboardImage = null;
+      clipboardText = '一段普通文字';
+      await pressPaste();
+      expect(find.byKey(const ValueKey('chat-pending-attachment-1')),
+          findsNothing);
+      expect(find.text('一段普通文字'), findsOneWidget);
+      debugDefaultTargetPlatformOverride = null;
     });
 
     testWidgets('picks generic file and shows failed file message on error',

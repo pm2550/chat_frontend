@@ -9,6 +9,7 @@ import 'package:chat_app/screens/home/chat_list_page.dart';
 import 'package:chat_app/services/chat_data_service.dart';
 import 'package:chat_app/services/desktop_notification_service.dart';
 import 'package:chat_app/services/desktop_notification_stub.dart';
+import 'package:chat_app/services/notification_tap_router.dart';
 import 'package:chat_app/services/websocket_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -386,6 +387,117 @@ void main() {
       expect(find.text('更早的消息被改了'), findsNothing);
       expect(backend.lastUnreadCount, 0);
       expect(backend.shownNotifications, isEmpty);
+    });
+
+    testWidgets('native desktop notifies from inside a chat with a tap payload',
+        (tester) async {
+      final realtime = FakeRealtimeService();
+      final backend = StubDesktopNotificationBackend(
+        supported: true,
+        permissionGranted: true,
+        visible: false,
+        notifiesInsideChat: true,
+      );
+      final notificationService = DesktopNotificationService(backend: backend);
+      final service = FakeChatListService(chats: [
+        Chat(
+          id: '17',
+          name: '后台群聊',
+          type: ChatType.group,
+          createdAt: DateTime.parse('2024-01-01T10:00:00'),
+        ),
+      ]);
+
+      await tester.pumpWidget(buildTestWidget(
+        service,
+        realtimeService: realtime,
+        notificationService: notificationService,
+      ));
+      await tester.pump();
+      // 打开一个聊天页，会话列表不再是当前路由。
+      tester.state<NavigatorState>(find.byType(Navigator)).pushNamed('/chat');
+      await tester.pumpAndSettle();
+
+      realtime.emitMessage(Message(
+        id: 'm-bg',
+        content: '窗口在后台时来的消息',
+        senderId: 'alice',
+        senderName: 'Alice',
+        chatRoomId: '17',
+        timestamp: DateTime.parse('2024-01-01T10:02:00'),
+      ));
+      await tester.pump();
+
+      expect(backend.shownNotifications, hasLength(1));
+      final shown = backend.shownNotifications.single;
+      expect(shown.title, '后台群聊');
+      expect(NotificationTapRouter.routeForPayload(shown.payload), '/chat/17');
+      // 聊天页上不弹会话列表的 SnackBar。
+      expect(find.text('后台群聊: 窗口在后台时来的消息'), findsNothing);
+    });
+
+    testWidgets('web keeps notifications to the chat list route',
+        (tester) async {
+      final realtime = FakeRealtimeService();
+      final backend = StubDesktopNotificationBackend(
+        supported: true,
+        permissionGranted: true,
+        visible: false,
+      );
+      final notificationService = DesktopNotificationService(backend: backend);
+      final service = FakeChatListService(chats: [
+        Chat(
+          id: '17',
+          name: '后台群聊',
+          type: ChatType.group,
+          createdAt: DateTime.parse('2024-01-01T10:00:00'),
+        ),
+      ]);
+
+      await tester.pumpWidget(buildTestWidget(
+        service,
+        realtimeService: realtime,
+        notificationService: notificationService,
+      ));
+      await tester.pump();
+      tester.state<NavigatorState>(find.byType(Navigator)).pushNamed('/chat');
+      await tester.pumpAndSettle();
+
+      realtime.emitMessage(Message(
+        id: 'm-bg',
+        content: '窗口在后台时来的消息',
+        senderId: 'alice',
+        senderName: 'Alice',
+        chatRoomId: '17',
+        timestamp: DateTime.parse('2024-01-01T10:02:00'),
+      ));
+      await tester.pump();
+
+      expect(backend.shownNotifications, isEmpty);
+    });
+
+    testWidgets('desktop header hides the notification button when unsupported',
+        (tester) async {
+      tester.view.physicalSize = const Size(1600, 1000);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+
+      Future<void> pumpWith(bool supported) async {
+        await tester.pumpWidget(const SizedBox.shrink());
+        await tester.pumpWidget(buildTestWidget(
+          FakeChatListService(chats: const []),
+          notificationService: DesktopNotificationService(
+            backend: StubDesktopNotificationBackend(supported: supported),
+          ),
+        ));
+        await tester.pump();
+      }
+
+      await pumpWith(true);
+      expect(find.text('通知'), findsOneWidget);
+
+      await pumpWith(false);
+      expect(find.text('通知'), findsNothing);
     });
 
     testWidgets('does not count own realtime message as unread notification',

@@ -1,12 +1,13 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
 import 'desktop_notification_backend.dart';
-import 'notification_tap_router.dart';
+import 'local_notifications_setup.dart';
 
 DesktopNotificationBackend createDesktopNotificationBackend() =>
     IoDesktopNotificationBackend();
@@ -29,12 +30,19 @@ class IoDesktopNotificationBackend
   final FlutterLocalNotificationsPlugin _notifications =
       FlutterLocalNotificationsPlugin();
 
-  bool _initialized = false;
+  bool _channelCreated = false;
   bool _permissionGranted = false;
   AppLifecycleState? _lifecycleState = WidgetsBinding.instance.lifecycleState;
 
   @override
-  bool get isSupported => Platform.isAndroid || Platform.isIOS;
+  bool get isSupported =>
+      LocalNotificationsSetup.supportsPlatform(defaultTargetPlatform);
+
+  /// 桌面端没有推送通道，窗口在后台时只能靠本地通知提醒；
+  /// 所以即使正停在某个聊天里，其它会话来消息也要弹。
+  @override
+  bool get notifiesWhileInsideChat =>
+      LocalNotificationsSetup.isDesktop(defaultTargetPlatform);
 
   @override
   bool get hasPermission => _permissionGranted;
@@ -51,7 +59,9 @@ class IoDesktopNotificationBackend
   Future<bool> requestPermission() async {
     if (!isSupported) return false;
     try {
-      await _ensureInitialized();
+      if (!await LocalNotificationsSetup.ensureInitialized()) return false;
+      await _ensureChannel();
+      // Linux / Windows 没有通知授权这回事，插件初始化成功就能发。
       var granted = true;
       if (Platform.isAndroid) {
         final android = _notifications.resolvePlatformSpecificImplementation<
@@ -61,6 +71,15 @@ class IoDesktopNotificationBackend
         final ios = _notifications.resolvePlatformSpecificImplementation<
             IOSFlutterLocalNotificationsPlugin>();
         granted = await ios?.requestPermissions(
+              alert: true,
+              badge: true,
+              sound: true,
+            ) ??
+            false;
+      } else if (Platform.isMacOS) {
+        final macos = _notifications.resolvePlatformSpecificImplementation<
+            MacOSFlutterLocalNotificationsPlugin>();
+        granted = await macos?.requestPermissions(
               alert: true,
               badge: true,
               sound: true,
@@ -81,21 +100,25 @@ class IoDesktopNotificationBackend
     required String title,
     required String body,
     String? tag,
+    String? payload,
   }) {
     if (!isSupported || !_permissionGranted) return;
-    unawaited(_show(title: title, body: body, tag: tag));
+    unawaited(_show(title: title, body: body, tag: tag, payload: payload));
   }
 
   Future<void> _show({
     required String title,
     required String body,
     String? tag,
+    String? payload,
   }) async {
     try {
-      await _ensureInitialized();
+      if (!await LocalNotificationsSetup.ensureInitialized()) return;
       await _notifications.show(
-        tag?.hashCode ??
-            DateTime.now().millisecondsSinceEpoch.remainder(1 << 31),
+        // 同一个 tag（同一个会话）的新通知替换旧的，不在通知中心堆成一串。
+        tag == null
+            ? DateTime.now().millisecondsSinceEpoch.remainder(1 << 31)
+            : tag.hashCode & 0x7fffffff,
         title,
         body,
         NotificationDetails(
@@ -113,7 +136,15 @@ class IoDesktopNotificationBackend
             presentBadge: true,
             presentSound: true,
           ),
+          macOS: const DarwinNotificationDetails(
+            presentAlert: true,
+            presentSound: true,
+          ),
+          linux: const LinuxNotificationDetails(
+            category: LinuxNotificationCategory.imReceived,
+          ),
         ),
+        payload: payload,
       );
     } catch (_) {
       // Notification delivery is best-effort UI chrome; never break chat flow.
@@ -125,19 +156,11 @@ class IoDesktopNotificationBackend
     // Android launcher badges are OEM-specific; keep unread badge handling on web.
   }
 
-  Future<void> _ensureInitialized() async {
-    if (_initialized) return;
-    const initializationSettings = InitializationSettings(
-      android: AndroidInitializationSettings('@mipmap/ic_launcher'),
-      iOS: DarwinInitializationSettings(),
-    );
-    await _notifications.initialize(
-      initializationSettings,
-      onDidReceiveNotificationResponse: NotificationTapRouter.handleResponse,
-    );
+  Future<void> _ensureChannel() async {
+    if (_channelCreated) return;
     final android = _notifications.resolvePlatformSpecificImplementation<
         AndroidFlutterLocalNotificationsPlugin>();
     await android?.createNotificationChannel(_messageChannel);
-    _initialized = true;
+    _channelCreated = true;
   }
 }

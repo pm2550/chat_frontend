@@ -58,7 +58,8 @@ extension _ChatScreenDragPasteUploadParts on _ChatScreenState {
   void _showDragUploadOverlay(int fileCount) {
     _setViewState(() {
       _isDragUploadActive = true;
-      _dragUploadFileCount = fileCount <= 0 ? 1 : fileCount;
+      // 0 = 不知道几个（桌面端系统拖放进入时不告诉数量）。
+      _dragUploadFileCount = fileCount < 0 ? 0 : fileCount;
     });
   }
 
@@ -91,7 +92,44 @@ extension _ChatScreenDragPasteUploadParts on _ChatScreenState {
     return null;
   }
 
+  /// 桌面端从系统拖进来/从剪贴板粘进来的文件，同样排进发送栏。
+  void _queueOsFiles(DroppedFileBatch batch) {
+    final skipped = batch.skippedMessage;
+    if (skipped != null && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(skipped)));
+    }
+    unawaited(_queueDroppedFiles([
+      for (final file in batch.files) _pickedChatFileFromDropped(file),
+    ]));
+  }
+
+  PickedChatFile _pickedChatFileFromDropped(DroppedFile file) {
+    return PickedChatFile(
+      name: file.name,
+      size: file.size,
+      path: file.path,
+      mimeType: file.mimeType,
+      bytes: file.bytes,
+    );
+  }
+
   Widget _buildDropPasteTarget(Widget child) {
+    // 原生桌面端：接系统拖放和 Ctrl/⌘+V（网页版在 document 上监听，手机端原样返回）。
+    return DesktopDropPasteRegion(
+      onDragActiveChanged: (active) =>
+          active ? _showDragUploadOverlay(0) : _hideDragUploadOverlay(),
+      onFiles: _queueOsFiles,
+      onPasteImage: (file) => _queuePendingAttachment(
+        _PendingAttachment.file(
+          _pickedChatFileFromDropped(file),
+          messageType: MessageType.image,
+        ),
+      ),
+      child: _buildInAppDropTarget(child),
+    );
+  }
+
+  Widget _buildInAppDropTarget(Widget child) {
     return DragTarget<List<PickedChatFile>>(
       key: const Key('chat-drop-target'),
       onWillAcceptWithDetails: (details) {
@@ -114,7 +152,7 @@ extension _ChatScreenDragPasteUploadParts on _ChatScreenState {
   }
 
   Widget _buildDragUploadOverlay() {
-    final count = _dragUploadFileCount <= 0 ? 1 : _dragUploadFileCount;
+    final count = _dragUploadFileCount;
     return Positioned.fill(
       child: IgnorePointer(
         child: ColoredBox(
@@ -135,7 +173,7 @@ extension _ChatScreenDragPasteUploadParts on _ChatScreenState {
                     ),
                     const SizedBox(height: PMSpacing.m),
                     Text(
-                      '释放以发送 $count 个文件',
+                      count > 0 ? '释放以发送 $count 个文件' : '释放以发送文件',
                       style: const TextStyle(
                         color: AppColors.textPrimary,
                         fontSize: 18,

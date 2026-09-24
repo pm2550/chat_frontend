@@ -32,6 +32,7 @@ import '../../services/chat_drop_paste.dart'
     if (dart.library.js_interop) '../../services/chat_drop_paste_web.dart';
 import '../../services/file_save.dart' as file_save;
 import '../../services/typing_indicator_sender.dart';
+import '../../services/os_dropped_files.dart';
 import '../../services/platform_chat_file_picker.dart'
     if (dart.library.js_interop) '../../services/platform_chat_file_picker_web.dart';
 import '../../services/user_profile_service.dart';
@@ -46,6 +47,7 @@ import '../../widgets/call_grid_view.dart';
 import '../../widgets/message_bubble.dart';
 import '../../widgets/chat_video_thumbnail.dart';
 import '../../widgets/chat_video_preview_dialog.dart';
+import '../../widgets/desktop_drop_paste_region.dart';
 import '../../widgets/pm_brand.dart';
 import '../../widgets/pm_responsive.dart';
 import '../../widgets/sticker_tile.dart';

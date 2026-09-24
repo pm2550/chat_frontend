@@ -1,14 +1,16 @@
 import 'dart:convert';
-import 'dart:io' show Platform, Process;
+import 'dart:io' show Directory, Platform;
 
 import 'package:dio/dio.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show kIsWeb, kReleaseMode;
 import 'package:http/http.dart' as http;
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 
 import '../constants/api_constants.dart';
 import '../models/app_version.dart';
+import 'app_update_installer.dart';
 
 class UpdateService {
   static final Dio _dio = Dio();
@@ -53,6 +55,7 @@ class UpdateService {
       fileSize: payload['fileSize'] is int
           ? payload['fileSize'] as int
           : int.tryParse(payload['fileSize']?.toString() ?? ''),
+      sha256: payload['sha256']?.toString(),
     );
   }
 
@@ -84,28 +87,19 @@ class UpdateService {
     return url.startsWith('http') ? url : '${ApiConstants.baseUrl}$url';
   }
 
-  /// Download the artifact to a local temp path. [onProgress] receives 0.0–1.0.
+  /// 把安装包下到 [directory]，[onProgress] 收到 0.0–1.0。
+  ///
+  /// 目录由调用方按平台选（path_provider），不能写死：Android 的多用户/工作资料
+  /// 各有自己的 /data/user/<n>，iOS/macOS 沙盒也不让随便写 /tmp、/Applications。
   static Future<String> downloadArtifact(
     String downloadUrl, {
+    required String directory,
     void Function(double progress)? onProgress,
   }) async {
     final fullUrl = resolveUrl(downloadUrl);
     final filename = p.basename(Uri.parse(fullUrl).path);
-
-    // Use platform-appropriate temp directory
-    String dir;
-    if (!kIsWeb && Platform.isAndroid) {
-      // Android external cache so FileProvider can serve it
-      dir = '/data/data/com.pm2550.chat/cache';
-    } else if (!kIsWeb && (Platform.isMacOS || Platform.isLinux)) {
-      dir = Platform.environment['TMPDIR'] ?? '/tmp';
-    } else if (!kIsWeb && Platform.isWindows) {
-      dir = Platform.environment['TEMP'] ?? r'C:\Temp';
-    } else {
-      dir = '/tmp';
-    }
-
-    final savePath = p.join(dir, filename);
+    await Directory(directory).create(recursive: true);
+    final savePath = p.join(directory, filename);
 
     await _dio.download(
       fullUrl,
@@ -120,62 +114,29 @@ class UpdateService {
     return savePath;
   }
 
-  /// Android: trigger the system package installer for the downloaded APK.
-  static Future<void> installApk(String apkPath) async {
-    // Use Android Intent via platform channel or open_filex.
-    // Since we already depend on url_launcher, we use a content:// URI approach.
-    // For simplicity, invoke the system installer via a shell command using
-    // Android's `am start` through Process. But on Android, Process.run
-    // is sandboxed. The clean approach: use the open_filex package or
-    // a small method channel.
-    //
-    // Fallback: open the file with url_launcher which on Android triggers
-    // "open with" → package installer.
-    // This requires the FileProvider we configured in AndroidManifest.xml.
-    //
-    // For now we use the 'open_filex' approach via Process on desktop,
-    // and url_launcher on mobile.
-    throw UnsupportedError(
-      'installApk is handled by the UpdateDialog widget using platform-specific logic',
-    );
-  }
-
-  /// macOS / Linux: unzip and replace the .app bundle.
-  static Future<void> installDesktopUpdate(String zipPath) async {
+  /// 新版本启动后清理上次更新留下的临时文件（Linux 旧安装目录、下载缓存）。
+  static Future<void> cleanupAfterUpdate() async {
     if (kIsWeb) return;
-
-    if (Platform.isMacOS) {
-      // Unzip to /Applications (user may need to grant permission)
-      final result =
-          await Process.run('unzip', ['-o', zipPath, '-d', '/Applications']);
-      if (result.exitCode != 0) {
-        throw Exception('解压失败: ${result.stderr}');
+    try {
+      if (Platform.isLinux && kReleaseMode) {
+        await cleanupLinuxUpdateLeftovers(
+          DesktopInstallation.fromExecutable(Platform.resolvedExecutable),
+        );
       }
-    } else if (Platform.isLinux) {
-      final home = Platform.environment['HOME'] ?? '/tmp';
-      final result =
-          await Process.run('unzip', ['-o', zipPath, '-d', '$home/chat_app']);
-      if (result.exitCode != 0) {
-        throw Exception('解压失败: ${result.stderr}');
+      if (Platform.isLinux || Platform.isWindows) {
+        final temp = await getTemporaryDirectory();
+        for (final name in [updateDownloadFolder, 'pmchat-update']) {
+          final dir = Directory(p.join(temp.path, name));
+          if (await dir.exists()) await dir.delete(recursive: true);
+        }
       }
-    } else if (Platform.isWindows) {
-      // PowerShell Expand-Archive
-      final home = Platform.environment['USERPROFILE'] ?? r'C:\Users\Public';
-      final result = await Process.run('powershell', [
-        '-Command',
-        'Expand-Archive -Force -Path "$zipPath" -DestinationPath "$home\\ChatApp"',
-      ]);
-      if (result.exitCode != 0) {
-        throw Exception('解压失败: ${result.stderr}');
-      }
+    } catch (e) {
+      _log('Update cleanup failed: $e');
     }
   }
 
-  /// Web: force-reload the page to pick up new service worker + assets.
-  static void reloadWeb() {
-    // This is called from update_dialog.dart which handles the web case
-    // via dart:html (conditional import).
-  }
+  /// Linux/Windows 下载安装包用的临时子目录。
+  static const String updateDownloadFolder = 'pmchat-update-download';
 
   static void _log(String msg) {
     assert(() {

@@ -25,6 +25,8 @@ class ClientDownloadTarget {
     required this.description,
     required this.primaryAction,
     this.isWeb = false,
+    this.externalUrl,
+    this.showsPwaInstructions = false,
   });
 
   final ClientDownloadPlatform platform;
@@ -35,6 +37,12 @@ class ClientDownloadTarget {
   final String description;
   final String primaryAction;
   final bool isWeb;
+
+  /// 不是下载安装包而是打开一个链接（TestFlight、网页版）。
+  final String? externalUrl;
+
+  /// 点了先讲清楚怎么在 iPhone/iPad 上把网页版添加到主屏幕。
+  final bool showsPwaInstructions;
 }
 
 class ClientDownloadStatus {
@@ -80,8 +88,8 @@ class DownloadCatalogService {
       apiPlatform: 'WINDOWS',
       label: 'Windows',
       shortLabel: 'Windows',
-      packageLabel: '.exe / .zip',
-      description: '适合 Windows 10/11 桌面工作台。',
+      packageLabel: '.zip（解压即用）',
+      description: '适合 Windows 10/11 桌面工作台，解压后运行 chat_app.exe。',
       primaryAction: '下载 Windows 版',
     ),
     ClientDownloadTarget(
@@ -89,8 +97,8 @@ class DownloadCatalogService {
       apiPlatform: 'MACOS',
       label: 'macOS',
       shortLabel: 'macOS',
-      packageLabel: '.dmg / .zip',
-      description: '适合 Mac 桌面端和 Apple Silicon/Intel 构建。',
+      packageLabel: '.zip',
+      description: '适合 Mac 桌面端，解压后把 PM chat 拖进「应用程序」。',
       primaryAction: '下载 macOS 版',
     ),
     ClientDownloadTarget(
@@ -98,8 +106,8 @@ class DownloadCatalogService {
       apiPlatform: 'LINUX',
       label: 'Linux',
       shortLabel: 'Linux',
-      packageLabel: '.AppImage / .tar.gz',
-      description: '适合 Linux 桌面环境和内部工作站。',
+      packageLabel: '.tar.gz',
+      description: '适合 Linux x64 桌面环境，解压后运行 bundle/chat_app。',
       primaryAction: '下载 Linux 版',
     ),
     ClientDownloadTarget(
@@ -111,16 +119,36 @@ class DownloadCatalogService {
       description: '适合 Android 手机和平板安装包分发。',
       primaryAction: '下载 Android APK',
     ),
-    ClientDownloadTarget(
-      platform: ClientDownloadPlatform.ios,
-      apiPlatform: 'IOS',
-      label: 'iPhone / iPad',
-      shortLabel: 'iOS',
-      packageLabel: 'TestFlight / App Store',
-      description: '适合 iPhone 和 iPad，按发布通道跳转。',
-      primaryAction: '前往 iOS 通道',
-    ),
+    ApiConstants.iosTestFlightUrl.length == 0
+        ? iosWebAppTarget
+        : iosTestFlightTarget,
   ];
+
+  /// 浏览器下载的 .ipa 装不到 iPhone 上。没有配置 TestFlight 公开链接时，
+  /// 老实告诉用户用网页版（添加到主屏幕）。
+  static const ClientDownloadTarget iosWebAppTarget = ClientDownloadTarget(
+    platform: ClientDownloadPlatform.ios,
+    apiPlatform: 'IOS',
+    label: 'iPhone / iPad',
+    shortLabel: 'iOS',
+    packageLabel: '网页版 · 添加到主屏幕',
+    description: '暂无可直接安装的 iOS 安装包。用 Safari 打开网页版，'
+        '点「分享 → 添加到主屏幕」即可像 App 一样使用。',
+    primaryAction: '在 iPhone 上使用',
+    externalUrl: ApiConstants.webAppUrl,
+    showsPwaInstructions: true,
+  );
+
+  static const ClientDownloadTarget iosTestFlightTarget = ClientDownloadTarget(
+    platform: ClientDownloadPlatform.ios,
+    apiPlatform: 'IOS',
+    label: 'iPhone / iPad',
+    shortLabel: 'iOS',
+    packageLabel: 'TestFlight',
+    description: '在 iPhone / iPad 上装 TestFlight，再通过邀请链接安装。',
+    primaryAction: '前往 TestFlight',
+    externalUrl: ApiConstants.iosTestFlightUrl,
+  );
 
   List<ClientDownloadTarget> get targets => defaultTargets;
 
@@ -145,6 +173,11 @@ class DownloadCatalogService {
   }
 
   Future<ClientDownloadStatus> fetchStatus(ClientDownloadTarget target) async {
+    final externalUrl = target.externalUrl;
+    if (externalUrl != null && externalUrl.isNotEmpty) {
+      // 链接型通道不查发布包（比如 iOS 的 .ipa 根本装不上）。
+      return ClientDownloadStatus(target: target, downloadUrl: externalUrl);
+    }
     if (target.isWeb) {
       return ClientDownloadStatus(
         target: target,
@@ -184,6 +217,8 @@ class DownloadCatalogService {
       );
     }
   }
+
+  String get webAppUrl => ApiConstants.webAppUrl;
 
   String resolveUrl(String url) {
     if (url.startsWith(RegExp(r'https?://', caseSensitive: false))) {

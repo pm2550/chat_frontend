@@ -57,9 +57,10 @@ void main() {
       final catalog = service.fetchCatalog();
       await Future<void>.delayed(Duration.zero);
 
-      expect(requests,
-          containsAll(['ANDROID', 'IOS', 'WINDOWS', 'MACOS', 'LINUX']));
-      expect(requests, hasLength(5));
+      // iOS 是链接型通道（.ipa 在浏览器里装不上），不查发布包。
+      expect(requests, containsAll(['ANDROID', 'WINDOWS', 'MACOS', 'LINUX']));
+      expect(requests, isNot(contains('IOS')));
+      expect(requests, hasLength(4));
       for (final response in responses) {
         response.complete(http.Response(
           jsonEncode({'updateAvailable': false}),
@@ -67,6 +68,37 @@ void main() {
         ));
       }
       expect(await catalog, hasLength(6));
+    });
+
+    test('iPhone channel is honest when no TestFlight link is configured',
+        () async {
+      final client = _FakeClient((request) async {
+        fail('iOS must not look up a published .ipa');
+      });
+      final service = DownloadCatalogService(client: client);
+      final ios = service.recommendedTarget(platform: TargetPlatform.iOS);
+
+      expect(ios.packageLabel, isNot(contains('TestFlight')));
+      expect(ios.packageLabel, isNot(contains('App Store')));
+      expect(ios.showsPwaInstructions, isTrue);
+      final status = await service.fetchStatus(ios);
+      expect(status.isAvailable, isTrue);
+      expect(status.downloadUrl, isNot(endsWith('.ipa')));
+    });
+
+    test('a configured TestFlight link is used as the iPhone channel', () {
+      const target = DownloadCatalogService.iosTestFlightTarget;
+      expect(target.packageLabel, 'TestFlight');
+      expect(target.showsPwaInstructions, isFalse);
+    });
+
+    test('desktop package labels match what CI actually publishes', () {
+      const service = DownloadCatalogService();
+      String label(TargetPlatform platform) =>
+          service.recommendedTarget(platform: platform).packageLabel;
+      expect(label(TargetPlatform.windows), isNot(contains('.exe')));
+      expect(label(TargetPlatform.macOS), isNot(contains('.dmg')));
+      expect(label(TargetPlatform.linux), isNot(contains('AppImage')));
     });
 
     test('fetchStatus reads public app version endpoint', () async {

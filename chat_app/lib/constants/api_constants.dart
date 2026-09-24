@@ -17,6 +17,12 @@ class ApiConstants {
     'WEB_APP_URL',
     defaultValue: baseUrl,
   );
+  /// iPhone/iPad 的 TestFlight 公开链接；没配就引导用户用网页版（PWA）。
+  static const String iosTestFlightUrl = String.fromEnvironment(
+    'IOS_TESTFLIGHT_URL',
+    defaultValue: '',
+  );
+  static String get webDownloadsPageUrl => '$webAppUrl/#/downloads';
   static const String webrtcIceServersRaw = String.fromEnvironment(
     'WEBRTC_ICE_SERVERS',
     defaultValue: 'stun:stun.l.google.com:19302',

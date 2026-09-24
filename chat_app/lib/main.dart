@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:desktop_drop/desktop_drop.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -17,6 +18,7 @@ import 'constants/app_brand.dart';
 import 'constants/app_colors.dart';
 import 'services/agent_client_tools.dart';
 import 'services/notification_launch.dart';
+import 'services/update_service.dart';
 import 'services/websocket_service.dart';
 import 'widgets/app_update_listener.dart';
 import 'widgets/auth_guard.dart';
@@ -27,6 +29,10 @@ void main() {
   AgentClientToolRegistry().registerDefaults();
   WebSocketService().enableMobileWebBackgroundHandoff();
   unawaited(initNotificationLaunchRouting(ChatApp.navigatorKey));
+  unawaited(UpdateService.cleanupAfterUpdate());
+  // desktop_drop 的网页实现从插件注册起就在 window 上转发拖放事件；
+  // 先接好接收端，免得没有 DropTarget 的页面上每次拖动都报 MissingPlugin。
+  DesktopDrop.instance.init();
   runApp(
     const ProviderScope(
       child: ChatApp(),
