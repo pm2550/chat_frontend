@@ -17,7 +17,18 @@ import '../services/web_reload.dart' as web_reload;
 class UpdateDialog extends StatefulWidget {
   final AppVersionCheck versionCheck;
 
-  const UpdateDialog({super.key, required this.versionCheck});
+  /// 是否按网页端处理“立即更新”（重新加载页面而不是下载安装包）。
+  final bool isWeb;
+
+  /// 网页端重新加载的实现，测试时可替换。
+  final VoidCallback? onReloadWeb;
+
+  const UpdateDialog({
+    super.key,
+    required this.versionCheck,
+    this.isWeb = kIsWeb,
+    this.onReloadWeb,
+  });
 
   static Future<void> show(
     BuildContext context,
@@ -125,17 +136,15 @@ class _UpdateDialogState extends State<UpdateDialog> {
   }
 
   Future<void> _startAutoUpdate() async {
-    final url = widget.versionCheck.downloadUrl;
-    if (url == null || url.isEmpty) return;
-
-    if (kIsWeb) {
-      final fullUrl = UpdateService.resolveUrl(url);
-      final uri = Uri.parse(fullUrl);
-      if (await canLaunchUrl(uri)) {
-        await launchUrl(uri, mode: LaunchMode.externalApplication);
-      }
+    if (widget.isWeb) {
+      // 网页端的新版本就是新的静态资源：重新加载页面即可生效，
+      // 不存在需要下载的安装包。
+      (widget.onReloadWeb ?? UpdateDialog._reloadWebPage)();
       return;
     }
+
+    final url = widget.versionCheck.downloadUrl;
+    if (url == null || url.isEmpty) return;
 
     setState(() {
       _downloading = true;

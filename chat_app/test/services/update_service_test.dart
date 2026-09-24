@@ -23,10 +23,23 @@ void main() {
       );
     });
 
-    test('Web client can surface any client update for download smoke', () {
+    test('Web client ignores native client releases', () {
+      for (final platform in ['ANDROID', 'WINDOWS', 'MACOS', 'IOS']) {
+        expect(
+          UpdateService.shouldHandleUpdateForPlatform(
+            platform,
+            currentPlatform: 'WEB',
+          ),
+          isFalse,
+          reason: 'web must not prompt for a $platform package',
+        );
+      }
+    });
+
+    test('Web client accepts web releases', () {
       expect(
         UpdateService.shouldHandleUpdateForPlatform(
-          'ANDROID',
+          'web',
           currentPlatform: 'WEB',
         ),
         isTrue,
