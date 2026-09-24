@@ -5,7 +5,8 @@ PKG=com.pm2550.chat
 OUT=smoke-out
 FAIL=0
 # 模拟器偶尔会卡死，adb 命令都加超时，别把整个任务拖到 45 分钟上限
-adb() { timeout 180 command adb "$@"; }
+ADB_BIN=$(command -v adb)
+adb() { timeout 180 "$ADB_BIN" "$@"; }
 check() { if eval "$2"; then echo "PASS  $1"; else echo "FAIL  $1"; FAIL=1; fi; }
 
 adb wait-for-device
