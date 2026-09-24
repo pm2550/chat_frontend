@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../constants/app_colors.dart';
 import '../services/encryption_service.dart';
+import 'e2ee_recovery_widgets.dart';
 
 /// 聊天头部的锁：只在这个私聊真的在加密时显示。
 class E2eeHeaderBadge extends StatelessWidget {
@@ -162,14 +163,15 @@ class _E2eePasswordDialogState extends State<_E2eePasswordDialog> {
 
 /// 说明"密钥由登录密码保护"的后果，开启和解锁时都给用户看。
 const String kE2eePasswordWarning = '加密密钥由你的登录密码保护，服务器无法解开。在设置里修改密码会自动迁移；'
-    '但如果忘记密码或密码被管理员重置，之前的加密聊天记录将永久无法解密。';
+    '开启后请保存好恢复码——忘记密码或密码被管理员重置时，没有恢复码，之前的加密聊天记录将永久无法解密。';
 
-/// 在这台设备上解锁端到端加密：输密码解开私钥。解不开时可以选择重置密钥
-/// （旧的加密记录从此读不了）。返回是否已解锁。
+/// 在这台设备上解锁端到端加密：输密码解开私钥。解不开时（密码被重置过）可以用恢复码找回，
+/// 或者重置密钥（旧的加密记录从此读不了，之后提示设置新的恢复码）。返回是否已解锁。
 Future<bool> runE2eeUnlockFlow(
   BuildContext context,
-  EncryptionService service,
-) async {
+  EncryptionService service, {
+  E2eeRecoveryActions recoveryActions = const E2eeRecoveryActions(),
+}) async {
   final password = await showE2eePasswordDialog(
     context,
     title: '解锁端到端加密',
@@ -192,22 +194,37 @@ Future<bool> runE2eeUnlockFlow(
     return false;
   }
   if (!context.mounted) return false;
-  final reset = await showDialog<bool>(
+  var hasRecovery = false;
+  try {
+    hasRecovery = (await service.accountStatus()).hasRecoveryWraps;
+  } catch (_) {
+    // 查不到就不提供恢复码选项，照常可以重试或重置。
+  }
+  if (!context.mounted) return false;
+  final choice = await showDialog<_UnlockFailedChoice>(
     context: context,
     builder: (context) => AlertDialog(
       title: const Text('无法解开加密密钥'),
-      content: const Text(
+      content: Text(
         '密码不正确，或者你的加密密钥是用以前的密码保护的（密码被重置过）。\n\n'
-        '如果确认密码没错，可以重置加密密钥：之后的私聊会用新密钥加密，'
-        '但之前的加密聊天记录将永久无法解密。',
+        '${hasRecovery ? '如果密码被重置过，可以用保存的恢复码找回，之前的加密聊天记录都还在。\n\n' : ''}'
+        '如果确认密码没错${hasRecovery ? '、恢复码也找不到了' : ''}，可以重置加密密钥：'
+        '之后的私聊会用新密钥加密，但之前的加密聊天记录将永久无法解密。',
       ),
       actions: [
         TextButton(
-          onPressed: () => Navigator.of(context).pop(false),
+          onPressed: () => Navigator.of(context).pop(_UnlockFailedChoice.retry),
           child: const Text('再试一次'),
         ),
+        if (hasRecovery)
+          TextButton(
+            key: const ValueKey('e2ee-unlock-use-recovery'),
+            onPressed: () =>
+                Navigator.of(context).pop(_UnlockFailedChoice.recover),
+            child: const Text('用恢复码找回'),
+          ),
         TextButton(
-          onPressed: () => Navigator.of(context).pop(true),
+          onPressed: () => Navigator.of(context).pop(_UnlockFailedChoice.reset),
           style: TextButton.styleFrom(foregroundColor: AppColors.error),
           child: const Text('重置加密密钥'),
         ),
@@ -215,17 +232,35 @@ Future<bool> runE2eeUnlockFlow(
     ),
   );
   if (!context.mounted) return false;
-  if (reset == false) return runE2eeUnlockFlow(context, service);
-  if (reset != true) return false;
+  switch (choice) {
+    case null:
+      return false;
+    case _UnlockFailedChoice.retry:
+      return runE2eeUnlockFlow(
+        context,
+        service,
+        recoveryActions: recoveryActions,
+      );
+    case _UnlockFailedChoice.recover:
+      return runE2eeRecoveryFlow(context, service, password: password);
+    case _UnlockFailedChoice.reset:
+      break;
+  }
   try {
     await service.resetKeys(password);
     if (context.mounted) _snack(context, '已生成新的加密密钥');
-    return true;
   } catch (e) {
     if (context.mounted) _snack(context, '重置失败: $e', error: true);
     return false;
   }
+  // 新版本的密钥还没有恢复码：趁现在设置一个（可以稍后在设置里再做）。
+  if (context.mounted) {
+    await showE2eeRecoveryCodeSetup(context, service, actions: recoveryActions);
+  }
+  return true;
 }
+
+enum _UnlockFailedChoice { retry, recover, reset }
 
 void _snack(BuildContext context, String text, {bool error = false}) {
   ScaffoldMessenger.of(context).showSnackBar(

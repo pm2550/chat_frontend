@@ -11,6 +11,7 @@ import '../models/message.dart';
 import 'auth_service.dart';
 import 'e2ee/e2ee_crypto.dart';
 import 'e2ee/e2ee_key_store.dart';
+import 'e2ee/e2ee_recovery.dart';
 
 export 'e2ee/e2ee_crypto.dart'
     show
@@ -21,6 +22,12 @@ export 'e2ee/e2ee_crypto.dart'
         kE2eeServerAttachmentName,
         kE2eeServerPlaceholder,
         kE2eeShortLabel;
+export 'e2ee/e2ee_recovery.dart'
+    show
+        E2eeRecoveryCode,
+        E2eeRecoveryCodeFormatException,
+        E2eeRecoveryMail,
+        E2eeWrongRecoveryCodeException;
 
 typedef E2eeHttpRequest = Future<http.Response> Function(
   String method,
@@ -124,6 +131,8 @@ class E2eeAccountStatus {
     required this.unlockedOnDevice,
     required this.passwordSchemeSupported,
     this.activeKeyVersion,
+    this.recoveryConfigured = false,
+    this.hasRecoveryWraps = false,
   });
 
   final bool serverEnabled;
@@ -131,6 +140,15 @@ class E2eeAccountStatus {
   final bool unlockedOnDevice;
   final bool passwordSchemeSupported;
   final int? activeKeyVersion;
+
+  /// 当前版本的密钥有恢复码包装。没有时设置页一直提示"设置恢复码"。
+  final bool recoveryConfigured;
+
+  /// 至少有一个版本有恢复码包装：可以"用恢复码找回"。
+  final bool hasRecoveryWraps;
+
+  /// 有密钥却没有（当前版本的）恢复码。
+  bool get needsRecoveryCode => hasServerKeys && !recoveryConfigured;
 }
 
 class E2eeException implements Exception {
@@ -147,6 +165,15 @@ class E2eeSendBlockedException extends E2eeException {
 }
 
 enum E2eeUnlockResult { unlocked, wrongPassword, noKeys }
+
+enum E2eeRecoveryResult {
+  /// 找回了，并且已经换上用现在的登录密码包装的新包装：所有设备用新密码都能解锁。
+  restored,
+
+  /// 找回了（这台设备已解锁），但账号还是旧式登录（例如管理员重置成了临时密码），
+  /// 需要先修改一次登录密码——改密码时会自动用新密码重新包装。
+  restoredNeedsPasswordChange,
+}
 
 /// 加密好的附件：上传 [ciphertext]（服务器只看到一个 .bin），[envelope] 作为消息密文。
 class E2eeSealedFile {
@@ -169,6 +196,7 @@ class EncryptionService extends ChangeNotifier {
         AuthService().authenticatedRequest(method, url, body: body),
     currentUserId: () => AuthService().currentUser?.id,
     verifyPassword: (password) => AuthService().verifyPassword(password),
+    passwordProof: (password) => AuthService().currentPasswordProof(password),
     store: const E2eeKeyStore(),
   );
   factory EncryptionService() => _instance;
@@ -177,11 +205,13 @@ class EncryptionService extends ChangeNotifier {
     required E2eeHttpRequest request,
     required String? Function() currentUserId,
     required Future<bool> Function(String password) verifyPassword,
+    required Future<String?> Function(String password) passwordProof,
     required E2eeKeyStore store,
     String wrapArgon2Params = kE2eeWrapArgon2Params,
   })  : _request = request,
         _currentUserId = currentUserId,
         _verifyPassword = verifyPassword,
+        _passwordProof = passwordProof,
         _store = store,
         _wrapArgon2Params = wrapArgon2Params;
 
@@ -190,12 +220,14 @@ class EncryptionService extends ChangeNotifier {
     required E2eeHttpRequest request,
     required String? Function() currentUserId,
     Future<bool> Function(String password)? verifyPassword,
+    Future<String?> Function(String password)? passwordProof,
     E2eeKeyStore store = const E2eeKeyStore(),
     String wrapArgon2Params = kE2eeWrapArgon2Params,
   }) : this._(
           request: request,
           currentUserId: currentUserId,
           verifyPassword: verifyPassword ?? (_) async => true,
+          passwordProof: passwordProof ?? (password) async => password,
           store: store,
           wrapArgon2Params: wrapArgon2Params,
         );
@@ -207,6 +239,7 @@ class EncryptionService extends ChangeNotifier {
   final E2eeHttpRequest _request;
   final String? Function() _currentUserId;
   final Future<bool> Function(String password) _verifyPassword;
+  final Future<String?> Function(String password) _passwordProof;
   final E2eeKeyStore _store;
   final String _wrapArgon2Params;
 
@@ -790,6 +823,8 @@ class EncryptionService extends ChangeNotifier {
       unlockedOnDevice: active != null && _myKeys.containsKey(active),
       passwordSchemeSupported: own['passwordSchemeSupported'] == true,
       activeKeyVersion: active,
+      recoveryConfigured: own['recoveryConfigured'] == true,
+      hasRecoveryWraps: _recoveryWraps(own).isNotEmpty,
     );
   }
 
@@ -970,6 +1005,142 @@ class EncryptionService extends ChangeNotifier {
     return {'e2eeKeyWraps': wraps};
   }
 
+  // ---------------------------------------------------------------- 恢复码
+
+  /// 设置（或重新生成）恢复码：用 [code] 包装这台设备上已解开的每个版本的私钥，上传包装。
+  /// 恢复码本身不出这台设备；服务器会清掉没带上的版本的旧恢复码包装，旧恢复码随即失效。
+  /// 当前版本必须已在本机解开。
+  Future<void> saveRecoveryCode(E2eeRecoveryCode code) async {
+    await ensureLoaded();
+    final own = await _fetchOwnKeys();
+    final active = (own['activeKeyVersion'] as num?)?.toInt();
+    if (active == null || !_myKeys.containsKey(active)) {
+      throw const E2eeException('这台设备尚未解锁端到端加密，请先解锁再设置恢复码');
+    }
+    final userId = _requireUserId();
+    final salt = e2eeRandomBytes(16);
+    final wrapKey = E2eeRecovery.deriveWrapKey(
+      code: code,
+      salt: salt,
+      userId: userId,
+    );
+    final wraps = [
+      for (final key in _wrappedKeys(own))
+        // 只包和服务器登记的公钥对得上的那把，免得把别的账号残留的私钥包进去。
+        if (_myKeys[key.version]?.publicKeyBase64 == key.publicKey)
+          E2eeRecovery.wrap(
+            wrapKey: wrapKey,
+            salt: salt,
+            userId: userId,
+            keyPair: _myKeys[key.version]!,
+          ).toWrapJson(),
+    ];
+    final response = await _request(
+      'PUT',
+      ApiConstants.e2eeRecovery,
+      body: {'wraps': wraps, 'expectedActiveKeyVersion': active},
+    );
+    if (response.statusCode == 409) {
+      throw const E2eeException('加密密钥刚在其他设备上更新过，请重新打开设置后再试');
+    }
+    if (response.statusCode != 200) {
+      throw E2eeException(_errorMessage(response, '保存恢复码失败'));
+    }
+    notifyListeners();
+  }
+
+  /// 用恢复码在这台设备上解开私钥（纯本地解包，恢复码不发给服务器）。返回解开的版本数。
+  /// 格式不对抛 [E2eeRecoveryCodeFormatException]，解不开抛 [E2eeWrongRecoveryCodeException]。
+  Future<int> unlockWithRecoveryCode(String input) async {
+    final code = E2eeRecoveryCode.parse(input);
+    await ensureLoaded();
+    final own = await _fetchOwnKeys();
+    final wraps = _recoveryWraps(own);
+    if (wraps.isEmpty) {
+      throw const E2eeException('这个账号还没有设置恢复码');
+    }
+    final userId = _requireUserId();
+    final derived = <String, Uint8List>{};
+    var opened = 0;
+    for (final wrap in wraps) {
+      try {
+        _myKeys[wrap.version] = await E2eeRecovery.unwrap(
+          code: code,
+          userId: userId,
+          wrapped: wrap,
+          derivedKeyCache: derived,
+        );
+        opened++;
+      } on E2eeWrongRecoveryCodeException {
+        // 一个恢复码包装的是同一批版本；这一版解不开就看下一版。
+      }
+    }
+    if (opened == 0) throw const E2eeWrongRecoveryCodeException();
+    await _persistKeys();
+    _afterKeysChanged();
+    return opened;
+  }
+
+  /// 把本机已解开的私钥改用"现在的"登录密码包装，上传新的密码包装（恢复码包装不动）。
+  /// 服务器会用 [password] 的客户端哈希再确认一次是本人；密码不对抛 [E2eeWrongPasswordException]。
+  Future<void> rewrapWithCurrentPassword(String password) async {
+    await ensureLoaded();
+    final own = await _fetchOwnKeys();
+    if (own['passwordSchemeSupported'] != true) {
+      throw const E2eeException('请先修改一次登录密码（升级为新的密码保护方式）');
+    }
+    final userId = _requireUserId();
+    final proof = await _passwordProof(password);
+    if (proof == null) {
+      throw const E2eeException('请先修改一次登录密码（升级为新的密码保护方式）');
+    }
+    final salt = e2eeRandomBytes(16);
+    final wrapKey = await E2eeCrypto.deriveWrapKey(
+      password: password,
+      salt: salt,
+      argon2Params: _wrapArgon2Params,
+    );
+    final wraps = [
+      for (final key in _wrappedKeys(own))
+        if (_myKeys[key.version]?.publicKeyBase64 == key.publicKey)
+          E2eeCrypto.wrapPrivateKeyWithDerivedKey(
+            wrapKey: wrapKey,
+            salt: salt,
+            argon2Params: _wrapArgon2Params,
+            userId: userId,
+            keyPair: _myKeys[key.version]!,
+          ).toWrapJson(),
+    ];
+    if (wraps.isEmpty) {
+      throw const E2eeException('这台设备还没有解开任何加密密钥');
+    }
+    final response = await _request(
+      'PUT',
+      ApiConstants.e2eePasswordWraps,
+      body: {'clientHash': proof, 'wraps': wraps},
+    );
+    if (response.statusCode == 422) throw const E2eeWrongPasswordException();
+    if (response.statusCode != 200) {
+      throw E2eeException(_errorMessage(response, '更新加密密钥的密码保护失败'));
+    }
+  }
+
+  /// 忘记密码 / 密码被重置后的完整找回：用恢复码在本机解开私钥，再用现在的登录密码
+  /// [password] 重新包装上传。之后所有设备用现在的密码就能解锁，恢复码照旧可用。
+  /// 旧式登录的账号先只在本机解开，等用户改一次密码时自动重新包装。
+  Future<E2eeRecoveryResult> recoverWithCode(
+    String code, {
+    required String password,
+  }) async {
+    await unlockWithRecoveryCode(code);
+    final own = await _fetchOwnKeys();
+    if (own['passwordSchemeSupported'] != true) {
+      return E2eeRecoveryResult.restoredNeedsPasswordChange;
+    }
+    await rewrapWithCurrentPassword(password);
+    return E2eeRecoveryResult.restored;
+  }
+
   void _afterKeysChanged() {
     _roomStates.clear();
     _reveals.removeWhere((_, value) => !value.isReadable);
@@ -1011,6 +1182,24 @@ class EncryptionService extends ChangeNotifier {
           wrapSalt: item['wrapSalt'].toString(),
           wrapParams: item['wrapParams'].toString(),
         ),
+    ];
+  }
+
+  /// 服务器上的恢复码包装（只有设置过恢复码的版本才有）。
+  List<E2eeWrappedKey> _recoveryWraps(Map<String, dynamic> own) {
+    final keys = own['keys'];
+    if (keys is! List) return const [];
+    return [
+      for (final item in keys.whereType<Map>())
+        if (item['recoveryWrappedPrivateKey'] != null &&
+            item['recoveryWrapSalt'] != null)
+          E2eeWrappedKey(
+            version: (item['version'] as num).toInt(),
+            publicKey: item['publicKey'].toString(),
+            wrappedPrivateKey: item['recoveryWrappedPrivateKey'].toString(),
+            wrapSalt: item['recoveryWrapSalt'].toString(),
+            wrapParams: item['recoveryWrapParams']?.toString() ?? '',
+          ),
     ];
   }
 

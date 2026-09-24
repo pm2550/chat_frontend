@@ -60,6 +60,11 @@ void main() {
     await tester.tap(find.text('开启'));
     await settle(tester);
 
+    // 新生成的密钥马上请用户保存恢复码（详见 settings_e2ee_recovery_test.dart），这里先跳过。
+    expect(find.text('保存你的恢复码'), findsOneWidget);
+    await tester.tap(find.text('稍后再说'));
+    await settle(tester);
+
     expect(server.keys['user1'], hasLength(1));
     expect(server.enabled['user1'], isTrue);
     expect(find.textContaining('已开启：和同样开启的好友私聊时自动加密'), findsOneWidget);
