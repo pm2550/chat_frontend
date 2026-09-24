@@ -147,7 +147,9 @@ extension _ChatScreenMessageListParts on _ChatScreenState {
                         pollLoader: _chatService.getPoll,
                         onVotePoll: _chatService.votePoll,
                         pollRefreshEpoch: _pollRefreshEpoch,
-                        linkPreviewLoader: _loadLinkPreview,
+                        // 加密消息里的链接不能交给服务器去抓预览：那等于把明文告诉了服务器。
+                        linkPreviewLoader:
+                            message.isEncrypted ? null : _loadLinkPreview,
                         bubbleStylePreset: isMe
                             ? _appSettings.bubbleStylePreset
                             : ChatCustomizationCatalog.defaultBubbleStyle,

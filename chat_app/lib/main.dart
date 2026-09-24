@@ -18,10 +18,12 @@ import 'screens/settings/points_screen.dart';
 import 'constants/app_brand.dart';
 import 'constants/app_colors.dart';
 import 'services/agent_client_tools.dart';
+import 'services/encryption_service.dart';
 import 'services/notification_launch.dart';
 import 'services/update_service.dart';
 import 'services/websocket_service.dart';
 import 'widgets/app_update_listener.dart';
+import 'widgets/authenticated_image.dart';
 import 'widgets/auth_guard.dart';
 
 void main() {
@@ -30,6 +32,9 @@ void main() {
   timeago.setLocaleMessages('zh', timeago.ZhCnMessages());
   ColdStartRoute.capture(Uri.base.fragment);
   AgentClientToolRegistry().registerDefaults();
+  // 私聊端到端加密：消息解析时解密、登录时解开私钥、改密码时重新包装。
+  EncryptionService().install();
+  AuthenticatedImage.bytesTransformer = EncryptionService().openDownloadedFile;
   WebSocketService().enableMobileWebBackgroundHandoff();
   unawaited(initNotificationLaunchRouting(ChatApp.navigatorKey));
   unawaited(UpdateService.cleanupAfterUpdate());

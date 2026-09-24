@@ -152,6 +152,8 @@ extension _ChatScreenAttachmentParts on _ChatScreenState {
           bytes: file.bytes,
         ),
         messageType: message.type,
+        // 目标是加密私聊就在本机重新加密；原消息是加密附件时上面已经解密过了。
+        chat: target,
       );
       if (!mounted) return;
       if (target.id == _chat.id) {

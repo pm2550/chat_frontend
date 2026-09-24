@@ -1,3 +1,4 @@
+import '../services/e2ee/e2ee_constants.dart';
 import '../utils/date_time_utils.dart';
 
 enum MessageType {
@@ -215,7 +216,19 @@ class Message {
     this.starredByMe = false,
   });
 
+  /// 端到端加密：解析出来的加密消息交给它换成明文（EncryptionService.install 装上）。
+  /// 历史、实时推送、回复引用、置顶、收藏、会话列表都经过 fromJson，一处解密处处可见。
+  /// 没装时加密消息显示服务器写的占位文字。
+  static Message Function(Message message)? contentRevealer;
+
   factory Message.fromJson(Map<String, dynamic> json,
+      {String? fallbackChatRoomId}) {
+    final message = Message._fromJson(json, fallbackChatRoomId: fallbackChatRoomId);
+    final revealer = contentRevealer;
+    return revealer != null && message.isEncrypted ? revealer(message) : message;
+  }
+
+  factory Message._fromJson(Map<String, dynamic> json,
       {String? fallbackChatRoomId}) {
     final senderJson = json['sender'] is Map<String, dynamic>
         ? json['sender'] as Map<String, dynamic>
@@ -361,9 +374,13 @@ class Message {
   }
 
   Map<String, dynamic> toJson() {
+    // 加密消息按服务器原样写回（占位文字 + 密文），明文不落进本地缓存；
+    // 读回来时再经 fromJson 解密。
+    final encrypted = isEncrypted;
+    final encryptedAttachment = encrypted && fileUrl != null;
     return {
       'id': id,
-      'content': content,
+      'content': encrypted ? kE2eeServerPlaceholder : content,
       'senderId': senderId,
       'senderName': senderName,
       'senderAvatar': senderAvatar,
@@ -375,7 +392,7 @@ class Message {
       'botName': botName,
       'botAvatar': botAvatar,
       'chatRoomId': chatRoomId,
-      'type': _wireMessageType(type),
+      'type': encryptedAttachment ? 'FILE' : _wireMessageType(type),
       'status': status.name.toUpperCase(),
       'timestamp': timestamp.toIso8601String(),
       'editedAt': editedAt?.toIso8601String(),
@@ -386,9 +403,9 @@ class Message {
       'metadata': metadata,
       'replyToMessageId': replyToMessageId,
       'fileUrl': fileUrl,
-      'fileName': fileName,
+      'fileName': encryptedAttachment ? kE2eeServerAttachmentName : fileName,
       'fileSize': fileSize,
-      'fileType': fileType,
+      'fileType': encryptedAttachment ? 'application/octet-stream' : fileType,
       'stickerId': stickerId,
       'pollId': pollId,
       'imageGenPrompt': imageGenPrompt,

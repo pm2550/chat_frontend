@@ -4,6 +4,7 @@ import 'package:chat_app/constants/api_constants.dart';
 import 'package:chat_app/models/chat.dart';
 import 'package:chat_app/models/message.dart';
 import 'package:chat_app/services/chat_data_service.dart';
+import 'package:chat_app/services/e2ee/e2ee_constants.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 
@@ -658,7 +659,8 @@ void main() {
       expect(poll.options.length, 2);
     });
 
-    test('sendEncryptedTextMessage posts encrypted envelope fields', () async {
+    test('encrypted text sends only the placeholder and the envelope',
+        () async {
       Object? capturedBody;
       final service = ChatDataService(
         authenticatedRequest: (method, url, {headers, body}) async {
@@ -667,11 +669,11 @@ void main() {
           return jsonResponse({
             'data': {
               'id': 100,
-              'content': '[加密消息]',
+              'content': kE2eeServerPlaceholder,
               'messageType': 'TEXT',
               'messageStatus': 'SENT',
               'encryptedContent': 'ZW5j',
-              'encryptionVersion': 1,
+              'encryptionVersion': kE2eeEncryptionVersion,
               'createdAt': '2024-01-01T10:03:00',
               'senderId': 7,
               'senderName': 'Sender',
@@ -681,20 +683,22 @@ void main() {
         },
       );
 
-      final message = await service.sendEncryptedTextMessage(
+      final message = await service.sendTextMessage(
         '42',
+        'the real secret',
         encryptedContent: 'ZW5j',
       );
 
       expect(capturedBody, {
         'chatRoomId': 42,
-        'content': '[加密消息]',
+        'content': kE2eeServerPlaceholder,
         'messageType': 'TEXT',
         'encryptedContent': 'ZW5j',
-        'encryptionVersion': 1,
+        'encryptionVersion': kE2eeEncryptionVersion,
       });
+      expect(jsonEncode(capturedBody), isNot(contains('real secret')));
       expect(message.isEncrypted, isTrue);
-      expect(message.encryptionVersion, 1);
+      expect(message.encryptionVersion, kE2eeEncryptionVersion);
     });
 
     test('sendFileMessage posts multipart fields and reads data message',
@@ -730,18 +734,9 @@ void main() {
         mimeType: 'image/png',
         bytes: [1, 2, 3],
       );
-      final message = await service.sendFileMessage(
-        '42',
-        file,
-        encryptedContent: 'a2V5LWVudmVsb3Bl',
-        encryptionVersion: 1,
-      );
+      final message = await service.sendFileMessage('42', file);
 
-      expect(capturedFields, {
-        'chatRoomId': '42',
-        'encryptedContent': 'a2V5LWVudmVsb3Bl',
-        'encryptionVersion': '1',
-      });
+      expect(capturedFields, {'chatRoomId': '42'});
       expect(capturedFile, same(file));
       expect(message.id, '101');
       expect(message.type, MessageType.image);

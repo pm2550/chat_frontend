@@ -9,6 +9,7 @@ import '../models/message.dart';
 import 'active_call_tracker.dart';
 import 'agent_client_tools.dart';
 import 'auth_service.dart';
+import 'e2ee/e2ee_constants.dart';
 
 /// 服务器拒收一条消息（被禁言、不是成员、引用的消息无效……），[reason] 是服务器给的原因。
 class RealtimeSendException implements Exception {
@@ -349,12 +350,15 @@ class WebSocketService extends ChangeNotifier implements ChatRealtimeService {
   /// 对上）才算成功。服务器拒收时抛 [RealtimeSendException]（带原因），
   /// 迟迟没有回音抛 [TimeoutException]，连接断开时抛 [RealtimeSendException]。
   /// 调用前先确认 [isConnected]，没连上就改走 REST。
+  ///
+  /// [encryptedContent] 是端到端加密的密文信封：有它时 content 只发占位文字。
   Future<Message> sendTextMessageAwaitingEcho(
     int chatRoomId,
     String content, {
     required String clientMessageId,
     bool isAnonymous = false,
     String? replyToId,
+    String? encryptedContent,
     Duration timeout = const Duration(seconds: 20),
   }) {
     if (!_isConnected || _channel == null) {
@@ -362,11 +366,14 @@ class WebSocketService extends ChangeNotifier implements ChatRealtimeService {
     }
     final completer = Completer<Message>();
     _pendingSends[clientMessageId] = completer;
+    final encrypted = encryptedContent != null && encryptedContent.isNotEmpty;
     sendMessage({
       'type': 'message',
       'chatRoomId': chatRoomId,
-      'content': content,
+      'content': encrypted ? kE2eeServerPlaceholder : content,
       'messageType': 'TEXT',
+      if (encrypted) 'encryptedContent': encryptedContent,
+      if (encrypted) 'encryptionVersion': kE2eeEncryptionVersion,
       'clientMessageId': clientMessageId,
       if (isAnonymous) 'isAnonymous': true,
       if (replyToId != null) 'replyToId': int.tryParse(replyToId) ?? replyToId,
@@ -411,26 +418,6 @@ class WebSocketService extends ChangeNotifier implements ChatRealtimeService {
       'messageType': 'TEXT',
       if (isAnonymous) 'isAnonymous': true,
       if (replyToId != null) 'replyToId': int.tryParse(replyToId) ?? replyToId,
-    });
-    return true;
-  }
-
-  bool sendEncryptedTextMessage(
-    int chatRoomId, {
-    required String encryptedContent,
-    String content = '[加密消息]',
-    int encryptionVersion = 1,
-  }) {
-    if (!_isConnected || _channel == null) {
-      return false;
-    }
-    sendMessage({
-      'type': 'message',
-      'chatRoomId': chatRoomId,
-      'content': content,
-      'messageType': 'TEXT',
-      'encryptedContent': encryptedContent,
-      'encryptionVersion': encryptionVersion,
     });
     return true;
   }

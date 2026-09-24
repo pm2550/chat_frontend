@@ -189,6 +189,81 @@ void main() {
 
     expect(seenChangeBodies, hasLength(1));
   });
+
+  test('login hands the verified password to the E2EE unlock hook', () async {
+    final unlockedWith = <String>[];
+    final service = AuthService.test(
+      passwordHasher: _FakePasswordHasher(),
+      httpClient: MockClient((request) async {
+        if (request.url.path.endsWith('/client-salt-params')) {
+          return _json({
+            'code': 200,
+            'data': {
+              'salt': 'existing-client-salt',
+              'argon2Params': 'm=32,t=1,p=1,v=19,hashLen=16',
+              'scheme': PasswordHasher.clientScheme,
+            },
+          });
+        }
+        if (request.url.path.endsWith('/login')) return _loginOk();
+        return http.Response('not found', 404);
+      }),
+    )..onPasswordVerified = (password) async => unlockedWith.add(password);
+
+    expect(await service.login('alice', 'login-pw'), isTrue);
+    expect(unlockedWith, ['login-pw']);
+  });
+
+  test('changePassword carries the re-wrapped E2EE keys, or aborts when they cannot be re-wrapped',
+      () async {
+    final seenChangeBodies = <Map<String, dynamic>>[];
+    AuthService build() => AuthService.test(
+          passwordHasher: _FakePasswordHasher(),
+          httpClient: MockClient((request) async {
+            if (request.url.path.endsWith('/client-salt-params')) {
+              return _json({
+                'code': 200,
+                'data': {
+                  'salt': 'existing-client-salt',
+                  'argon2Params': 'm=32,t=1,p=1,v=19,hashLen=16',
+                  'scheme': PasswordHasher.clientScheme,
+                },
+              });
+            }
+            if (request.url.path.endsWith('/login')) return _loginOk();
+            if (request.url.path.endsWith('/profile/password')) {
+              seenChangeBodies
+                  .add(jsonDecode(request.body) as Map<String, dynamic>);
+              return _json({'success': true, 'message': '密码修改成功'});
+            }
+            return http.Response('not found', 404);
+          }),
+        );
+
+    final service = build()
+      ..passwordChangeExtras = (oldPassword, newPassword) async {
+        expect(oldPassword, 'old-pw');
+        expect(newPassword, 'new-pw');
+        return {
+          'e2eeKeyWraps': [
+            {'version': 1, 'wrappedPrivateKey': 'w', 'wrapSalt': 's', 'wrapParams': 'p'},
+          ],
+        };
+      };
+    expect(await service.login('alice', 'login-pw'), isTrue);
+    await service.changePassword(oldPassword: 'old-pw', newPassword: 'new-pw');
+    expect(seenChangeBodies.single['e2eeKeyWraps'], hasLength(1));
+
+    final failing = build()
+      ..passwordChangeExtras =
+          (_, __) async => throw Exception('无法解开当前的端到端加密密钥');
+    expect(await failing.login('alice', 'login-pw'), isTrue);
+    await expectLater(
+      failing.changePassword(oldPassword: 'old-pw', newPassword: 'new-pw'),
+      throwsA(isA<Exception>()),
+    );
+    expect(seenChangeBodies, hasLength(1), reason: '密钥换不了包装就不能改密码');
+  });
 }
 
 class _FakePasswordHasher extends PasswordHasher {

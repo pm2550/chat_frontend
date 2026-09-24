@@ -59,6 +59,11 @@ extension _ChatScreenComposerParts on _ChatScreenState {
     _scrollToBottom();
 
     try {
+      // 双方都开了端到端加密的私聊：明文只留在本机，发出去的是密文信封。
+      final encryptedContent = await _sealOutgoingText(
+        content,
+        anonymous: sendIdentity != null,
+      );
       await _webSocketService.connect();
       final roomId = int.tryParse(_chat.id);
       final Message sent;
@@ -69,6 +74,7 @@ extension _ChatScreenComposerParts on _ChatScreenState {
           clientMessageId: clientMessageId,
           isAnonymous: sendIdentity != null,
           replyToId: replyToId,
+          encryptedContent: encryptedContent,
         );
       } else {
         sent = await _chatService.sendTextMessage(
@@ -76,6 +82,7 @@ extension _ChatScreenComposerParts on _ChatScreenState {
           content,
           isAnonymous: sendIdentity != null,
           replyToId: replyToId,
+          encryptedContent: encryptedContent,
         );
       }
       _afterOutgoingMessage();
@@ -126,6 +133,7 @@ extension _ChatScreenComposerParts on _ChatScreenState {
         _chat.id,
         file,
         messageType: messageType,
+        chat: _chat,
       );
       _upsertMessage(sent);
       _scrollToBottom();

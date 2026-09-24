@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:package_info_plus/package_info_plus.dart';
@@ -6,6 +8,7 @@ import '../../design/design.dart';
 import '../../services/auth_service.dart';
 import '../../services/bot_service.dart';
 import '../../services/encryption_service.dart';
+import '../../widgets/e2ee_widgets.dart';
 import '../../services/user_profile_service.dart';
 import '../../services/web_push_service.dart';
 import '../../widgets/pm_brand.dart';
@@ -27,9 +30,10 @@ class SettingsCopy {
 }
 
 class SettingsScreen extends StatefulWidget {
-  const SettingsScreen({super.key, this.profileService});
+  const SettingsScreen({super.key, this.profileService, this.encryptionService});
 
   final UserProfileService? profileService;
+  final EncryptionService? encryptionService;
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
@@ -37,12 +41,15 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   final AuthService _authService = AuthService();
-  final EncryptionService _encryptionService = EncryptionService();
+  late final EncryptionService _encryptionService =
+      widget.encryptionService ?? EncryptionService();
   late final UserProfileService _profileService =
       widget.profileService ?? UserProfileService();
   final TextEditingController _searchController = TextEditingController();
-  bool _e2eeEnabled = false;
+  E2eeAccountStatus? _e2eeStatus;
   bool _isGeneratingE2ee = false;
+
+  bool get _e2eeEnabled => _e2eeStatus?.serverEnabled ?? false;
   bool _notificationsEnabled = true;
   UserAppSettings _appSettings = const UserAppSettings();
   String _settingsQuery = '';
@@ -62,15 +69,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _loadSettings() async {
-    final keysExist = await _encryptionService.checkKeysExist();
+    unawaited(_loadE2eeStatus());
     UserAppSettings appSettings = const UserAppSettings();
     try {
       appSettings = await _profileService.getSettings();
     } catch (_) {
       // Settings screen stays usable with defaults if the backend is transiently unavailable.
     }
+    if (!mounted) return;
     setState(() {
-      _e2eeEnabled = keysExist;
       _appSettings = appSettings;
       _notificationsEnabled = appSettings.messageNotificationsEnabled;
     });
@@ -113,40 +120,137 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
+  Future<void> _loadE2eeStatus() async {
+    try {
+      final status = await _encryptionService.accountStatus();
+      if (!mounted) return;
+      setState(() => _e2eeStatus = status);
+    } catch (_) {
+      // 查不到就按"未开启"显示；开关操作时会再请求一次。
+    }
+  }
+
+  /// 开：第一次生成密钥（用登录密码保护后上传），以前生成过就解锁后重新打开。
+  /// 关：只是以后的私聊消息不再加密，密钥保留，已加密的记录照样能看。
   Future<void> _handleE2eeChanged(bool value) async {
+    if (_isGeneratingE2ee) return;
     if (!value) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('暂不支持在客户端删除已生成的端到端加密密钥')),
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('关闭端到端加密？'),
+          content: const Text(
+            '关闭后，你新发和收到的私聊消息都不再加密（对方会看到"对方尚未启用加密"）。\n\n'
+            '加密密钥会保留，已经加密的聊天记录仍可在已登录的设备上查看；以后可以随时重新开启。',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('取消'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('关闭加密'),
+            ),
+          ],
+        ),
+      );
+      if (confirmed != true) return;
+      await _runE2eeAction(
+        _encryptionService.disable,
+        busyLabel: false,
+        success: '已关闭：新消息不再加密',
       );
       return;
     }
-    if (_e2eeEnabled || _isGeneratingE2ee) return;
 
-    setState(() => _isGeneratingE2ee = true);
-    try {
-      final success = await _encryptionService.generateAndUploadKeys();
+    final status = _e2eeStatus ?? await _refreshE2eeStatusForToggle();
+    if (!mounted) return;
+    if (status != null && status.hasServerKeys) {
+      // 以前开过：密钥在服务器上（用登录密码包着）。本机没解开就先解锁（解不开可以重置），
+      // 然后直接重新打开，不生成新密钥。
+      if (!status.unlockedOnDevice &&
+          !await runE2eeUnlockFlow(context, _encryptionService)) {
+        return;
+      }
       if (!mounted) return;
-      setState(() {
-        _e2eeEnabled = success;
-        _isGeneratingE2ee = false;
-      });
+      await _runE2eeAction(
+        _encryptionService.reenable,
+        success: '端到端加密已开启',
+      );
+      return;
+    }
+
+    final password = await showE2eePasswordDialog(
+      context,
+      title: '开启端到端加密',
+      message: '开启后，和同样开启的好友私聊时，消息只有你们双方的设备能解密，'
+          '服务器也看不到内容（包括图片、文件和语音；群聊和有机器人的会话不加密）。\n\n$kE2eePasswordWarning',
+      confirmLabel: '开启',
+    );
+    if (password == null || password.isEmpty || !mounted) return;
+    await _runE2eeAction(
+      () => _encryptionService.enable(password),
+      success: '端到端加密已开启',
+    );
+  }
+
+  Future<E2eeAccountStatus?> _refreshE2eeStatusForToggle() async {
+    try {
+      return await _encryptionService.accountStatus();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> _unlockE2eeOnThisDevice() async {
+    final unlocked = await runE2eeUnlockFlow(context, _encryptionService);
+    if (unlocked) await _loadE2eeStatus();
+  }
+
+  Future<void> _runE2eeAction(
+    Future<void> Function() action, {
+    required String success,
+    bool busyLabel = true,
+  }) async {
+    setState(() => _isGeneratingE2ee = busyLabel);
+    try {
+      await action();
+      await _loadE2eeStatus();
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(success ? '加密密钥已生成并上传' : '加密密钥生成失败'),
-          backgroundColor: success ? AppColors.success : AppColors.error,
-        ),
+        SnackBar(content: Text(success), backgroundColor: AppColors.success),
       );
     } catch (error) {
       if (!mounted) return;
-      setState(() => _isGeneratingE2ee = false);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('加密密钥生成失败: $error'),
+          content: Text(error is E2eeWrongPasswordException
+              ? '密码不正确'
+              : '操作失败: $error'),
           backgroundColor: AppColors.error,
         ),
       );
+    } finally {
+      if (mounted) setState(() => _isGeneratingE2ee = false);
     }
   }
+
+  String _e2eeSubtitle() {
+    final status = _e2eeStatus;
+    if (status == null) return '私聊消息只有你和对方的设备能解密';
+    if (status.serverEnabled && !status.unlockedOnDevice) {
+      return '已开启，但这台设备尚未解锁，点"解锁"输入登录密码';
+    }
+    if (status.serverEnabled) {
+      return '已开启：和同样开启的好友私聊时自动加密（含图片、文件和语音；群聊和有机器人的会话不加密）';
+    }
+    if (status.hasServerKeys) {
+      return '已关闭：新消息不再加密，已加密的记录仍可查看';
+    }
+    return '开启后，和同样开启的好友私聊会自动加密';
+  }
+
 
   Future<void> _openProfileEditor() async {
     final user = _authService.currentUser;
@@ -243,7 +347,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         _buildSettingsSearchBox(),
         if (_isGeneratingE2ee) ...[
           const SizedBox(height: PMSpacing.l),
-          const PMProgressStrip(label: '正在生成端到端加密密钥...'),
+          const PMProgressStrip(label: '正在处理端到端加密密钥...'),
         ],
         const SizedBox(height: PMSpacing.l),
         if (sections.isEmpty)
@@ -282,11 +386,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
         PMListRow(
           leading: _settingsIcon(Icons.lock_outline, AppColors.primary),
           title: const Text('端到端加密'),
-          subtitle: Text(_e2eeEnabled ? '已启用，新消息会使用本地密钥保护' : '为新消息生成并上传公钥'),
+          subtitle: Text(_e2eeSubtitle()),
           trailing: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              if (_e2eeEnabled)
+              if (_e2eeEnabled && _e2eeStatus?.unlockedOnDevice == false)
+                TextButton(
+                  onPressed:
+                      _isGeneratingE2ee ? null : _unlockE2eeOnThisDevice,
+                  child: const Text('解锁'),
+                )
+              else if (_e2eeEnabled)
                 const PMChip(
                   label: '已启用',
                   icon: Icons.verified_user_outlined,
@@ -295,6 +405,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
               if (_e2eeEnabled) const SizedBox(width: PMSpacing.s),
               Switch(
+                key: const ValueKey('settings-e2ee-switch'),
                 value: _e2eeEnabled,
                 onChanged: _isGeneratingE2ee ? null : _handleE2eeChanged,
               ),
@@ -541,7 +652,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               builder: (_) => const StaticTextScreen(
                 title: '隐私政策',
                 content:
-                    '本应用只在登录、聊天、文件、联系人和机器人功能需要时使用账户资料。消息附件需要登录鉴权访问；端到端加密开启后，后端只保存密文信封。',
+                    '本应用只在登录、聊天、文件、联系人和机器人功能需要时使用账户资料。消息附件需要登录鉴权访问；双方都开启端到端加密的私聊，服务器只保存消息密文。',
               ),
             ),
           ),
@@ -911,6 +1022,11 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
               decoration: const InputDecoration(labelText: '确认新密码'),
               validator: (value) =>
                   value != _newController.text ? '两次输入的新密码不一致' : null,
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              '如果开启了端到端加密，修改密码时会用新密码重新保护你的加密密钥，加密聊天记录不受影响。',
+              style: TextStyle(fontSize: 12.5, color: AppColors.textSecondary),
             ),
             const SizedBox(height: 24),
             FilledButton(

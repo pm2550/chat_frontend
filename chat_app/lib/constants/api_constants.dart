@@ -217,11 +217,14 @@ class ApiConstants {
   static const String contactGroupItems = '$contactGroups/items';
   static const String contactGroupReorder = '$contactGroups/reorder';
 
-  // Key exchange (E2EE)
-  static const String uploadKeys = '$apiBaseUrl/keys/upload';
-  static String getKeyBundle(int userId) => '$apiBaseUrl/keys/bundle/$userId';
-  static String keyExists(int userId) => '$apiBaseUrl/keys/exists/$userId';
-  static const String deleteMyKeys = '$apiBaseUrl/keys/my-keys';
+  // Private-chat end-to-end encryption
+  static const String e2eeMyKeys = '$apiBaseUrl/e2ee/keys/me';
+  static const String e2eeCreateKey = '$apiBaseUrl/e2ee/keys';
+  static const String e2eeEnabled = '$apiBaseUrl/e2ee/enabled';
+  static String e2eeUserKeys(String userId) =>
+      '$apiBaseUrl/e2ee/users/$userId/keys';
+  static String e2eeRoomStatus(String roomId) =>
+      '$apiBaseUrl/e2ee/rooms/$roomId/status';
 
   // Anonymous chat
   static String enterAnonymous(int roomId) =>
