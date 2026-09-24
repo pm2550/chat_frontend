@@ -9,6 +9,7 @@ import '../../widgets/pm_brand.dart';
 import '../../widgets/pm_responsive.dart';
 import '../profile/about_app_dialog.dart';
 import '../profile/profile_edit_screen.dart';
+import '../profile/starred_messages_screen.dart';
 import '../settings/settings_screen.dart';
 
 class ProfilePage extends StatefulWidget {
@@ -128,6 +129,12 @@ class _ProfilePageState extends State<ProfilePage>
       if (!mounted) return;
       Navigator.of(context).pushReplacementNamed('/login');
     }
+  }
+
+  void _openStarredMessages() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(builder: (_) => const StarredMessagesScreen()),
+    );
   }
 
   Future<void> _openNotificationSettings() async {
@@ -305,6 +312,11 @@ class _ProfilePageState extends State<ProfilePage>
                     ),
                     const SizedBox(height: 14),
                     _buildMenuItem(
+                      icon: Icons.star_rounded,
+                      title: '我的收藏',
+                      onTap: _openStarredMessages,
+                    ),
+                    _buildMenuItem(
                       icon: Icons.notifications,
                       title: '通知设置',
                       onTap: _openNotificationSettings,
@@ -395,6 +407,11 @@ class _ProfilePageState extends State<ProfilePage>
         const SizedBox(height: 16),
         _buildAccountInfo(user),
         const SizedBox(height: 16),
+        _buildMenuItem(
+          icon: Icons.star_rounded,
+          title: '我的收藏',
+          onTap: _openStarredMessages,
+        ),
         _buildMenuItem(
           icon: Icons.notifications,
           title: '通知设置',

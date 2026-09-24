@@ -254,6 +254,35 @@ void main() {
     });
   });
 
+  testWidgets('opening a chat with focusMessage shows that message',
+      (tester) async {
+    await signIn(tester);
+    final service = _UiFakeChatService(messages: [_msg('50', '最新的消息')]);
+    final older = _msg('3', '很久以前收藏的那条');
+
+    await tester.pumpWidget(MaterialApp(
+      onGenerateRoute: (_) => MaterialPageRoute<void>(
+        settings: RouteSettings(
+          arguments: ChatScreenArguments(
+            chat: privateChat(),
+            focusMessage: older,
+          ),
+        ),
+        builder: (_) => ChatScreen(
+          chatService: service,
+          authService: auth,
+          botService: _NoBotService(),
+          contactService: _FakeContactService(),
+          webSocketService: WebSocketService.forTesting(authService: auth),
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    expect(find.text('很久以前收藏的那条'), findsOneWidget);
+    expect(find.text('最新的消息'), findsOneWidget);
+  });
+
   testWidgets('删除聊天 clears history, removes the chat from the list and leaves',
       (tester) async {
     await signIn(tester);
