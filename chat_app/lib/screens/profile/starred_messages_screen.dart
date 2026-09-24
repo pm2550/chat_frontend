@@ -39,7 +39,7 @@ class _StarredMessagesScreenState extends State<StarredMessagesScreen> {
   void initState() {
     super.initState();
     _chatService = widget.chatService ?? ChatDataService();
-    timeago.setLocaleMessages('zh', timeago.ZhMessages());
+    timeago.setLocaleMessages('zh', timeago.ZhCnMessages());
     unawaited(_loadRooms());
     unawaited(_loadFirstPage());
   }

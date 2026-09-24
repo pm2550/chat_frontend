@@ -85,7 +85,7 @@ class _ChatListPageState extends State<ChatListPage>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    timeago.setLocaleMessages('zh', timeago.ZhMessages());
+    timeago.setLocaleMessages('zh', timeago.ZhCnMessages());
     _chatService = widget.chatService ?? ChatDataService();
     _realtimeService = widget.realtimeService ?? WebSocketService();
     _notificationService =

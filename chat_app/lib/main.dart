@@ -4,6 +4,7 @@ import 'package:desktop_drop/desktop_drop.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:timeago/timeago.dart' as timeago;
 import 'screens/splash_screen.dart';
 import 'screens/auth/login_screen.dart';
 import 'screens/auth/register_screen.dart';
@@ -25,6 +26,8 @@ import 'widgets/auth_guard.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
+  // 相对时间（"3 分钟前"）统一用简体；timeago 的 ZhMessages 是繁体。
+  timeago.setLocaleMessages('zh', timeago.ZhCnMessages());
   ColdStartRoute.capture(Uri.base.fragment);
   AgentClientToolRegistry().registerDefaults();
   WebSocketService().enableMobileWebBackgroundHandoff();
