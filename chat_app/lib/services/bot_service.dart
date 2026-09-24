@@ -32,7 +32,8 @@ class BotConfig {
   final double replyIntervalSeconds;
   final String defaultTriggerMode;
   final String? defaultTriggerKeywords;
-  final String workflowMode;
+  /// 编辑器不展示这个字段；null 表示"不知道/不修改"，序列化时省略，交给后端保留原值。
+  final String? workflowMode;
   final String imageGenerationProvider;
   final int? imageProviderCredentialId;
   final String? imageProviderCredentialLabel;
@@ -88,7 +89,7 @@ class BotConfig {
     this.replyIntervalSeconds = 2.0,
     this.defaultTriggerMode = 'MENTION',
     this.defaultTriggerKeywords,
-    this.workflowMode = 'SINGLE_PASS',
+    this.workflowMode,
     this.imageGenerationProvider = 'HERMES',
     this.imageProviderCredentialId,
     this.imageProviderCredentialLabel,
@@ -147,7 +148,7 @@ class BotConfig {
           (json['replyIntervalSeconds'] as num?)?.toDouble() ?? 2.0,
       defaultTriggerMode: json['defaultTriggerMode']?.toString() ?? 'MENTION',
       defaultTriggerKeywords: json['defaultTriggerKeywords']?.toString(),
-      workflowMode: json['workflowMode']?.toString() ?? 'SINGLE_PASS',
+      workflowMode: json['workflowMode']?.toString(),
       imageGenerationProvider:
           json['imageGenerationProvider']?.toString() ?? 'HERMES',
       imageProviderCredentialId: json['imageProviderCredentialId'] is int
@@ -231,7 +232,7 @@ class BotConfig {
         'defaultTriggerMode': defaultTriggerMode,
         if (defaultTriggerKeywords != null)
           'defaultTriggerKeywords': defaultTriggerKeywords,
-        'workflowMode': workflowMode,
+        if (workflowMode != null) 'workflowMode': workflowMode,
         'imageGenerationProvider': imageGenerationProvider,
         if (imageProviderCredentialId != null)
           'imageProviderCredentialId': imageProviderCredentialId,
@@ -283,6 +284,44 @@ class BotConfig {
         if (roomPromptSuffix != null) 'roomPromptSuffix': roomPromptSuffix,
         'enabledInRoom': enabledInRoom,
       };
+}
+
+/// 一个 bot 的外发 webhook 订阅。每个 bot 在同一作用域（全部房间 / 某个房间）只有一条。
+class BotWebhook {
+  const BotWebhook({
+    required this.id,
+    required this.callbackUrl,
+    this.eventTypes = 'message',
+    this.chatRoomId,
+    this.active = true,
+    this.hasSecret = false,
+    this.lastDeliveryStatus,
+    this.consecutiveFailures = 0,
+  });
+
+  final int id;
+  final String callbackUrl;
+  final String eventTypes;
+  final int? chatRoomId;
+  final bool active;
+  final bool hasSecret;
+  final int? lastDeliveryStatus;
+  final int consecutiveFailures;
+
+  factory BotWebhook.fromJson(Map<String, dynamic> json) {
+    int? asInt(dynamic value) =>
+        value is int ? value : int.tryParse(value?.toString() ?? '');
+    return BotWebhook(
+      id: asInt(json['id']) ?? 0,
+      callbackUrl: json['callbackUrl']?.toString() ?? '',
+      eventTypes: json['eventTypes']?.toString() ?? 'message',
+      chatRoomId: asInt(json['chatRoomId']),
+      active: json['active'] != false,
+      hasSecret: json['hasSecret'] == true,
+      lastDeliveryStatus: asInt(json['lastDeliveryStatus']),
+      consecutiveFailures: asInt(json['consecutiveFailures']) ?? 0,
+    );
+  }
 }
 
 class BotAllowedUser {
@@ -597,6 +636,25 @@ class BotService {
       return raw.map((item) => item.toString()).toList(growable: false);
     }
     return scopes;
+  }
+
+  Future<List<BotWebhook>> listWebhooks(int botId) async {
+    final response = await _request('GET', ApiConstants.botWebhooks(botId));
+    final data = _decodeResponse(response);
+    final raw = data['data'];
+    if (raw is List) {
+      return raw
+          .whereType<Map<String, dynamic>>()
+          .map(BotWebhook.fromJson)
+          .toList(growable: false);
+    }
+    return const [];
+  }
+
+  Future<void> deleteWebhook(int subscriptionId) async {
+    final response =
+        await _request('DELETE', ApiConstants.botWebhookDetail(subscriptionId));
+    _decodeResponse(response);
   }
 
   Future<void> registerWebhook(

@@ -8,6 +8,30 @@ import 'package:http/http.dart' as http;
 
 void main() {
   group('ContactDataService', () {
+    test('privacy rejections surface the backend Chinese message', () async {
+      final service = ContactDataService(
+        authenticatedRequest: (method, url, {headers, body}) async {
+          final message = Uri.parse(url).path.contains('/friends/request/')
+              ? '对方已关闭好友请求，暂时无法添加'
+              : '对方只接受好友发起私聊，请先添加好友';
+          return http.Response.bytes(
+            utf8.encode(jsonEncode({'error': message})),
+            400,
+            headers: {'content-type': 'application/json'},
+          );
+        },
+      );
+
+      await expectLater(
+        service.sendFriendRequest('2'),
+        throwsA(predicate((e) => e.toString() == '对方已关闭好友请求，暂时无法添加')),
+      );
+      await expectLater(
+        service.createPrivateChat('2'),
+        throwsA(predicate((e) => e.toString() == '对方只接受好友发起私聊，请先添加好友')),
+      );
+    });
+
     test('getFriends reads backend friends response', () async {
       final service = ContactDataService(
         authenticatedRequest: (method, url, {headers, body}) async {

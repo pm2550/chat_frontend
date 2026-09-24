@@ -601,4 +601,113 @@ void main() {
     expect(find.textContaining('至少需要 4096 Max Tokens'), findsOneWidget);
     expect(service.savedConfig, isNull);
   });
+
+  testWidgets('saving an edited bot keeps its workflow mode (阿雷 regression)',
+      (tester) async {
+    final service = _CapturingBotService();
+    final bot = BotConfig.fromJson({
+      'id': 82,
+      'botName': '阿雷',
+      'llmProvider': 'OPENAI',
+      'modelName': 'gpt-4.1',
+      'workflowMode': 'KIRARA_TWO_PASS',
+    });
+    await pumpEditor(tester, bot, service);
+
+    final saveButton = find.text('保存 Bot').last;
+    await tester.ensureVisible(saveButton);
+    await tester.tap(saveButton);
+    await tester.pumpAndSettle();
+
+    expect(service.savedConfig?.workflowMode, 'KIRARA_TWO_PASS');
+    expect(service.savedConfig?.toJson()['workflowMode'], 'KIRARA_TWO_PASS');
+  });
+
+  testWidgets('clearing the system prompt while editing sends an explicit clear',
+      (tester) async {
+    final service = _CapturingBotService();
+    final bot = BotConfig(
+      id: 30,
+      botName: 'prompted',
+      llmProvider: 'OPENAI',
+      systemPrompt: '旧提示词',
+    );
+    await pumpEditor(tester, bot, service);
+
+    await tester.enterText(
+        find.byKey(const Key('bot-system-prompt-field')), '');
+    final saveButton = find.text('保存 Bot').last;
+    await tester.ensureVisible(saveButton);
+    await tester.tap(saveButton);
+    await tester.pumpAndSettle();
+
+    // null 会被后端当成"不修改"，清空必须发空串。
+    expect(service.savedConfig?.toJson()['systemPrompt'], '');
+  });
+
+  testWidgets('temperature slider is hidden for OpenAI reasoning models',
+      (tester) async {
+    final service = _CapturingBotService();
+    final bot = BotConfig(
+      id: 31,
+      botName: 'reasoner',
+      llmProvider: 'OPENAI',
+      modelName: 'gpt-5',
+      temperature: 0.3,
+    );
+    await pumpEditor(tester, bot, service);
+
+    expect(find.text('Temperature'), findsNothing);
+    expect(find.byKey(const Key('bot-temperature-unsupported')), findsOneWidget);
+
+    final saveButton = find.text('保存 Bot').last;
+    await tester.ensureVisible(saveButton);
+    await tester.tap(saveButton);
+    await tester.pumpAndSettle();
+    expect(service.savedConfig?.temperature, 0.3);
+  });
+
+  testWidgets('Claude temperature is shown only where the model accepts it',
+      (tester) async {
+    final service = _CapturingBotService();
+    await pumpEditor(
+      tester,
+      BotConfig(
+        id: 32,
+        botName: 'claude',
+        llmProvider: 'CLAUDE',
+        modelName: 'claude-sonnet-4-5',
+      ),
+      service,
+    );
+    expect(find.text('Temperature（Claude 取值 0 ~ 1）'), findsOneWidget);
+
+    await tester.enterText(
+        find.widgetWithText(TextFormField, '模型名'), 'claude-opus-4-8');
+    await tester.pumpAndSettle();
+    expect(find.text('Temperature（Claude 取值 0 ~ 1）'), findsNothing);
+    expect(find.byKey(const Key('bot-temperature-unsupported')), findsOneWidget);
+  });
+
+  testWidgets('reasoning effort is only offered where it takes effect',
+      (tester) async {
+    final service = _CapturingBotService();
+    await pumpEditor(
+      tester,
+      BotConfig(
+        id: 33,
+        botName: 'llama',
+        llmProvider: 'OLLAMA',
+        modelName: 'llama3',
+      ),
+      service,
+    );
+    expect(find.byKey(const Key('bot-reasoning-effort-section')), findsNothing);
+
+    await tester.enterText(
+        find.widgetWithText(TextFormField, '模型名'), 'kimi-k2.6');
+    await tester.pumpAndSettle();
+    expect(
+        find.byKey(const Key('bot-reasoning-effort-section')), findsOneWidget);
+  });
 }
