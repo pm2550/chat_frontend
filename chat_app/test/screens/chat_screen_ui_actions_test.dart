@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:async';
 
 import 'package:chat_app/models/call_state.dart';
@@ -74,6 +75,7 @@ void main() {
     _UiFakeChatService service, {
     ContactDataService? contactService,
     RouteFactory? onGenerateRoute,
+    WebSocketService? socket,
   }) {
     return MaterialApp(
       onGenerateRoute: (settings) {
@@ -87,7 +89,8 @@ void main() {
             authService: auth,
             botService: _NoBotService(),
             contactService: contactService ?? _FakeContactService(),
-            webSocketService: WebSocketService.forTesting(authService: auth),
+            webSocketService:
+                socket ?? WebSocketService.forTesting(authService: auth),
           ),
         );
       },
@@ -95,6 +98,40 @@ void main() {
   }
 
   group('pinned messages', () {
+    testWidgets('a pin made by someone else shows up live', (tester) async {
+      await signIn(tester);
+      final service = _UiFakeChatService(
+        messages: [_msg('1', '第一条'), _msg('2', '开会时间改到三点')],
+        pins: const [],
+      );
+      final socket = WebSocketService.forTesting(authService: auth);
+
+      await tester.pumpWidget(buildScreen(privateChat(), service, socket: socket));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('pinned-messages-bar')), findsNothing);
+
+      socket.handleMessageForTest(jsonEncode({
+        'type': 'message_action',
+        'chatRoomId': privateChat().id,
+        'action': 'pin_added',
+        'data': {
+          'messageId': 2,
+          'pins': [
+            {
+              'id': 2,
+              'content': '开会时间改到三点',
+              'senderId': 2,
+              'chatRoomId': int.parse(privateChat().id),
+              'createdAt': '2024-01-01T10:00:00',
+            }
+          ],
+        },
+      }));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const ValueKey('pinned-messages-bar')), findsOneWidget);
+    });
+
     testWidgets('shows the latest pin, lists all pins, jumps and unpins',
         (tester) async {
       await signIn(tester);

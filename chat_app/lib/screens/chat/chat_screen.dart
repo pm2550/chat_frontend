@@ -156,6 +156,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   final FocusNode _focusNode = FocusNode();
   StreamSubscription<Message>? _messageSubscription;
   StreamSubscription<Message>? _messageUpdateSubscription;
+  StreamSubscription<MessageActionEvent>? _messageActionSubscription;
   StreamSubscription<Map<String, dynamic>>? _statusSubscription;
   StreamSubscription<Map<String, dynamic>>? _typingSubscription;
   StreamSubscription<Map<String, dynamic>>? _callSubscription;
@@ -443,6 +444,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     WidgetsBinding.instance.removeObserver(this);
     _messageSubscription?.cancel();
     _messageUpdateSubscription?.cancel();
+    _messageActionSubscription?.cancel();
     _statusSubscription?.cancel();
     _typingSubscription?.cancel();
     _callSubscription?.cancel();
@@ -644,11 +646,36 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     }
   }
 
+  /// 别人置顶/取消置顶、自己在别的设备上收藏/取消收藏：实时同步到这个聊天。
+  void _handleMessageAction(MessageActionEvent event) {
+    if (event.chatRoomId != _chat.id) return;
+    if (event.isPinChange) {
+      final pins = event.pins;
+      if (pins != null) {
+        _pinnedMessages.applyServerPins(pins);
+      } else {
+        unawaited(_pinnedMessages.load());
+      }
+      return;
+    }
+    final messageId = event.messageId;
+    if (event.isStarChange && messageId != null) {
+      final index = _messages.indexWhere((m) => m.id == messageId);
+      if (index < 0) return;
+      _setViewState(() {
+        _messages[index] = _messages[index]
+            .copyWith(starredByMe: event.action == 'star_added');
+      });
+    }
+  }
+
   Future<void> _connectRealtime() async {
     _messageSubscription =
         _webSocketService.onMessage.listen(_handleRealtimeMessage);
     _messageUpdateSubscription =
         _webSocketService.onMessageUpdated.listen(_handleRealtimeMessageUpdate);
+    _messageActionSubscription =
+        _webSocketService.onMessageAction.listen(_handleMessageAction);
     _statusSubscription =
         _webSocketService.onStatusChange.listen(_handleRealtimeStatus);
     _typingSubscription =
