@@ -215,11 +215,7 @@ extension _ChatScreenMembersPanelParts on _ChatScreenState {
               children: [
                 _buildFriendshipAction(participant),
                 _buildPrivateChatAction(participant),
-                IconButton(
-                  tooltip: '视频',
-                  icon: const Icon(Icons.videocam_rounded, size: 18),
-                  onPressed: () {},
-                ),
+                _buildMemberVideoCallAction(participant),
               ],
             ),
           ),
@@ -277,7 +273,31 @@ extension _ChatScreenMembersPanelParts on _ChatScreenState {
     );
   }
 
-  Future<void> _openPrivateChatFromMember(User participant) async {
+  /// 群成员列表里的「视频」：打开（或创建）与该成员的私聊并直接发起视频通话，
+  /// 走和联系人页视频通话相同的 ChatScreenArguments.startCall 流程。
+  Widget _buildMemberVideoCallAction(User participant) {
+    final userId = participant.id;
+    final currentUserId = _authService.currentUser?.id;
+    if (userId.isEmpty || userId == currentUserId) {
+      return const SizedBox.shrink();
+    }
+    final isOpening = _openingPrivateChatUserIds.contains(userId);
+    return IconButton(
+      tooltip: '视频',
+      icon: const Icon(Icons.videocam_rounded, size: 18),
+      onPressed: isOpening
+          ? null
+          : () => _openPrivateChatFromMember(
+                participant,
+                startCall: CallMediaKind.video,
+              ),
+    );
+  }
+
+  Future<void> _openPrivateChatFromMember(
+    User participant, {
+    CallMediaKind? startCall,
+  }) async {
     final userId = participant.id;
     final currentUserId = _authService.currentUser?.id;
     if (userId.isEmpty ||
@@ -296,13 +316,17 @@ extension _ChatScreenMembersPanelParts on _ChatScreenState {
       await Navigator.pushNamed(
         context,
         '/chat/${chat.id}',
-        arguments: chat,
+        arguments: startCall == null
+            ? chat
+            : ChatScreenArguments(chat: chat, startCall: startCall),
       );
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('打开私聊失败: $error'),
+          content: Text(startCall == null
+              ? '打开私聊失败: $error'
+              : '${startCall.label}通话启动失败: $error'),
           backgroundColor: AppColors.error,
         ),
       );
@@ -592,6 +616,8 @@ extension _ChatScreenMembersPanelParts on _ChatScreenState {
       await _chatService.clearChatHistory(_chat.id);
       if (!mounted) return;
       _setViewState(() => _messages = []);
+      // 同步清掉内存/本地缓存，否则重新进入时旧消息会先从缓存里闪回来。
+      _saveMessageCache();
       ScaffoldMessenger.of(context)
           .showSnackBar(const SnackBar(content: Text('已清空聊天记录')));
     } catch (error) {

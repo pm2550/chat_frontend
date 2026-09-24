@@ -157,6 +157,9 @@ class Message {
   final List<MessageReaction> reactions;
   final int readCount;
 
+  /// 当前用户是否收藏了这条消息（后端按请求用户填充 `starredByMe`）。
+  final bool starredByMe;
+
   const Message({
     required this.id,
     required this.content,
@@ -203,6 +206,7 @@ class Message {
     this.linkPreview,
     this.reactions = const [],
     this.readCount = 0,
+    this.starredByMe = false,
   });
 
   factory Message.fromJson(Map<String, dynamic> json,
@@ -345,6 +349,7 @@ class Message {
           : null,
       reactions: _parseReactions(json['reactions']),
       readCount: _parseInt(json['readCount'] ?? json['read_count']) ?? 0,
+      starredByMe: _parseBool(json['starredByMe'] ?? json['starred_by_me']),
     );
   }
 
@@ -394,6 +399,7 @@ class Message {
       'linkPreview': linkPreview?.toJson(),
       'reactions': reactions.map((item) => item.toJson()).toList(),
       'readCount': readCount,
+      'starredByMe': starredByMe,
     };
   }
 
@@ -443,6 +449,7 @@ class Message {
     LinkPreview? linkPreview,
     List<MessageReaction>? reactions,
     int? readCount,
+    bool? starredByMe,
   }) {
     return Message(
       id: id ?? this.id,
@@ -492,6 +499,7 @@ class Message {
       linkPreview: linkPreview ?? this.linkPreview,
       reactions: reactions ?? this.reactions,
       readCount: readCount ?? this.readCount,
+      starredByMe: starredByMe ?? this.starredByMe,
     );
   }
 

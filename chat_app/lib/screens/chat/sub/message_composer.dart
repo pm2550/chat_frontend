@@ -813,6 +813,7 @@ extension _ChatScreenComposerParts on _ChatScreenState {
     try {
       final members = await _chatService.getChatRoomMembers(_chat.id);
       if (!mounted) return;
+      _syncPinPermissions(members);
       _setViewState(() {
         final users =
             members.map((member) => member.user).toList(growable: false);
