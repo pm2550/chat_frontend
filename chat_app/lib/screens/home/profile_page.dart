@@ -1,13 +1,13 @@
 import 'package:flutter/material.dart';
 
 import '../../constants/api_constants.dart';
-import '../../constants/app_brand.dart';
 import '../../constants/app_colors.dart';
 import '../../models/user.dart';
 import '../../services/auth_service.dart';
 import '../../services/user_profile_service.dart';
 import '../../widgets/pm_brand.dart';
 import '../../widgets/pm_responsive.dart';
+import '../profile/about_app_dialog.dart';
 import '../profile/profile_edit_screen.dart';
 import '../settings/settings_screen.dart';
 
@@ -317,7 +317,7 @@ class _ProfilePageState extends State<ProfilePage>
                     _buildMenuItem(
                       icon: Icons.info_outline,
                       title: '关于',
-                      onTap: () => _showSnackBar(AppBrand.name),
+                      onTap: () => showAboutAppDialog(context),
                     ),
                   ],
                 ),
@@ -408,7 +408,7 @@ class _ProfilePageState extends State<ProfilePage>
         _buildMenuItem(
           icon: Icons.info_outline,
           title: '关于',
-          onTap: () => _showSnackBar(AppBrand.name),
+          onTap: () => showAboutAppDialog(context),
         ),
         const SizedBox(height: 16),
         SizedBox(
