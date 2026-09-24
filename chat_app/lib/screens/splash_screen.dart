@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
+import '../services/friend_code.dart';
 import '../services/update_service.dart';
 import '../widgets/pm_brand.dart';
 import '../widgets/update_dialog.dart';
@@ -25,6 +26,7 @@ class ColdStartRoute {
     final route = requestedRoute.split('?').first;
     if (route == '/home' || route.startsWith('/home/')) return requestedRoute;
     if (route == '/chat' || route.startsWith('/chat/')) return requestedRoute;
+    if (FriendCode.usernameFromRoute(route) != null) return requestedRoute;
     const allowedColdStartRoutes = {'/settings', '/register'};
     return allowedColdStartRoutes.contains(route) ? requestedRoute : null;
   }
@@ -94,8 +96,9 @@ class _SplashScreenState extends State<SplashScreen>
     final route = await _resolveInitialRoute();
     if (!mounted) return;
     final navigator = Navigator.of(context);
-    if (route.startsWith('/chat/')) {
-      // 深链接进某个聊天：下面垫一层首页，按返回回到首页而不是退出。
+    if (route.startsWith('/chat/') ||
+        FriendCode.usernameFromRoute(route) != null) {
+      // 深链接进某个聊天/加好友页：下面垫一层首页，按返回回到首页而不是退出。
       navigator.pushNamedAndRemoveUntil('/home', (_) => false);
       navigator.pushNamed(route);
       return;

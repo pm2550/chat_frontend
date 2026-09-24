@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../constants/api_constants.dart';
 import '../../constants/app_colors.dart';
+import '../../design/design.dart';
 import '../../models/call_state.dart';
 import '../../models/chat.dart';
 import '../../models/contact_group.dart';
@@ -16,6 +17,8 @@ import '../../services/persistent_data_cache.dart';
 import '../../widgets/pm_brand.dart';
 import '../../widgets/pm_responsive.dart';
 import '../chat/chat_screen.dart';
+import 'add_friend_screen.dart';
+import 'qr_scanner_page.dart';
 
 class ContactsPage extends StatefulWidget {
   const ContactsPage({super.key, this.contactService, this.chatService});
@@ -606,10 +609,10 @@ class _ContactsPageState extends State<ContactsPage>
                                   ),
                                   const SizedBox(height: 10),
                                   _buildDesktopQuickAction(
-                                    Icons.qr_code_scanner,
-                                    '扫码 / 粘贴添加',
-                                    '通过用户 ID、用户名或邮箱添加',
-                                    _showScanAddDialog,
+                                    Icons.person_add_alt_1,
+                                    '添加好友',
+                                    '输入完整用户名或粘贴加好友链接，确认后发送请求',
+                                    _openAddFriend,
                                   ),
                                   const SizedBox(height: 10),
                                   _buildDesktopQuickAction(
@@ -903,9 +906,12 @@ class _ContactsPageState extends State<ContactsPage>
                 const SizedBox(width: 12),
                 Expanded(
                   child: _buildQuickAction(
-                    icon: Icons.qr_code_scanner,
-                    label: '扫一扫',
-                    onTap: _showScanAddDialog,
+                    icon: isQrScanSupported
+                        ? Icons.qr_code_scanner
+                        : Icons.person_add_alt_1,
+                    // 只有手机上真能打开摄像头时才叫“扫一扫”。
+                    label: isQrScanSupported ? '扫一扫' : '加好友',
+                    onTap: _openAddFriend,
                   ),
                 ),
               ],
@@ -1912,14 +1918,28 @@ class _ContactsPageState extends State<ContactsPage>
           contentPadding:
               const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
           leading: _buildAvatar(user, radius: 28),
-          title: Text(
-            _displayName(user),
-            style: const TextStyle(
-              fontWeight: FontWeight.w600,
-              fontSize: 16,
-            ),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
+          title: Row(
+            children: [
+              Flexible(
+                child: Text(
+                  _displayName(user),
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 16,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              if (user.title?.trim().isNotEmpty ?? false) ...[
+                const SizedBox(width: 6),
+                PMTitleBadge(
+                  title: user.title,
+                  color: user.titleColor,
+                  effect: user.titleEffect,
+                ),
+              ],
+            ],
           ),
           subtitle: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -1958,7 +1978,10 @@ class _ContactsPageState extends State<ContactsPage>
   Widget _buildAvatar(User user, {required double radius}) {
     return Stack(
       children: [
-        CircleAvatar(
+        PMAvatarFrame(
+          preset: user.avatarFramePreset,
+          size: radius * 2,
+          child: CircleAvatar(
           radius: radius,
           backgroundColor: AppColors.primary.withValues(alpha: 0.1),
           backgroundImage: user.avatarUrl != null
@@ -1976,6 +1999,7 @@ class _ContactsPageState extends State<ContactsPage>
                   ),
                 )
               : null,
+          ),
         ),
         if (user.onlineStatus == OnlineStatus.online)
           Positioned(
@@ -2579,52 +2603,17 @@ class _ContactsPageState extends State<ContactsPage>
     ).whenComplete(nameController.dispose);
   }
 
-  Future<void> _showScanAddDialog() async {
-    final controller = TextEditingController();
-    final value = await showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('扫码添加'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          decoration: const InputDecoration(
-            labelText: '用户ID、用户名或邮箱',
-            hintText: '可粘贴二维码识别结果',
-          ),
+  Future<void> _openAddFriend() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => AddFriendScreen(
+          contactService: _contactService,
+          scanner: isQrScanSupported ? QrScannerPage.open : null,
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, controller.text.trim()),
-            child: const Text('添加'),
-          ),
-        ],
       ),
     );
-    controller.dispose();
-    if (value == null || value.isEmpty) return;
-
-    try {
-      final directId = int.tryParse(value);
-      if (directId != null) {
-        await _contactService.sendFriendRequest(directId.toString());
-        _showSnackBar('好友请求已发送');
-        return;
-      }
-
-      final users = await _contactService.searchUsers(value, limit: 1);
-      if (users.isEmpty) {
-        _showSnackBar('未找到用户');
-        return;
-      }
-      await _contactService.sendFriendRequest(users.first.id);
-      _showSnackBar('已向 ${_displayName(users.first)} 发送好友请求');
-    } catch (e) {
-      _showSnackBar('添加失败: $e');
+    if (mounted) {
+      unawaited(_loadContacts(showLoading: false));
     }
   }
 

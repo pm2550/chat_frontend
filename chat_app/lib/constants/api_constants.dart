@@ -69,6 +69,7 @@ class ApiConstants {
   static const String userProfile = profile;
   static const String searchUsers = '$apiBaseUrl/users/search';
   static const String profileSearch = '$profileBaseUrl/search';
+  static const String userLookup = '$apiBaseUrl/users/lookup';
   static String getUserById(int id) => '$apiBaseUrl/users/$id';
   static String uploadAvatar(int id) => '$apiBaseUrl/users/$id/avatar';
   static const String myTitle = '$apiBaseUrl/users/me/title';

@@ -9,6 +9,8 @@ import 'screens/auth/register_screen.dart';
 import 'screens/downloads/downloads_screen.dart';
 import 'screens/home/home_screen.dart';
 import 'screens/chat/chat_screen.dart';
+import 'screens/home/add_friend_screen.dart';
+import 'services/friend_code.dart';
 import 'screens/settings/settings_screen.dart';
 import 'screens/settings/points_screen.dart';
 import 'constants/app_brand.dart';
@@ -172,6 +174,16 @@ class ChatApp extends StatelessWidget {
           return MaterialPageRoute(
             settings: settings,
             builder: (context) => const AuthGuard(child: ChatScreen()),
+          );
+        }
+        // 加好友二维码的深链接：/add/<用户名>
+        final addFriendUsername = FriendCode.usernameFromRoute(routeName);
+        if (addFriendUsername != null) {
+          return MaterialPageRoute(
+            settings: settings,
+            builder: (context) => AuthGuard(
+              child: AddFriendScreen(initialCode: addFriendUsername),
+            ),
           );
         }
         return null;

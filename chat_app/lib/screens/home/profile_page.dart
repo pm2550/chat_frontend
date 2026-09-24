@@ -8,6 +8,7 @@ import '../../services/user_profile_service.dart';
 import '../../widgets/pm_brand.dart';
 import '../../widgets/pm_responsive.dart';
 import '../profile/about_app_dialog.dart';
+import 'add_friend_screen.dart';
 import '../profile/profile_edit_screen.dart';
 import '../profile/starred_messages_screen.dart';
 import '../settings/settings_screen.dart';
@@ -129,6 +130,12 @@ class _ProfilePageState extends State<ProfilePage>
       if (!mounted) return;
       Navigator.of(context).pushReplacementNamed('/login');
     }
+  }
+
+  void _showMyFriendCode() {
+    final user = _currentUser;
+    if (user == null) return;
+    showMyFriendCode(context, user);
   }
 
   void _openStarredMessages() {
@@ -317,6 +324,11 @@ class _ProfilePageState extends State<ProfilePage>
                       onTap: _openStarredMessages,
                     ),
                     _buildMenuItem(
+                      icon: Icons.qr_code_2,
+                      title: '我的二维码',
+                      onTap: _showMyFriendCode,
+                    ),
+                    _buildMenuItem(
                       icon: Icons.notifications,
                       title: '通知设置',
                       onTap: _openNotificationSettings,
@@ -411,6 +423,11 @@ class _ProfilePageState extends State<ProfilePage>
           icon: Icons.star_rounded,
           title: '我的收藏',
           onTap: _openStarredMessages,
+        ),
+        _buildMenuItem(
+          icon: Icons.qr_code_2,
+          title: '我的二维码',
+          onTap: _showMyFriendCode,
         ),
         _buildMenuItem(
           icon: Icons.notifications,
