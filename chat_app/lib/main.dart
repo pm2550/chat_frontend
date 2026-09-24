@@ -15,6 +15,7 @@ import 'constants/app_brand.dart';
 import 'constants/app_colors.dart';
 import 'services/agent_client_tools.dart';
 import 'services/notification_launch.dart';
+import 'services/update_service.dart';
 import 'services/websocket_service.dart';
 import 'widgets/app_update_listener.dart';
 import 'widgets/auth_guard.dart';
@@ -25,6 +26,7 @@ void main() {
   AgentClientToolRegistry().registerDefaults();
   WebSocketService().enableMobileWebBackgroundHandoff();
   unawaited(initNotificationLaunchRouting(ChatApp.navigatorKey));
+  unawaited(UpdateService.cleanupAfterUpdate());
   runApp(
     const ProviderScope(
       child: ChatApp(),

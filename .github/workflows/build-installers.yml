@@ -321,11 +321,11 @@ jobs:
           codesign --force --deep --options runtime --timestamp --entitlements macos/Runner/Release.entitlements --sign "$MACOS_CODESIGN_IDENTITY" "build/macos/Build/Products/Release/PM chat.app"
           codesign --verify --deep --strict --verbose=2 "build/macos/Build/Products/Release/PM chat.app"
 
-      - name: Check macOS app can use the network and microphone
+      - name: Check macOS app can use the network, microphone and Downloads
         run: |
           codesign -d --entitlements - --xml "build/macos/Build/Products/Release/PM chat.app" > ../build-logs/macos-entitlements.plist
           cat ../build-logs/macos-entitlements.plist
-          for key in com.apple.security.network.client com.apple.security.device.audio-input; do
+          for key in com.apple.security.network.client com.apple.security.device.audio-input com.apple.security.files.downloads.read-write; do
             grep -q "$key" ../build-logs/macos-entitlements.plist || { echo "::error::macOS app is missing $key"; exit 1; }
           done
 
