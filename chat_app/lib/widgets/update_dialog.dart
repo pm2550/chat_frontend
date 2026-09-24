@@ -259,6 +259,8 @@ class _UpdateDialogState extends State<UpdateDialog> {
   }
 
   String _primaryLabel() {
+    // 网页端"更新"就是刷新页面。
+    if (widget.isWeb) return '立即更新';
     return switch (_mode) {
       UpdateInstallMode.openLink =>
         ApiConstants.iosTestFlightUrl.isNotEmpty ? '前往 TestFlight' : '打开网页版',
