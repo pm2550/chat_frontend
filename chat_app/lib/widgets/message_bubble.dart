@@ -13,6 +13,7 @@ import '../design/design.dart';
 import '../models/message.dart';
 import '../models/poll.dart';
 import '../services/auth_service.dart';
+import 'authenticated_image.dart';
 import 'chat_video_thumbnail.dart';
 import 'qq_face_message.dart';
 
@@ -881,34 +882,26 @@ class MessageBubble extends StatelessWidget {
         ),
       );
     }
+    // 贴纸图（含系统 SVG 贴纸）走带鉴权、按地址缓存的加载器，重建气泡不会重复下载。
     return SizedBox(
       width: 112,
       height: 112,
-      child: FutureBuilder<Uint8List>(
-        future: _loadImageBytes(fileUrl),
-        builder: (context, snapshot) {
-          if (snapshot.hasData) {
-            return Image.memory(
-              snapshot.data!,
-              fit: BoxFit.contain,
-              errorBuilder: (_, __, ___) =>
-                  _buildAttachmentFallback(Icons.broken_image_outlined),
-            );
-          }
-          if (snapshot.hasError) {
-            return _buildAttachmentFallback(Icons.broken_image_outlined);
-          }
-          return Center(
-            child: SizedBox(
-              width: 24,
-              height: 24,
-              child: CircularProgressIndicator(
-                strokeWidth: 2,
-                color: isMe ? Colors.white : AppColors.primary,
-              ),
+      child: AuthenticatedImage(
+        url: fileUrl,
+        fit: BoxFit.contain,
+        loader: imageLoader,
+        errorBuilder: (_) =>
+            _buildAttachmentFallback(Icons.broken_image_outlined),
+        placeholder: (_) => Center(
+          child: SizedBox(
+            width: 24,
+            height: 24,
+            child: CircularProgressIndicator(
+              strokeWidth: 2,
+              color: isMe ? Colors.white : AppColors.primary,
             ),
-          );
-        },
+          ),
+        ),
       ),
     );
   }

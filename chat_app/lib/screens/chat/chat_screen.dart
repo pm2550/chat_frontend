@@ -46,6 +46,7 @@ import '../../widgets/chat_video_thumbnail.dart';
 import '../../widgets/chat_video_preview_dialog.dart';
 import '../../widgets/pm_brand.dart';
 import '../../widgets/pm_responsive.dart';
+import '../../widgets/sticker_tile.dart';
 import '../../widgets/typing_indicator.dart';
 import 'chat_file_center_screen.dart';
 import 'chat_room_bot_config_screen.dart';

@@ -1334,30 +1334,12 @@ extension _ChatScreenComposerParts on _ChatScreenState {
   }
 
   Widget _buildStickerTile(StickerItem sticker) {
-    return InkWell(
-      borderRadius: BorderRadius.circular(12),
+    return StickerTile(
+      sticker: sticker,
       onTap: () {
         Navigator.pop(context);
         unawaited(_sendSticker(sticker));
       },
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          color: AppColors.pixelBlue,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: AppColors.borderLight),
-        ),
-        child: Center(
-          child: sticker.url == null
-              ? Text(
-                  sticker.keyword ?? '😀',
-                  style: const TextStyle(fontSize: 34),
-                )
-              : Image.network(
-                  ApiConstants.resolveFileUrl(sticker.url!),
-                  fit: BoxFit.contain,
-                ),
-        ),
-      ),
     );
   }
 

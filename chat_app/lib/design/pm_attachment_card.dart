@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../constants/app_colors.dart';
+import '../widgets/authenticated_image.dart';
 import 'pm_card.dart';
 import 'tokens.dart';
 
@@ -64,10 +65,11 @@ class PMAttachmentCard extends StatelessWidget {
                     if (preview != null)
                       preview!
                     else if (hasThumbnail)
-                      Image.network(
-                        thumbnail!,
+                      // 缩略图可能指向本站受保护文件，统一走带鉴权的加载器。
+                      AuthenticatedImage(
+                        url: thumbnail!,
                         fit: BoxFit.cover,
-                        errorBuilder: (_, __, ___) =>
+                        errorBuilder: (_) =>
                             _IconPreview(type: type, color: accent),
                       )
                     else
