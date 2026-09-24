@@ -490,7 +490,8 @@ class _PreviewIconButton extends StatelessWidget {
   Widget build(BuildContext context) {
     // Android only reports a tooltip as tooltip text, which TalkBack and
     // UI automation do not read as the button's name; label it as well.
-    return Semantics(
+    return MergeSemantics(
+        child: Semantics(
       label: tooltip,
       child: Tooltip(
         message: tooltip,
@@ -505,7 +506,7 @@ class _PreviewIconButton extends StatelessWidget {
           ),
         ),
       ),
-    );
+    ));
   }
 }
 

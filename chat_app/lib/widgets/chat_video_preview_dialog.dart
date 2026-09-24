@@ -411,7 +411,8 @@ class _VideoPreviewButton extends StatelessWidget {
   Widget build(BuildContext context) {
     // Label as well as tooltip: Android does not expose tooltips as the
     // button's name to TalkBack or UI automation.
-    return Semantics(
+    return MergeSemantics(
+        child: Semantics(
       label: tooltip,
       child: Tooltip(
         message: tooltip,
@@ -426,6 +427,6 @@ class _VideoPreviewButton extends StatelessWidget {
           ),
         ),
       ),
-    );
+    ));
   }
 }

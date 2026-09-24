@@ -39,7 +39,7 @@ python3 scripts/ci/android_smoke_ui.py dump $OUT/ui-chat.txt
 python3 scripts/ci/android_smoke_ui.py tap-image
 sleep 6
 python3 scripts/ci/android_smoke_ui.py dump $OUT/ui-preview.txt
-python3 scripts/ci/android_smoke_ui.py tap-text "^保存图片$"
+python3 scripts/ci/android_smoke_ui.py tap-text "保存图片"
 sleep 2
 python3 scripts/ci/android_smoke_ui.py dump $OUT/ui-after-save.txt
 sleep 3

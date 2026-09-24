@@ -123,6 +123,19 @@ void main() {
 
     await tester.tap(find.text('photo.png').first);
     await tester.pumpAndSettle();
+
+    // TalkBack (and UI automation) must see the button's name on the
+    // tappable node itself, not merged into the surrounding dialog.
+    final semantics = tester.ensureSemantics();
+    expect(
+      tester.getSemantics(find.descendant(
+        of: find.byTooltip('保存图片'),
+        matching: find.byType(IconButton),
+      )),
+      containsSemantics(label: '保存图片', isButton: true, hasTapAction: true),
+    );
+    semantics.dispose();
+
     await tester.tap(find.byTooltip('保存图片'));
     await tester.pumpAndSettle();
 

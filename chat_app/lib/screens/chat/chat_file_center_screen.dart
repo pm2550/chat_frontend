@@ -524,7 +524,8 @@ class _FileCenterImagePreviewDialog extends StatelessWidget {
                               ),
                             ),
                           ),
-                          Semantics(
+                          MergeSemantics(
+                              child: Semantics(
                             label: '保存图片',
                             child: Tooltip(
                               message: '保存图片',
@@ -548,7 +549,7 @@ class _FileCenterImagePreviewDialog extends StatelessWidget {
                                 ),
                               ),
                             ),
-                          ),
+                          )),
                           const SizedBox(width: 8),
                           Tooltip(
                             message: '关闭',

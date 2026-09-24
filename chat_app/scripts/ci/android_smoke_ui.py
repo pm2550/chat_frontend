@@ -51,7 +51,8 @@ def main():
             hit = [n for n in nodes if pattern.search(n.get("text") or "")
                    or pattern.search(n.get("content-desc") or "")]
             if hit:
-                tap(hit[-1] if len(sys.argv) > 3 and sys.argv[3] == "last" else hit[0])
+                clickable = [n for n in hit if n.get("clickable") == "true"]
+                tap((clickable or hit)[0])
                 return
         elif cmd == "tap-image":
             screen = bounds(root.find("node"))
