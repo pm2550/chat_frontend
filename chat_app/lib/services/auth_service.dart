@@ -203,6 +203,20 @@ class AuthService extends ChangeNotifier {
     return false;
   }
 
+  /// 当前登录密码的客户端哈希（和登录时发给服务器的是同一个值），给需要服务器再确认一次
+  /// 密码的操作用（例如用恢复码找回加密密钥后换上新的密码包装）。旧式账号返回 null。
+  Future<String?> currentPasswordProof(String password) async {
+    final username = _currentUser?.username;
+    if (username == null || username.isEmpty) return null;
+    final saltParams = await _fetchClientSaltParams(username);
+    if (!saltParams.isClientArgon2) return null;
+    return _passwordHasher.hashWithSalt(
+      password: password,
+      salt: saltParams.salt,
+      argon2Params: saltParams.argon2Params,
+    );
+  }
+
   /// 等端到端加密解开私钥再进聊天，第一屏的加密消息就能直接显示；
   /// 慢或失败都不耽误登录（之后可以在聊天里手动解锁）。
   Future<void> _afterPasswordVerified(String password) async {

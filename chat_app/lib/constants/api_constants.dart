@@ -221,6 +221,8 @@ class ApiConstants {
   static const String e2eeMyKeys = '$apiBaseUrl/e2ee/keys/me';
   static const String e2eeCreateKey = '$apiBaseUrl/e2ee/keys';
   static const String e2eeEnabled = '$apiBaseUrl/e2ee/enabled';
+  static const String e2eeRecovery = '$apiBaseUrl/e2ee/recovery';
+  static const String e2eePasswordWraps = '$apiBaseUrl/e2ee/keys/password-wraps';
   static String e2eeUserKeys(String userId) =>
       '$apiBaseUrl/e2ee/users/$userId/keys';
   static String e2eeRoomStatus(String roomId) =>

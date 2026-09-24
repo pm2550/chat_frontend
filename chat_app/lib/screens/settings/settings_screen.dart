@@ -8,6 +8,7 @@ import '../../design/design.dart';
 import '../../services/auth_service.dart';
 import '../../services/bot_service.dart';
 import '../../services/encryption_service.dart';
+import '../../widgets/e2ee_recovery_widgets.dart';
 import '../../widgets/e2ee_widgets.dart';
 import '../../services/user_profile_service.dart';
 import '../../services/web_push_service.dart';
@@ -30,10 +31,18 @@ class SettingsCopy {
 }
 
 class SettingsScreen extends StatefulWidget {
-  const SettingsScreen({super.key, this.profileService, this.encryptionService});
+  const SettingsScreen({
+    super.key,
+    this.profileService,
+    this.encryptionService,
+    this.recoveryActions = const E2eeRecoveryActions(),
+  });
 
   final UserProfileService? profileService;
   final EncryptionService? encryptionService;
+
+  /// 恢复码对话框的复制 / 保存文件 / 打开邮件应用（测试里替换）。
+  final E2eeRecoveryActions recoveryActions;
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
@@ -50,6 +59,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _isGeneratingE2ee = false;
 
   bool get _e2eeEnabled => _e2eeStatus?.serverEnabled ?? false;
+  bool get _needsRecoveryCode => _e2eeStatus?.needsRecoveryCode ?? false;
   bool _notificationsEnabled = true;
   UserAppSettings _appSettings = const UserAppSettings();
   String _settingsQuery = '';
@@ -189,10 +199,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
       confirmLabel: '开启',
     );
     if (password == null || password.isEmpty || !mounted) return;
-    await _runE2eeAction(
+    final enabled = await _runE2eeAction(
       () => _encryptionService.enable(password),
       success: '端到端加密已开启',
     );
+    // 刚生成的密钥只由密码保护：马上请用户保存恢复码（取消了设置页会一直提示）。
+    if (enabled && mounted && _needsRecoveryCode) {
+      await _setUpRecoveryCode();
+    }
   }
 
   Future<E2eeAccountStatus?> _refreshE2eeStatusForToggle() async {
@@ -204,11 +218,65 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _unlockE2eeOnThisDevice() async {
-    final unlocked = await runE2eeUnlockFlow(context, _encryptionService);
+    final unlocked = await runE2eeUnlockFlow(
+      context,
+      _encryptionService,
+      recoveryActions: widget.recoveryActions,
+    );
     if (unlocked) await _loadE2eeStatus();
   }
 
-  Future<void> _runE2eeAction(
+  /// 设置 / 重新生成恢复码。需要当前密钥已在这台设备上解开（包装要用明文私钥）。
+  Future<void> _setUpRecoveryCode({bool regenerate = false}) async {
+    if (_e2eeStatus?.unlockedOnDevice == false) {
+      final unlocked = await runE2eeUnlockFlow(
+        context,
+        _encryptionService,
+        recoveryActions: widget.recoveryActions,
+      );
+      if (!unlocked || !mounted) return;
+    }
+    await showE2eeRecoveryCodeSetup(
+      context,
+      _encryptionService,
+      actions: widget.recoveryActions,
+      regenerate: regenerate,
+    );
+    await _loadE2eeStatus();
+  }
+
+  Future<void> _regenerateRecoveryCode() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('重新生成恢复码？'),
+        content: const Text(
+          '会生成一个新的恢复码，保存确认后旧的恢复码立即失效（包括发到邮箱或存成文件的那份）。\n\n'
+          '如果旧恢复码可能被别人看到了，应该重新生成。',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('重新生成'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    await _setUpRecoveryCode(regenerate: true);
+  }
+
+  Future<void> _recoverWithCode() async {
+    final recovered = await runE2eeRecoveryFlow(context, _encryptionService);
+    if (recovered) await _loadE2eeStatus();
+  }
+
+  /// 执行一个加密相关操作，成功返回 true。
+  Future<bool> _runE2eeAction(
     Future<void> Function() action, {
     required String success,
     bool busyLabel = true,
@@ -217,12 +285,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
     try {
       await action();
       await _loadE2eeStatus();
-      if (!mounted) return;
+      if (!mounted) return true;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(success), backgroundColor: AppColors.success),
       );
+      return true;
     } catch (error) {
-      if (!mounted) return;
+      if (!mounted) return false;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(error is E2eeWrongPasswordException
@@ -231,9 +300,50 @@ class _SettingsScreenState extends State<SettingsScreen> {
           backgroundColor: AppColors.error,
         ),
       );
+      return false;
     } finally {
       if (mounted) setState(() => _isGeneratingE2ee = false);
     }
+  }
+
+  String _recoverySubtitle() {
+    final status = _e2eeStatus;
+    if (status == null || !status.recoveryConfigured) {
+      return '还没有恢复码：忘记密码或密码被管理员重置后，加密聊天记录将无法找回';
+    }
+    return '已设置：忘记密码或密码被重置时，可以用恢复码找回加密聊天记录';
+  }
+
+  /// 有密钥却没有恢复码时，设置页顶部一直显示这条提示，直到设置好。
+  Widget _buildRecoveryBanner() {
+    return Container(
+      key: const ValueKey('settings-e2ee-recovery-banner'),
+      padding: const EdgeInsets.all(PMSpacing.l),
+      decoration: BoxDecoration(
+        color: AppColors.warning.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(PMRadius.m),
+        border: Border.all(color: AppColors.warning.withValues(alpha: 0.4)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.key_outlined, color: AppColors.warning),
+          const SizedBox(width: PMSpacing.m),
+          const Expanded(
+            child: Text(
+              '请设置端到端加密恢复码：忘记登录密码或密码被管理员重置时，'
+              '只有用它才能找回加密聊天记录。',
+              style: TextStyle(fontSize: 13.5, height: 1.4),
+            ),
+          ),
+          const SizedBox(width: PMSpacing.s),
+          FilledButton(
+            key: const ValueKey('settings-e2ee-recovery-setup'),
+            onPressed: _isGeneratingE2ee ? null : () => _setUpRecoveryCode(),
+            child: const Text('设置恢复码'),
+          ),
+        ],
+      ),
+    );
   }
 
   String _e2eeSubtitle() {
@@ -345,6 +455,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
       padding: const EdgeInsets.all(PMSpacing.xl),
       children: [
         _buildSettingsSearchBox(),
+        if (_needsRecoveryCode) ...[
+          const SizedBox(height: PMSpacing.l),
+          _buildRecoveryBanner(),
+        ],
         if (_isGeneratingE2ee) ...[
           const SizedBox(height: PMSpacing.l),
           const PMProgressStrip(label: '正在处理端到端加密密钥...'),
@@ -408,6 +522,42 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 key: const ValueKey('settings-e2ee-switch'),
                 value: _e2eeEnabled,
                 onChanged: _isGeneratingE2ee ? null : _handleE2eeChanged,
+              ),
+            ],
+          ),
+        ),
+      if ((_e2eeStatus?.hasServerKeys ?? false) &&
+          _matchesSetting('恢复码', ['端到端加密', '密钥', '找回', '忘记密码', 'e2ee']))
+        PMListRow(
+          leading: _settingsIcon(Icons.key_outlined, AppColors.warning),
+          title: const Text('恢复码'),
+          subtitle: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(_recoverySubtitle()),
+              Wrap(
+                spacing: PMSpacing.xs,
+                children: [
+                  if (_e2eeStatus?.hasRecoveryWraps ?? false)
+                    TextButton(
+                      key: const ValueKey('settings-e2ee-recovery-restore'),
+                      onPressed: _isGeneratingE2ee ? null : _recoverWithCode,
+                      child: const Text('用恢复码找回'),
+                    ),
+                  if (_e2eeStatus?.recoveryConfigured ?? false)
+                    TextButton(
+                      key: const ValueKey('settings-e2ee-recovery-regenerate'),
+                      onPressed:
+                          _isGeneratingE2ee ? null : _regenerateRecoveryCode,
+                      child: const Text('重新生成恢复码'),
+                    )
+                  else
+                    TextButton(
+                      onPressed:
+                          _isGeneratingE2ee ? null : () => _setUpRecoveryCode(),
+                      child: const Text('设置恢复码'),
+                    ),
+                ],
               ),
             ],
           ),
