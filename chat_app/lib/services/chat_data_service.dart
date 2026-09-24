@@ -156,6 +156,15 @@ class ChatDataService {
     _cachedChatRoomsAt = DateTime.now();
   }
 
+  /// 会话被移出列表（被踢、退出、解散、隐藏）：同步去掉内存缓存里的这一项，
+  /// 免得 30 秒缓存期内切回列表又看到它。
+  static void removeCachedChatRoom(String chatRoomId) {
+    final cached = _cachedChatRooms;
+    if (cached == null) return;
+    _cachedChatRooms =
+        cached.where((room) => room.id != chatRoomId).toList();
+  }
+
   Future<List<Chat>> getChatRooms({
     int page = 0,
     int size = 30,

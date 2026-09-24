@@ -30,6 +30,7 @@ import '../../services/contact_data_service.dart';
 import '../../services/chat_drop_paste.dart'
     if (dart.library.js_interop) '../../services/chat_drop_paste_web.dart';
 import '../../services/file_save.dart' as file_save;
+import '../../services/typing_indicator_sender.dart';
 import '../../services/platform_chat_file_picker.dart'
     if (dart.library.js_interop) '../../services/platform_chat_file_picker_web.dart';
 import '../../services/user_profile_service.dart';
@@ -68,6 +69,7 @@ part 'sub/link_preview_card.dart';
 part 'sub/announcement_banner.dart';
 part 'sub/drag_paste_upload.dart';
 part 'sub/pending_attachments_strip.dart';
+part 'sub/realtime_sync.dart';
 
 typedef ChatAttachmentPicker = Future<PickedChatFile?> Function();
 
@@ -158,6 +160,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   int _initialBottomAnchorGeneration = 0;
   bool _initialBottomAnchorActive = false;
   final VoiceRecorder _voiceRecorder = VoiceRecorder();
+  late final TypingIndicatorSender _typingSender;
+  bool _removedFromRoom = false;
 
   List<Message> _messages = [];
   final Map<String, GlobalKey> _messageKeys = {};
@@ -237,6 +241,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           authService: _authService,
         );
     _scrollController.addListener(_handleScroll);
+    _typingSender = TypingIndicatorSender(send: _sendTypingState);
+    _messageController.addListener(_handleComposerTextForTyping);
+    _focusNode.addListener(_handleComposerFocusForTyping);
     WidgetsBinding.instance.addObserver(this);
   }
 
@@ -402,6 +409,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    _typingSender.stop();
+    _messageController.removeListener(_handleComposerTextForTyping);
+    _focusNode.removeListener(_handleComposerFocusForTyping);
     _voicePlayback.dispose();
     WidgetsBinding.instance.removeObserver(this);
     _messageSubscription?.cancel();
@@ -751,23 +761,27 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   }
 
   void _handleRealtimeStatus(Map<String, dynamic> event) {
+    if (!mounted) return;
+    // 在线状态事件不带房间号，按用户匹配当前会话里的成员。
+    if (event['type'] == 'status') {
+      _applyRealtimePresence(event);
+      return;
+    }
     final roomId = event['chatRoomId']?.toString();
-    if (roomId != _chat.id || !mounted) return;
+    if (roomId != _chat.id) return;
+    if (event['type'] == 'room_membership_removed') {
+      _handleRemovedFromRoom(event['reason']?.toString());
+      return;
+    }
+    if (event['type'] == 'read_receipt') {
+      _applyRealtimeReadReceipt(event);
+      return;
+    }
     if (event['type'] == 'room_updated') {
       final chatRoomJson = event['chatRoom'];
-      if (chatRoomJson is Map<String, dynamic>) {
-        final updated = Chat.fromJson(chatRoomJson);
+      if (chatRoomJson is Map) {
         setState(() {
-          _chat = _chat.copyWith(
-            name: updated.name,
-            description: updated.description,
-            announcement: updated.announcement,
-            avatarUrl: updated.avatarUrl,
-            anonymousEnabled: updated.anonymousEnabled,
-            anonymousTheme: updated.anonymousTheme,
-            customBackgroundPreset: updated.customBackgroundPreset,
-            customBackgroundUrl: updated.customBackgroundUrl,
-          );
+          _chat = _chat.withRoomUpdate(Map<String, dynamic>.from(chatRoomJson));
         });
       }
       return;
@@ -794,9 +808,18 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     if (roomId != _chat.id || !mounted) return;
     final namesValue = event['userNames'];
     if (namesValue is List) {
-      _setViewState(() {
-        _typingUserNames = namesValue.map((item) => item.toString()).toList();
-      });
+      // 服务器把输入者本人也算在快照里；自己（包括自己的其他设备）不显示。
+      final idsValue = event['userIds'];
+      final currentUserId = _authService.currentUser?.id;
+      final names = <String>[];
+      for (var i = 0; i < namesValue.length; i++) {
+        final id = idsValue is List && i < idsValue.length
+            ? idsValue[i]?.toString()
+            : null;
+        if (currentUserId != null && id == currentUserId) continue;
+        names.add(namesValue[i].toString());
+      }
+      _setViewState(() => _typingUserNames = names);
       return;
     }
     final userName =
@@ -1088,11 +1111,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                         ),
                         if (_chat.type == ChatType.private)
                           Text(
-                            _privatePeer()?.onlineStatus == OnlineStatus.online
-                                ? '在线'
-                                : _privatePeer()?.lastSeen != null
-                                    ? '最后在线 ${timeago.format(_privatePeer()!.lastSeen!, locale: 'zh')}'
-                                    : '离线',
+                            _chatSubtitle(),
                             style: TextStyle(
                               fontSize: 12,
                               color: _privatePeer()?.onlineStatus ==

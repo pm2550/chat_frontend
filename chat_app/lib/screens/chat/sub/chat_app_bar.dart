@@ -297,8 +297,9 @@ extension _ChatScreenChromeParts on _ChatScreenState {
     if (_chat.type == ChatType.private) {
       final participant = _privatePeer();
       if (participant == null) return '私聊';
-      if (participant.onlineStatus == OnlineStatus.online) {
-        return '在线';
+      if (participant.onlineStatus != OnlineStatus.offline) {
+        // 在线 / 离开 / 忙碌
+        return participant.onlineStatus.description;
       }
       if (participant.lastSeen != null) {
         return '最后在线 ${timeago.format(participant.lastSeen!, locale: 'zh')}';

@@ -225,6 +225,47 @@ class Chat {
     );
   }
 
+  /// 应用服务器推送的 room_updated 房间快照。快照总是完整的：可空字段缺席表示
+  /// 已被清除（例如管理员清掉了房间背景、群头像），不能像 copyWith 那样沿用旧值。
+  /// 成员、未读、置顶这类"我自己的"状态不在快照里，保持不变。
+  Chat withRoomUpdate(Map<String, dynamic> json) {
+    final updated = Chat.fromJson(json);
+    final hasMemberCount =
+        json.containsKey('memberCount') || json.containsKey('member_count');
+    return Chat(
+      id: id,
+      name: updated.name.isNotEmpty ? updated.name : name,
+      description: updated.description,
+      announcement: updated.announcement,
+      announcementUpdatedAt:
+          updated.announcementUpdatedAt ?? announcementUpdatedAt,
+      announcementUpdatedBy:
+          updated.announcementUpdatedBy ?? announcementUpdatedBy,
+      type: type,
+      avatarUrl: updated.avatarUrl,
+      participants: participants,
+      memberCount: hasMemberCount ? updated.memberCount : memberCount,
+      lastMessage: lastMessage,
+      unreadCount: unreadCount,
+      isPinned: isPinned,
+      isMuted: isMuted,
+      hiddenAt: hiddenAt,
+      isBlocked: isBlocked,
+      clearedBeforeMessageId: clearedBeforeMessageId,
+      createdAt: createdAt,
+      updatedAt: updatedAt,
+      metadata: metadata,
+      createdBy: createdBy,
+      isActive: isActive,
+      isPrivate: isPrivate,
+      maxMembers: maxMembers,
+      anonymousEnabled: updated.anonymousEnabled,
+      anonymousTheme: updated.anonymousTheme,
+      customBackgroundPreset: updated.customBackgroundPreset,
+      customBackgroundUrl: updated.customBackgroundUrl,
+    );
+  }
+
   // 获取聊天显示名称
   String getDisplayName(String currentUserId) {
     if (type == ChatType.group || type == ChatType.channel) {
