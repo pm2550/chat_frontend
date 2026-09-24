@@ -186,6 +186,34 @@ class UserAppSettings {
   }
 }
 
+/// 当前登录用户最近一次从服务器读到或保存成功的全局设置。
+///
+/// 设置页以外的地方（例如聊天列表决定要不要弹前台/桌面通知）读这里，
+/// 这样在设置页关掉"消息通知"后立刻生效，不用等重新进入页面。
+/// 按用户 id 区分，切换账号后不会沿用上一个人的设置。
+class UserSettingsCache {
+  UserSettingsCache._();
+
+  static String? _userId;
+  static UserAppSettings? _settings;
+
+  static UserAppSettings? forUser(String? userId) {
+    if (userId == null || userId != _userId) return null;
+    return _settings;
+  }
+
+  static void store(String? userId, UserAppSettings settings) {
+    if (userId == null) return;
+    _userId = userId;
+    _settings = settings;
+  }
+
+  static void clear() {
+    _userId = null;
+    _settings = null;
+  }
+}
+
 class UserProfileService {
   UserProfileService({
     AuthService? authService,
@@ -270,7 +298,7 @@ class UserProfileService {
       ApiConstants.profileChatBackground,
       background: background,
     );
-    return _extractSettings(_decodeResponse(response));
+    return _rememberSettings(_extractSettings(_decodeResponse(response)));
   }
 
   Future<void> deleteAvatar() async {
@@ -342,7 +370,7 @@ class UserProfileService {
 
   Future<UserAppSettings> getSettings() async {
     final response = await _request('GET', ApiConstants.profileSettings);
-    return _extractSettings(_decodeResponse(response));
+    return _rememberSettings(_extractSettings(_decodeResponse(response)));
   }
 
   Future<UserAppSettings> updateSettings(UserAppSettings settings) async {
@@ -351,7 +379,7 @@ class UserProfileService {
       ApiConstants.profileSettings,
       body: settings.toJson(),
     );
-    final saved = _extractSettings(_decodeResponse(response));
+    final saved = _rememberSettings(_extractSettings(_decodeResponse(response)));
     final currentUser = _authService.currentUser;
     if (currentUser != null) {
       await _authService.replaceCurrentUser(currentUser.copyWith(
@@ -465,6 +493,11 @@ class UserProfileService {
       return User.fromJson(payload);
     }
     throw const UserProfileException('响应中没有用户资料');
+  }
+
+  UserAppSettings _rememberSettings(UserAppSettings settings) {
+    UserSettingsCache.store(_authService.currentUser?.id, settings);
+    return settings;
   }
 
   UserAppSettings _extractSettings(Map<String, dynamic> data) {

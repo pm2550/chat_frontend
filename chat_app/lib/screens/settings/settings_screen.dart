@@ -14,8 +14,21 @@ import '../profile/profile_edit_screen.dart';
 import 'chat_preferences_screen.dart';
 import 'points_screen.dart';
 
+/// 设置项说明文案：要如实说明开关的实际效果（服务端按同样的规则执行）。
+class SettingsCopy {
+  SettingsCopy._();
+
+  static const messageNotifications = '关闭后不再推送新消息，也不弹会话提醒；来电提醒不受影响';
+  static const readReceipts = '关闭后对方看不到你是否已读，你也看不到对方的已读';
+  static const showOnlineStatus = '关闭后其他人只会看到你离线，也看不到你的最后在线时间';
+  static const allowFriendRequests = '关闭后别人无法向你发送好友请求，你仍可主动添加别人';
+  static const allowDirectMessages = '关闭后只有好友可以发起新的私聊，已有会话不受影响';
+}
+
 class SettingsScreen extends StatefulWidget {
-  const SettingsScreen({super.key});
+  const SettingsScreen({super.key, this.profileService});
+
+  final UserProfileService? profileService;
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
@@ -24,7 +37,8 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   final AuthService _authService = AuthService();
   final EncryptionService _encryptionService = EncryptionService();
-  final UserProfileService _profileService = UserProfileService();
+  late final UserProfileService _profileService =
+      widget.profileService ?? UserProfileService();
   final TextEditingController _searchController = TextEditingController();
   bool _e2eeEnabled = false;
   bool _isGeneratingE2ee = false;
@@ -290,7 +304,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         PMListRow(
           leading: _settingsIcon(Icons.circle, AppColors.success),
           title: const Text('显示在线状态'),
-          subtitle: const Text('允许联系人看到你的在线、离开或忙碌状态'),
+          subtitle: const Text(SettingsCopy.showOnlineStatus),
           trailing: Switch(
             value: _appSettings.showOnlineStatus,
             onChanged: (value) => _saveAppSettings(
@@ -303,7 +317,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           leading:
               _settingsIcon(Icons.person_add_alt_1, AppColors.secondaryDark),
           title: const Text('允许好友请求'),
-          subtitle: const Text('关闭后仅能由你主动添加联系人'),
+          subtitle: const Text(SettingsCopy.allowFriendRequests),
           trailing: Switch(
             value: _appSettings.allowFriendRequests,
             onChanged: (value) => _saveAppSettings(
@@ -316,21 +330,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
           leading:
               _settingsIcon(Icons.chat_bubble_outline, AppColors.primaryDark),
           title: const Text('允许私聊'),
-          subtitle: const Text('允许好友创建与你的私聊会话'),
+          subtitle: const Text(SettingsCopy.allowDirectMessages),
           trailing: Switch(
             value: _appSettings.allowDirectMessages,
             onChanged: (value) => _saveAppSettings(
               _appSettings.copyWith(allowDirectMessages: value),
             ),
           ),
-        ),
-      if (_matchesSetting('阅后即焚默认时间', ['安全', '计时', '消息']))
-        PMListRow(
-          leading: _settingsIcon(Icons.timer_outlined, AppColors.warning),
-          title: const Text('阅后即焚默认时间'),
-          subtitle: const Text('关闭'),
-          trailing:
-              const Icon(Icons.chevron_right, color: AppColors.textTertiary),
         ),
     ];
     return _sectionOrNull(
@@ -347,7 +353,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           leading:
               _settingsIcon(Icons.notifications_outlined, AppColors.primary),
           title: const Text('消息通知'),
-          subtitle: const Text('接收离线推送和会话提醒'),
+          subtitle: const Text(SettingsCopy.messageNotifications),
           trailing: Switch(
             value: _notificationsEnabled,
             onChanged: (value) => _saveAppSettings(
@@ -359,7 +365,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         PMListRow(
           leading: _settingsIcon(Icons.done_all, AppColors.secondaryDark),
           title: const Text('已读回执'),
-          subtitle: const Text('允许发送已读状态'),
+          subtitle: const Text(SettingsCopy.readReceipts),
           trailing: Switch(
             value: _appSettings.readReceiptsEnabled,
             onChanged: (value) => _saveAppSettings(
@@ -667,10 +673,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
             value: _appSettings.readReceiptsEnabled ? '允许发送' : '不发送',
           ),
           const SizedBox(height: PMSpacing.m),
-          const _DesktopStatusRow(
-            icon: Icons.verified_user_outlined,
-            label: '隐私控制',
-            value: '已连接后端设置',
+          _DesktopStatusRow(
+            icon: Icons.visibility_outlined,
+            label: '在线状态',
+            value: _appSettings.showOnlineStatus ? '对他人可见' : '已隐藏',
           ),
           const Spacer(),
           PMButton(
@@ -1035,7 +1041,7 @@ class _NotificationSettingsScreenState
           _buildWebPushTile(),
           SwitchListTile(
             title: const Text('消息通知'),
-            subtitle: const Text('接收离线推送和会话提醒'),
+            subtitle: const Text(SettingsCopy.messageNotifications),
             value: _settings.messageNotificationsEnabled,
             onChanged: _isSaving
                 ? null
@@ -1048,7 +1054,7 @@ class _NotificationSettingsScreenState
           ),
           SwitchListTile(
             title: const Text('已读回执'),
-            subtitle: const Text('允许发送已读状态'),
+            subtitle: const Text(SettingsCopy.readReceipts),
             value: _settings.readReceiptsEnabled,
             onChanged: _isSaving
                 ? null
@@ -1139,7 +1145,7 @@ class _PrivacySettingsScreenState extends State<PrivacySettingsScreen> {
         children: [
           SwitchListTile(
             title: const Text('显示在线状态'),
-            subtitle: const Text('允许联系人看到你的在线/离线状态'),
+            subtitle: const Text(SettingsCopy.showOnlineStatus),
             value: _settings.showOnlineStatus,
             onChanged: _isSaving
                 ? null
@@ -1150,7 +1156,7 @@ class _PrivacySettingsScreenState extends State<PrivacySettingsScreen> {
           ),
           SwitchListTile(
             title: const Text('允许好友请求'),
-            subtitle: const Text('关闭后仅能由你主动添加联系人'),
+            subtitle: const Text(SettingsCopy.allowFriendRequests),
             value: _settings.allowFriendRequests,
             onChanged: _isSaving
                 ? null
@@ -1161,7 +1167,7 @@ class _PrivacySettingsScreenState extends State<PrivacySettingsScreen> {
           ),
           SwitchListTile(
             title: const Text('允许私聊'),
-            subtitle: const Text('允许好友创建与你的私聊会话'),
+            subtitle: const Text(SettingsCopy.allowDirectMessages),
             value: _settings.allowDirectMessages,
             onChanged: _isSaving
                 ? null

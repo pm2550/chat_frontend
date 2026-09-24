@@ -14,6 +14,7 @@ import '../../services/auth_service.dart';
 import '../../services/chat_data_service.dart';
 import '../../services/desktop_notification_service.dart';
 import '../../services/native_push_service.dart';
+import '../../services/user_profile_service.dart';
 import '../../services/websocket_service.dart';
 import '../../widgets/pm_brand.dart';
 import '../../widgets/pm_responsive.dart';
@@ -26,12 +27,16 @@ class ChatListPage extends StatefulWidget {
     this.chatService,
     this.realtimeService,
     this.notificationService,
+    this.profileService,
     this.currentUserId,
   });
 
   final ChatDataService? chatService;
   final ChatRealtimeService? realtimeService;
   final DesktopNotificationService? notificationService;
+
+  /// 用来读取"消息通知"开关；测试里可注入。
+  final UserProfileService? profileService;
   final String? currentUserId;
 
   @override
@@ -76,6 +81,7 @@ class _ChatListPageState extends State<ChatListPage>
       _isLoading = false;
     }
     _requestMobileNotificationPermission();
+    _loadNotificationPreference();
     unawaited(_bootstrapChats(cachedChats != null));
     _connectRealtime();
   }
@@ -169,6 +175,21 @@ class _ChatListPageState extends State<ChatListPage>
     await _realtimeService.connect();
   }
 
+  /// 全局"消息通知"开关：关掉后不弹前台提示和桌面通知（离线推送由服务器按同一开关拦截）。
+  bool get _messageNotificationsEnabled =>
+      UserSettingsCache.forUser(_currentUserId)?.messageNotificationsEnabled ??
+      true;
+
+  void _loadNotificationPreference() {
+    if (UserSettingsCache.forUser(_currentUserId) != null) return;
+    final profileService = widget.profileService ??
+        (widget.chatService == null ? UserProfileService() : null);
+    if (profileService == null) return;
+    unawaited(profileService.getSettings().then<void>((_) {}, onError: (_) {
+      // 读不到设置时按默认（开启）处理，不影响聊天列表本身。
+    }));
+  }
+
   void _requestMobileNotificationPermission() {
     if (kIsWeb) return;
     if (_notificationService.isSupported &&
@@ -218,7 +239,10 @@ class _ChatListPageState extends State<ChatListPage>
     _syncDesktopUnreadBadge();
 
     final mentionsMe = message.mentionsUser(currentUserId);
-    if (isIncoming && !message.isRemoved && (!original.isMuted || mentionsMe)) {
+    if (isIncoming &&
+        !message.isRemoved &&
+        _messageNotificationsEnabled &&
+        (!original.isMuted || mentionsMe)) {
       _showIncomingMessageNotice(
           _chats.firstWhere(
             (chat) => chat.id == message.chatRoomId,

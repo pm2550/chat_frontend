@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:chat_app/constants/api_constants.dart';
 import 'package:chat_app/constants/app_colors.dart';
@@ -10,6 +11,10 @@ import 'package:chat_app/services/chat_data_service.dart';
 import 'package:chat_app/services/desktop_notification_service.dart';
 import 'package:chat_app/services/desktop_notification_stub.dart';
 import 'package:chat_app/services/websocket_service.dart';
+import 'package:chat_app/services/auth_service.dart';
+import 'package:chat_app/services/user_profile_service.dart';
+import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -255,6 +260,72 @@ void main() {
       expect(backend.shownNotifications, hasLength(1));
       expect(backend.shownNotifications.single.title, '通知群聊');
       expect(backend.shownNotifications.single.body, '桌面通知消息');
+    });
+
+    testWidgets('global message notification switch off suppresses notices',
+        (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      addTearDown(UserSettingsCache.clear);
+      addTearDown(() => AuthService().clearLocalSession());
+      final realtime = FakeRealtimeService();
+      final backend = StubDesktopNotificationBackend(
+        supported: true,
+        permissionGranted: true,
+        visible: false,
+      );
+      final service = FakeChatListService(chats: [
+        Chat(
+          id: '1',
+          name: '通知群聊',
+          type: ChatType.group,
+          createdAt: DateTime.parse('2024-01-01T10:00:00'),
+        ),
+      ]);
+      final profileService = UserProfileService(
+        authService: AuthService(),
+        authenticatedRequest: (method, url, {headers, body}) async =>
+            http.Response(
+          jsonEncode({
+            'success': true,
+            'data': {'messageNotificationsEnabled': false},
+          }),
+          200,
+          headers: {'content-type': 'application/json; charset=utf-8'},
+        ),
+      );
+      await AuthService().replaceCurrentUser(User(
+        id: 'me',
+        username: 'me',
+        email: 'me@example.com',
+        displayName: '我',
+        createdAt: DateTime.parse('2024-01-01T00:00:00'),
+      ));
+
+      await tester.pumpWidget(MaterialApp(
+        home: ChatListPage(
+          chatService: service,
+          realtimeService: realtime,
+          notificationService: DesktopNotificationService(backend: backend),
+          profileService: profileService,
+          currentUserId: 'me',
+        ),
+      ));
+      await tester.pump();
+
+      realtime.emitMessage(Message(
+        id: 'm-quiet',
+        content: '不该弹通知',
+        senderId: 'alice',
+        senderName: 'Alice',
+        chatRoomId: '1',
+        timestamp: DateTime.parse('2024-01-01T10:02:00'),
+      ));
+      await tester.pump();
+
+      expect(find.text('不该弹通知'), findsOneWidget);
+      expect(backend.lastUnreadCount, 1);
+      expect(backend.shownNotifications, isEmpty);
+      expect(find.text('通知群聊: 不该弹通知'), findsNothing);
     });
 
     testWidgets('does not count own realtime message as unread notification',
