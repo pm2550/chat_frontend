@@ -50,26 +50,30 @@ extension _ChatScreenPendingAttachmentParts on _ChatScreenState {
     _focusNode.requestFocus();
   }
 
-  /// 发送栏里排队的附件按顺序发出，随后清空。
-  Future<void> _sendPendingAttachments() async {
-    if (_pendingAttachments.isEmpty) return;
+  /// 发送栏里排队的附件：立刻清空发送栏、每个都先放出自己的上传气泡（排队中），
+  /// 再按顺序一个个传，保证对方看到的先后和发送栏里一致。返回的 Future 在全部传完
+  /// （成功、失败或被取消）后完成。
+  Future<void> _sendPendingAttachments() {
+    if (_pendingAttachments.isEmpty) return Future<void>.value();
     final queued = List<_PendingAttachment>.of(_pendingAttachments);
     _setViewState(() => _pendingAttachments.clear());
 
-    for (final attachment in queued) {
-      final file = attachment.file;
-      if (file != null) {
-        await _sendPickedFile(
-          file,
-          messageType: attachment.messageType ?? _messageTypeForPickedFile(file),
-        );
-        continue;
+    final uploads = [
+      for (final attachment in queued)
+        if (attachment.file != null)
+          _createOutgoingUpload(
+            file: attachment.file,
+            messageType: attachment.messageType ??
+                _messageTypeForPickedFile(attachment.file!),
+          )
+        else if (attachment.remoteUrl != null)
+          _createOutgoingUpload(remoteUrl: attachment.remoteUrl),
+    ];
+    return () async {
+      for (final upload in uploads) {
+        await _runOutgoingUpload(upload);
       }
-      final url = attachment.remoteUrl;
-      if (url != null) {
-        await _sendPastedImageUrl(url);
-      }
-    }
+    }();
   }
 
   Widget _buildPendingAttachmentsStrip() {

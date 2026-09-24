@@ -24,6 +24,7 @@ import '../../services/agent_client_tools.dart';
 import '../../services/anonymous_service.dart';
 import '../../services/bot_service.dart';
 import '../../services/chat_data_service.dart';
+import '../../services/chat_upload.dart';
 import '../../services/memory_service.dart';
 import '../../services/pending_call_invite.dart';
 import '../../services/chat_call_service.dart';
@@ -75,6 +76,7 @@ part 'sub/link_preview_card.dart';
 part 'sub/announcement_banner.dart';
 part 'sub/drag_paste_upload.dart';
 part 'sub/pending_attachments_strip.dart';
+part 'sub/outgoing_uploads.dart';
 part 'sub/realtime_sync.dart';
 part 'sub/e2ee_chat.dart';
 
@@ -196,7 +198,6 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   bool _isLoadingMessages = true;
   bool _isLoadingOlderMessages = false;
   bool _hasMoreMessages = false;
-  bool _isSendingAttachment = false;
   bool _isRecordingVoice = false;
   bool _isStoppingVoice = false;
   Duration _voiceRecordingDuration = Duration.zero;
@@ -233,6 +234,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   String? _announcementSeenKey;
   ChatDropPasteController? _dropPasteController;
   final List<_PendingAttachment> _pendingAttachments = [];
+
+  /// 正在上传/上传失败的附件，按占位消息 id（= clientMessageId）索引。
+  final Map<String, _OutgoingUpload> _outgoingUploads = {};
   final VoicePlayback _voicePlayback = VoicePlayback();
   String? _playingVoiceMessageId;
   bool _isDragUploadActive = false;
@@ -468,6 +472,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     _messageHighlightTimer?.cancel();
     _voiceRecordingTimer?.cancel();
     _messageReconciliationTimer?.cancel();
+    for (final upload in _outgoingUploads.values) {
+      upload.stopWatching();
+    }
     _cancelInitialBottomAnchor();
     _voiceRecorder.dispose();
     _dropPasteController?.dispose();
@@ -928,6 +935,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       final clientMessageId = message.clientMessageId;
       if (clientMessageId != null && clientMessageId != message.id) {
         _messages.removeWhere((m) => m.id == clientMessageId);
+        // 附件的正式消息到了（REST 返回或服务器推回），上传气泡功成身退。
+        _outgoingUploads.remove(clientMessageId)?.settle();
       }
       final index = _messages.indexWhere((m) => m.id == message.id);
       final merged = _withReplyQuote(
@@ -1080,12 +1089,18 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   }
 
   void _saveMessageCache() {
+    // 上传气泡只活在这一屏：离开后没人能取消/重试它，缓存里不留。
+    final messages = _outgoingUploads.isEmpty
+        ? _messages
+        : _messages
+            .where((message) => !_outgoingUploads.containsKey(message.id))
+            .toList();
     ChatScreen._messageCache[_chat.id] = _CachedChatMessages(
-      messages: List<Message>.from(_messages),
+      messages: List<Message>.from(messages),
       hasMoreMessages: _hasMoreMessages,
       nextMessagePage: _nextMessagePage,
     );
-    unawaited(_chatService.persistMessages(_chat.id, _messages));
+    unawaited(_chatService.persistMessages(_chat.id, messages));
     _syncAgentClientToolState();
   }
 

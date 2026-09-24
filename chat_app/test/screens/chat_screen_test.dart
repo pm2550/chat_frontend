@@ -14,6 +14,7 @@ import 'package:chat_app/models/user.dart';
 import 'package:chat_app/models/message.dart';
 import 'package:chat_app/models/sticker.dart';
 import 'package:chat_app/services/chat_data_service.dart';
+import 'package:chat_app/services/chat_upload.dart';
 import 'package:chat_app/services/chat_call_service.dart';
 import 'package:chat_app/services/contact_data_service.dart';
 import 'package:chat_app/services/auth_service.dart';
@@ -2075,8 +2076,11 @@ void main() {
       await tester.tap(find.text('文件'));
       await tester.pump();
 
-      expect(find.text('[文件] doc.pdf'), findsOneWidget);
-      expect(find.text('文件发送失败: Exception: upload down'), findsOneWidget);
+      // 失败的附件留在发送端的上传气泡里：写明原因，可以重试或移除。
+      expect(find.text('doc.pdf'), findsOneWidget);
+      expect(find.text('发送失败：upload down'), findsOneWidget);
+      expect(find.text('重试'), findsOneWidget);
+      expect(find.text('移除'), findsOneWidget);
     });
 
     testWidgets('searches chat history from chat options', (tester) async {
@@ -2321,6 +2325,9 @@ class FakeChatDataService extends ChatDataService {
     PickedChatFile file, {
     MessageType? messageType,
     Chat? chat,
+    String? clientMessageId,
+    UploadProgressCallback? onProgress,
+    UploadCancelToken? cancelToken,
   }) async {
     sentFiles.add(file);
     final error = sendFileError;
