@@ -164,22 +164,73 @@ void main() {
     expect(bubbleFor(tester, '2').message.readCount, 1);
   });
 
-  testWidgets('single-message read receipt counts only that message',
+  testWidgets(
+      'a reader counted by read-all is not counted again by a per-message read',
       (tester) async {
     final socket = _RecordingWebSocketService();
     await tester.pumpWidget(buildApp(socket));
     await openChat(tester);
 
+    // 打开会话时客户端既调整房间已读，也逐条标可见消息——服务器只在已读位置推进时通知。
+    socket.handleMessageForTest(jsonEncode({
+      'type': 'read_receipt',
+      'chatRoomId': 42,
+      'userId': 'user3',
+      'previousLastReadMessageId': null,
+      'lastReadMessageId': 2,
+    }));
+    await deliver(tester);
     socket.handleMessageForTest(jsonEncode({
       'type': 'read_receipt',
       'chatRoomId': 42,
       'userId': 'user3',
       'messageId': 2,
+      'previousLastReadMessageId': 2,
+      'lastReadMessageId': 2,
     }));
     await deliver(tester);
 
     expect(bubbleFor(tester, '2').message.readCount, 1);
-    expect(bubbleFor(tester, '1').message.readCount, 0);
+  });
+
+  testWidgets('every reader counts, not just the first one', (tester) async {
+    final socket = _RecordingWebSocketService();
+    await tester.pumpWidget(buildApp(socket));
+    await openChat(tester);
+
+    for (final reader in ['user3', 'user4']) {
+      socket.handleMessageForTest(jsonEncode({
+        'type': 'read_receipt',
+        'chatRoomId': 42,
+        'userId': reader,
+        'previousLastReadMessageId': null,
+        'lastReadMessageId': 2,
+      }));
+      await deliver(tester);
+    }
+
+    expect(bubbleFor(tester, '2').message.readCount, 2);
+    expect(bubbleFor(tester, '2').message.status, MessageStatus.read);
+  });
+
+  testWidgets('only messages inside the advanced range gain a reader',
+      (tester) async {
+    final socket = _RecordingWebSocketService();
+    await tester.pumpWidget(buildApp(socket));
+    await openChat(tester);
+
+    // user3 之前已经读到 2（页面加载时的已读数里已经算上了他），这次推进到 5：2 不再加。
+    socket.handleMessageForTest(jsonEncode({
+      'type': 'read_receipt',
+      'chatRoomId': 42,
+      'userId': 'user3',
+      'previousLastReadMessageId': 2,
+      'lastReadMessageId': 5,
+    }));
+    await deliver(tester);
+
+    expect(bubbleFor(tester, '2').message.readCount, 0);
+    expect(bubbleFor(tester, '2').message.status, MessageStatus.sent);
   });
 
   testWidgets('typing snapshot never shows the current user', (tester) async {

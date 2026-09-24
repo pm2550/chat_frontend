@@ -22,29 +22,26 @@ extension _ChatScreenRealtimeSyncParts on _ChatScreenState {
     _setViewState(() => _chat = _chat.copyWith(participants: participants));
   }
 
-  /// 别人读了消息：和服务器的计数规则保持一致——按条读（带 messageId）给那一条
-  /// 加一；整房间已读（带 lastReadMessageId）给截至该条、还没标已读的消息加一。
+  /// 别人读了消息：和服务器的已读数定义一致——一条消息的已读数是"读到了这条"的其他成员人数。
+  /// 回执带着这次推进的区间 (previousLastReadMessageId, lastReadMessageId]，区间里别人发的消息
+  /// 各多一个读者；整房间已读和逐条已读都是这个格式，同一个人不会被算两次。
   /// 自己在其他设备上读不影响这里的已读数（列表页负责清未读）。
   void _applyRealtimeReadReceipt(Map<String, dynamic> event) {
     final readerId = event['userId']?.toString();
     if (readerId == null || readerId == _authService.currentUser?.id) return;
-    final messageId = event['messageId']?.toString();
-    final lastReadId =
-        int.tryParse(event['lastReadMessageId']?.toString() ?? '');
-    if (messageId == null && lastReadId == null) return;
+    final upTo = int.tryParse(event['lastReadMessageId']?.toString() ?? '');
+    if (upTo == null) return;
+    final previous =
+        int.tryParse(event['previousLastReadMessageId']?.toString() ?? '') ?? 0;
+    final known = _readerMarks[readerId] ?? 0;
+    final after = previous > known ? previous : known;
+    if (upTo <= after) return;
+    _readerMarks[readerId] = upTo;
     var changed = false;
     final next = _messages.map((message) {
       if (message.senderId == readerId) return message;
-      if (messageId != null) {
-        if (message.id != messageId) return message;
-      } else {
-        final id = int.tryParse(message.id);
-        if (id == null ||
-            id > lastReadId! ||
-            message.status == MessageStatus.read) {
-          return message;
-        }
-      }
+      final id = int.tryParse(message.id);
+      if (id == null || id <= after || id > upTo) return message;
       changed = true;
       return message.copyWith(
         status: MessageStatus.read,

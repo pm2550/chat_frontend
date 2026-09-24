@@ -1,3 +1,5 @@
+import '../utils/date_time_utils.dart';
+
 class ReadReceipt {
   const ReadReceipt({
     required this.userId,
@@ -17,6 +19,7 @@ class ReadReceipt {
             ? json['displayName'].toString()
             : json['username']?.toString() ?? '',
         avatarUrl: json['avatarUrl']?.toString(),
-        readAt: DateTime.tryParse(json['readAt']?.toString() ?? ''),
+        // 整房间已读的读者没有逐条时间，readAt 为空。
+        readAt: parseServerDateTime(json['readAt']),
       );
 }
