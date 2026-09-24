@@ -240,6 +240,8 @@ class ApiConstants {
   static String botTokenScopes(int botId) =>
       '$apiBaseUrl/bots/$botId/token/scopes';
   static String botWebhooks(int botId) => '$apiBaseUrl/bots/$botId/webhooks';
+  static String botWebhookDetail(int subscriptionId) =>
+      '$apiBaseUrl/bots/webhooks/$subscriptionId';
   static String botCharacterCardImport(int botId) =>
       '$apiBaseUrl/bots/$botId/character-card/import';
   static String botCharacterCardExport(int botId) =>

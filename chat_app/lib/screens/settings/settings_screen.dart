@@ -11,6 +11,7 @@ import '../../services/web_push_service.dart';
 import '../../widgets/pm_brand.dart';
 import '../../widgets/pm_responsive.dart';
 import '../profile/profile_edit_screen.dart';
+import 'bot_webhook_section.dart';
 import 'chat_preferences_screen.dart';
 import 'points_screen.dart';
 
@@ -1435,14 +1436,11 @@ class _BotManagementScreenState extends State<BotManagementScreen> {
     final botId = bot.id;
     if (botId == null) return;
     final selected = <String>{...bot.inboundTokenScopes};
-    final webhookUrlController = TextEditingController();
-    final webhookSecretController = TextEditingController();
     String? currentTokenLast4 = bot.inboundTokenLast4;
     String? oneTimeToken;
     bool isSavingScopes = false;
     bool isRotating = false;
     bool isRevoking = false;
-    bool isSavingWebhook = false;
     final gatewayBase = '${Uri.base.origin}/api/bot-gateway/v1';
     final messenger = ScaffoldMessenger.of(context);
 
@@ -1517,31 +1515,6 @@ class _BotManagementScreenState extends State<BotManagementScreen> {
                 );
               } finally {
                 setSheetState(() => isRevoking = false);
-              }
-            }
-
-            Future<void> saveWebhook() async {
-              final url = webhookUrlController.text.trim();
-              if (url.isEmpty) return;
-              setSheetState(() => isSavingWebhook = true);
-              try {
-                await _botService.registerWebhook(
-                  botId,
-                  callbackUrl: url,
-                  secret: webhookSecretController.text.trim(),
-                  eventTypes: 'message.created',
-                );
-                if (!mounted) return;
-                messenger.showSnackBar(
-                  const SnackBar(content: Text('Webhook 已保存')),
-                );
-              } catch (error) {
-                if (!mounted) return;
-                messenger.showSnackBar(
-                  SnackBar(content: Text('保存 Webhook 失败: $error')),
-                );
-              } finally {
-                setSheetState(() => isSavingWebhook = false);
               }
             }
 
@@ -1661,26 +1634,9 @@ Webhook 签名：服务端会使用你填写的 secret 对推送事件签名，�
                           ),
                         ],
                         const SizedBox(height: 20),
-                        Text('Webhook',
-                            style: Theme.of(context).textTheme.titleMedium),
-                        const SizedBox(height: 8),
-                        TextField(
-                          controller: webhookUrlController,
-                          decoration:
-                              const InputDecoration(labelText: 'Callback URL'),
-                        ),
-                        const SizedBox(height: 8),
-                        TextField(
-                          controller: webhookSecretController,
-                          decoration:
-                              const InputDecoration(labelText: 'Webhook secret'),
-                          obscureText: true,
-                        ),
-                        const SizedBox(height: 8),
-                        ElevatedButton.icon(
-                          onPressed: isSavingWebhook ? null : saveWebhook,
-                          icon: const Icon(Icons.webhook),
-                          label: Text(isSavingWebhook ? '保存中...' : '保存 webhook'),
+                        BotWebhookSection(
+                          botService: _botService,
+                          botId: botId,
                         ),
                         const SizedBox(height: 20),
                         Text('curl 示例',

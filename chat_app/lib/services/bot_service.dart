@@ -286,6 +286,44 @@ class BotConfig {
       };
 }
 
+/// 一个 bot 的外发 webhook 订阅。每个 bot 在同一作用域（全部房间 / 某个房间）只有一条。
+class BotWebhook {
+  const BotWebhook({
+    required this.id,
+    required this.callbackUrl,
+    this.eventTypes = 'message',
+    this.chatRoomId,
+    this.active = true,
+    this.hasSecret = false,
+    this.lastDeliveryStatus,
+    this.consecutiveFailures = 0,
+  });
+
+  final int id;
+  final String callbackUrl;
+  final String eventTypes;
+  final int? chatRoomId;
+  final bool active;
+  final bool hasSecret;
+  final int? lastDeliveryStatus;
+  final int consecutiveFailures;
+
+  factory BotWebhook.fromJson(Map<String, dynamic> json) {
+    int? asInt(dynamic value) =>
+        value is int ? value : int.tryParse(value?.toString() ?? '');
+    return BotWebhook(
+      id: asInt(json['id']) ?? 0,
+      callbackUrl: json['callbackUrl']?.toString() ?? '',
+      eventTypes: json['eventTypes']?.toString() ?? 'message',
+      chatRoomId: asInt(json['chatRoomId']),
+      active: json['active'] != false,
+      hasSecret: json['hasSecret'] == true,
+      lastDeliveryStatus: asInt(json['lastDeliveryStatus']),
+      consecutiveFailures: asInt(json['consecutiveFailures']) ?? 0,
+    );
+  }
+}
+
 class BotAllowedUser {
   const BotAllowedUser({
     required this.id,
@@ -598,6 +636,25 @@ class BotService {
       return raw.map((item) => item.toString()).toList(growable: false);
     }
     return scopes;
+  }
+
+  Future<List<BotWebhook>> listWebhooks(int botId) async {
+    final response = await _request('GET', ApiConstants.botWebhooks(botId));
+    final data = _decodeResponse(response);
+    final raw = data['data'];
+    if (raw is List) {
+      return raw
+          .whereType<Map<String, dynamic>>()
+          .map(BotWebhook.fromJson)
+          .toList(growable: false);
+    }
+    return const [];
+  }
+
+  Future<void> deleteWebhook(int subscriptionId) async {
+    final response =
+        await _request('DELETE', ApiConstants.botWebhookDetail(subscriptionId));
+    _decodeResponse(response);
   }
 
   Future<void> registerWebhook(
