@@ -149,6 +149,34 @@ void main() {
       expect(find.text('2 人参与'), findsOneWidget);
     });
 
+    testWidgets('quote whose body is not loaded is not claimed deleted',
+        (tester) async {
+      final message = createMessage(content: '我的回复', replyToId: '99');
+
+      await tester.pumpWidget(buildTestWidget(
+        MessageBubble(message: message, isMe: false),
+      ));
+
+      expect(find.text('原消息已删除'), findsNothing);
+      expect(find.text('引用消息'), findsOneWidget);
+    });
+
+    testWidgets('quote of a removed message still says it was deleted',
+        (tester) async {
+      final message = createMessage(
+        content: '我的回复',
+        replyToId: '99',
+        replyToMessage: createMessage(id: '99', content: '[消息已撤回]')
+            .copyWith(isRecalled: true),
+      );
+
+      await tester.pumpWidget(buildTestWidget(
+        MessageBubble(message: message, isMe: false),
+      ));
+
+      expect(find.text('原消息已删除'), findsWidgets);
+    });
+
     testWidgets('renders message content text', (tester) async {
       final message = createMessage(content: '你好，世界！');
 

@@ -27,7 +27,9 @@ extension _ChatScreenAnonymousParts on _ChatScreenState {
   }
 
   void _scrollToQuotedMessage(Message message) {
-    final targetId = message.replyToMessage?.id ?? message.replyToId;
+    final targetId = message.replyToMessage?.id ??
+        message.replyToMessageId ??
+        message.replyToId;
     if (targetId == null || targetId.isEmpty) return;
     final key = _messageKeys[targetId];
     final context = key?.currentContext;

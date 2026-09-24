@@ -6,6 +6,8 @@ enum MessageType {
   file('文件'),
   voice('语音'),
   video('视频'),
+  // 后端 AUDIO：音频文件（机器人发的 mp3/wav/ogg、按音频上传的附件），和语音一样用播放器展示。
+  audio('音频'),
   location('位置'),
   sticker('贴纸'),
   poll('投票'),
@@ -157,6 +159,10 @@ class Message {
   final List<MessageReaction> reactions;
   final int readCount;
 
+  /// 发送端生成的临时 id：本地"发送中"气泡用它当 id，服务器推回（或拒绝）时原样带回，
+  /// 据此把临时气泡换成正式消息或标成失败。只在本机有意义，服务器不存。
+  final String? clientMessageId;
+
   const Message({
     required this.id,
     required this.content,
@@ -203,6 +209,7 @@ class Message {
     this.linkPreview,
     this.reactions = const [],
     this.readCount = 0,
+    this.clientMessageId,
   });
 
   factory Message.fromJson(Map<String, dynamic> json,
@@ -345,6 +352,7 @@ class Message {
           : null,
       reactions: _parseReactions(json['reactions']),
       readCount: _parseInt(json['readCount'] ?? json['read_count']) ?? 0,
+      clientMessageId: _stringOrNull(json['clientMessageId']),
     );
   }
 
@@ -394,6 +402,7 @@ class Message {
       'linkPreview': linkPreview?.toJson(),
       'reactions': reactions.map((item) => item.toJson()).toList(),
       'readCount': readCount,
+      if (clientMessageId != null) 'clientMessageId': clientMessageId,
     };
   }
 
@@ -443,6 +452,7 @@ class Message {
     LinkPreview? linkPreview,
     List<MessageReaction>? reactions,
     int? readCount,
+    String? clientMessageId,
   }) {
     return Message(
       id: id ?? this.id,
@@ -492,6 +502,7 @@ class Message {
       linkPreview: linkPreview ?? this.linkPreview,
       reactions: reactions ?? this.reactions,
       readCount: readCount ?? this.readCount,
+      clientMessageId: clientMessageId ?? this.clientMessageId,
     );
   }
 
@@ -525,6 +536,7 @@ class Message {
   bool get isImageMessage => type == MessageType.image;
   bool get isVoiceMessage =>
       type == MessageType.voice ||
+      type == MessageType.audio ||
       (fileType?.toLowerCase().startsWith('audio/') ?? false);
   bool get isVideoMessage =>
       type == MessageType.video ||
@@ -567,7 +579,8 @@ class Message {
       return fileName?.isNotEmpty == true ? '[图片] $fileName' : '[图片]';
     }
     if (isVoiceMessage) {
-      return fileName?.isNotEmpty == true ? '[语音] $fileName' : '[语音]';
+      final label = type == MessageType.audio ? '[音频]' : '[语音]';
+      return fileName?.isNotEmpty == true ? '$label $fileName' : label;
     }
     if (isVideoMessage) {
       return fileName?.isNotEmpty == true ? '[视频] $fileName' : '[视频]';

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
+import 'package:uuid/uuid.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import '../constants/api_constants.dart';
 import '../models/message.dart';
@@ -9,9 +10,24 @@ import 'active_call_tracker.dart';
 import 'agent_client_tools.dart';
 import 'auth_service.dart';
 
+/// 服务器拒收一条消息（被禁言、不是成员、引用的消息无效……），[reason] 是服务器给的原因。
+class RealtimeSendException implements Exception {
+  const RealtimeSendException(this.reason);
+
+  final String reason;
+
+  @override
+  String toString() => reason;
+}
+
 abstract class ChatRealtimeService {
   bool get isConnected;
+
+  /// 新消息（计未读、弹提醒）。
   Stream<Message> get onMessage;
+
+  /// 已有消息被编辑、撤回、删除或状态变化：只替换内容，不算新消息。
+  Stream<Message> get onMessageUpdated;
   Stream<Map<String, dynamic>> get onTyping;
   Stream<Map<String, dynamic>> get onStatusChange;
 
@@ -31,11 +47,17 @@ class WebSocketService extends ChangeNotifier implements ChatRealtimeService {
   static final WebSocketService _instance = WebSocketService._internal();
   factory WebSocketService() => _instance;
   WebSocketService._internal({AuthService? authService})
-      : _authService = authService ?? AuthService();
+      : _authService = authService ?? AuthService(),
+        _channelFactory = WebSocketChannel.connect;
 
   @visibleForTesting
-  WebSocketService.forTesting({required AuthService authService})
-      : _authService = authService;
+  WebSocketService.forTesting({
+    required AuthService authService,
+    WebSocketChannel Function(Uri uri)? channelFactory,
+  })  : _authService = authService,
+        _channelFactory = channelFactory ?? WebSocketChannel.connect;
+
+  final WebSocketChannel Function(Uri uri) _channelFactory;
 
   WebSocketChannel? _channel;
   Future<void>? _connectFuture;
@@ -55,6 +77,11 @@ class WebSocketService extends ChangeNotifier implements ChatRealtimeService {
   // Stream controllers for different message types
   final StreamController<Message> _messageController =
       StreamController<Message>.broadcast();
+  final StreamController<Message> _messageUpdateController =
+      StreamController<Message>.broadcast();
+
+  /// 等服务器回显的 WebSocket 发送，按 clientMessageId 对应。
+  final Map<String, Completer<Message>> _pendingSends = {};
   final StreamController<Map<String, dynamic>> _typingController =
       StreamController<Map<String, dynamic>>.broadcast();
   final StreamController<Map<String, dynamic>> _statusController =
@@ -66,6 +93,8 @@ class WebSocketService extends ChangeNotifier implements ChatRealtimeService {
 
   @override
   Stream<Message> get onMessage => _messageController.stream;
+  @override
+  Stream<Message> get onMessageUpdated => _messageUpdateController.stream;
   @override
   Stream<Map<String, dynamic>> get onTyping => _typingController.stream;
   @override
@@ -109,7 +138,14 @@ class WebSocketService extends ChangeNotifier implements ChatRealtimeService {
 
     try {
       final uri = Uri.parse('${ApiConstants.wsEndpoint}?token=$token');
-      final channel = WebSocketChannel.connect(uri);
+      final channel = _channelFactory(uri);
+      // 握手完成前不能算已连接：以前这里立刻置 true，握手失败期间发出的消息
+      // 返回"已发送"却直接丢了。
+      await channel.ready;
+      if (generation != _connectionGeneration) {
+        unawaited(channel.sink.close());
+        return;
+      }
       _channel = channel;
 
       channel.stream.listen(
@@ -194,6 +230,7 @@ class WebSocketService extends ChangeNotifier implements ChatRealtimeService {
     _channel?.sink.close();
     _channel = null;
     _isConnected = false;
+    _failPendingSends('连接已断开，消息可能未发送');
     notifyListeners();
   }
 
@@ -229,6 +266,54 @@ class WebSocketService extends ChangeNotifier implements ChatRealtimeService {
   void sendMessage(Map<String, dynamic> message) {
     if (_isConnected && _channel != null) {
       _channel!.sink.add(jsonEncode(message));
+    }
+  }
+
+  /// 通过 WebSocket 发一条文本消息，并等服务器把存好的消息推回来（按 [clientMessageId]
+  /// 对上）才算成功。服务器拒收时抛 [RealtimeSendException]（带原因），
+  /// 迟迟没有回音抛 [TimeoutException]，连接断开时抛 [RealtimeSendException]。
+  /// 调用前先确认 [isConnected]，没连上就改走 REST。
+  Future<Message> sendTextMessageAwaitingEcho(
+    int chatRoomId,
+    String content, {
+    required String clientMessageId,
+    bool isAnonymous = false,
+    String? replyToId,
+    Duration timeout = const Duration(seconds: 20),
+  }) {
+    if (!_isConnected || _channel == null) {
+      return Future.error(const RealtimeSendException('实时连接不可用'));
+    }
+    final completer = Completer<Message>();
+    _pendingSends[clientMessageId] = completer;
+    sendMessage({
+      'type': 'message',
+      'chatRoomId': chatRoomId,
+      'content': content,
+      'messageType': 'TEXT',
+      'clientMessageId': clientMessageId,
+      if (isAnonymous) 'isAnonymous': true,
+      if (replyToId != null) 'replyToId': int.tryParse(replyToId) ?? replyToId,
+    });
+    return completer.future.timeout(timeout, onTimeout: () {
+      _pendingSends.remove(clientMessageId);
+      throw TimeoutException('发送超时', timeout);
+    });
+  }
+
+  static const Uuid _uuid = Uuid();
+
+  /// 本地"发送中"消息的临时 id，同时作为 clientMessageId 发给服务器。
+  static String newClientMessageId() => 'local-${_uuid.v4()}';
+
+  void _failPendingSends(String reason) {
+    if (_pendingSends.isEmpty) return;
+    final pending = Map<String, Completer<Message>>.from(_pendingSends);
+    _pendingSends.clear();
+    for (final completer in pending.values) {
+      if (!completer.isCompleted) {
+        completer.completeError(RealtimeSendException(reason));
+      }
     }
   }
 
@@ -303,8 +388,11 @@ class WebSocketService extends ChangeNotifier implements ChatRealtimeService {
       switch (type) {
         case 'message':
           if (json['message'] != null) {
-            _messageController.add(Message.fromJson(json['message']));
+            _handleChatMessage(json);
           }
+          break;
+        case 'error':
+          _handleServerError(json);
           break;
         case 'typing':
         case 'typing_aggregated':
@@ -339,6 +427,38 @@ class WebSocketService extends ChangeNotifier implements ChatRealtimeService {
     } catch (e) {
       debugPrint('WebSocket message parse error: $e');
     }
+  }
+
+  void _handleChatMessage(Map<String, dynamic> envelope) {
+    final clientMessageId = envelope['clientMessageId']?.toString();
+    var message = Message.fromJson(
+      Map<String, dynamic>.from(envelope['message'] as Map),
+    );
+    if (clientMessageId != null && clientMessageId.isNotEmpty) {
+      message = message.copyWith(clientMessageId: clientMessageId);
+      final pending = _pendingSends.remove(clientMessageId);
+      if (pending != null && !pending.isCompleted) pending.complete(message);
+    }
+    // 老服务器不带 event，一律当新消息。
+    if (envelope['event'] == 'updated') {
+      _messageUpdateController.add(message);
+    } else {
+      _messageController.add(message);
+    }
+  }
+
+  void _handleServerError(Map<String, dynamic> envelope) {
+    final reason = envelope['message']?.toString();
+    final clientMessageId = envelope['clientMessageId']?.toString();
+    final pending =
+        clientMessageId == null ? null : _pendingSends.remove(clientMessageId);
+    if (pending != null && !pending.isCompleted) {
+      pending.completeError(RealtimeSendException(
+        reason == null || reason.isEmpty ? '服务器拒绝了这条消息' : reason,
+      ));
+      return;
+    }
+    debugPrint('WebSocket server error: $reason');
   }
 
   @visibleForTesting
@@ -410,6 +530,7 @@ class WebSocketService extends ChangeNotifier implements ChatRealtimeService {
   void _handleDisconnect() {
     _isConnected = false;
     _heartbeatTimer?.cancel();
+    _failPendingSends('连接已断开，消息可能未发送');
     notifyListeners();
     _scheduleReconnect();
   }
@@ -447,6 +568,7 @@ class WebSocketService extends ChangeNotifier implements ChatRealtimeService {
   void dispose() {
     disconnect();
     _messageController.close();
+    _messageUpdateController.close();
     _typingController.close();
     _statusController.close();
     _callController.close();

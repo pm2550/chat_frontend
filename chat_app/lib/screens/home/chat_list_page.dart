@@ -46,6 +46,7 @@ class _ChatListPageState extends State<ChatListPage>
   late final ChatRealtimeService _realtimeService;
   late final DesktopNotificationService _notificationService;
   StreamSubscription<Message>? _messageSubscription;
+  StreamSubscription<Message>? _messageUpdateSubscription;
   StreamSubscription<Map<String, dynamic>>? _statusSubscription;
   String _searchQuery = '';
   List<Chat> _chats = [];
@@ -164,6 +165,8 @@ class _ChatListPageState extends State<ChatListPage>
   Future<void> _connectRealtime() async {
     _messageSubscription =
         _realtimeService.onMessage.listen(_handleRealtimeMessage);
+    _messageUpdateSubscription =
+        _realtimeService.onMessageUpdated.listen(_handleRealtimeMessageUpdate);
     _statusSubscription =
         _realtimeService.onStatusChange.listen(_handleStatusChange);
     await _realtimeService.connect();
@@ -226,6 +229,20 @@ class _ChatListPageState extends State<ChatListPage>
           ),
           mentionOverride: mentionsMe);
     }
+  }
+
+  /// 编辑/撤回/删除/生成进度：只刷新会话预览（如果改的正是最后一条），
+  /// 不加未读、不弹提醒。
+  void _handleRealtimeMessageUpdate(Message message) {
+    if (!mounted || message.chatRoomId.isEmpty) return;
+    final index = _chats.indexWhere((chat) => chat.id == message.chatRoomId);
+    if (index == -1) return;
+    final original = _chats[index];
+    if (original.lastMessage?.id != message.id) return;
+    setState(() {
+      _chats[index] = original.copyWith(lastMessage: message);
+      ChatDataService.patchCachedChatRoom(_chats[index]);
+    });
   }
 
   @override
@@ -1489,6 +1506,7 @@ class _ChatListPageState extends State<ChatListPage>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _messageSubscription?.cancel();
+    _messageUpdateSubscription?.cancel();
     _statusSubscription?.cancel();
     _searchController.dispose();
     _searchFocusNode.dispose();

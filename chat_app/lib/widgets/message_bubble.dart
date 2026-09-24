@@ -357,9 +357,20 @@ class MessageBubble extends StatelessWidget {
 
   Widget _buildQuoteBlock() {
     final quoted = message.replyToMessage;
-    final removed = quoted == null || quoted.isRemoved;
-    final title = removed ? '原消息已删除' : quoted.senderName;
-    final excerpt = removed ? '原消息已删除' : _quoteExcerpt(quoted);
+    // 只知道引用了哪条、手头没有它的内容（比如还没加载到）时不能说它被删了。
+    final unknown = quoted == null;
+    final removed = !unknown && quoted.isRemoved;
+    final dimmed = unknown || removed;
+    final title = unknown
+        ? '引用消息'
+        : removed
+            ? '原消息已删除'
+            : quoted.senderName;
+    final excerpt = unknown
+        ? '点击查看原消息'
+        : removed
+            ? '原消息已删除'
+            : _quoteExcerpt(quoted);
     final foreground = _textColor;
     final muted = _secondaryTextColor;
     return ConstrainedBox(
@@ -372,7 +383,7 @@ class MessageBubble extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
         background: isMe
             ? Colors.white.withValues(alpha: 0.14)
-            : AppColors.cloud.withValues(alpha: removed ? 0.72 : 1),
+            : AppColors.cloud.withValues(alpha: dimmed ? 0.72 : 1),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -381,7 +392,7 @@ class MessageBubble extends StatelessWidget {
               height: 36,
               decoration: BoxDecoration(
                 color:
-                    removed ? muted.withValues(alpha: 0.48) : AppColors.primary,
+                    dimmed ? muted.withValues(alpha: 0.48) : AppColors.primary,
                 borderRadius: BorderRadius.circular(999),
               ),
             ),
@@ -396,7 +407,7 @@ class MessageBubble extends StatelessWidget {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
-                      color: removed ? muted : foreground,
+                      color: dimmed ? muted : foreground,
                       fontSize: 12,
                       fontWeight: FontWeight.w800,
                     ),
@@ -410,7 +421,7 @@ class MessageBubble extends StatelessWidget {
                       color: muted,
                       fontSize: 12,
                       height: 1.25,
-                      fontStyle: removed ? FontStyle.italic : null,
+                      fontStyle: dimmed ? FontStyle.italic : null,
                     ),
                   ),
                 ],

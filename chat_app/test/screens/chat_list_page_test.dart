@@ -257,6 +257,66 @@ void main() {
       expect(backend.shownNotifications.single.body, '桌面通知消息');
     });
 
+    testWidgets(
+        'edits refresh the preview without unread count or notification',
+        (tester) async {
+      final realtime = FakeRealtimeService();
+      final backend = StubDesktopNotificationBackend(
+        supported: true,
+        permissionGranted: true,
+        visible: false,
+      );
+      final notificationService = DesktopNotificationService(backend: backend);
+      final service = FakeChatListService(chats: [
+        Chat(
+          id: '1',
+          name: '编辑群聊',
+          type: ChatType.group,
+          createdAt: DateTime.parse('2024-01-01T10:00:00'),
+          lastMessage: Message(
+            id: 'm1',
+            content: '原来的内容',
+            senderId: 'alice',
+            senderName: 'Alice',
+            chatRoomId: '1',
+            timestamp: DateTime.parse('2024-01-01T10:01:00'),
+          ),
+          unreadCount: 0,
+        ),
+      ]);
+
+      await tester.pumpWidget(buildTestWidget(
+        service,
+        realtimeService: realtime,
+        notificationService: notificationService,
+      ));
+      await tester.pump();
+
+      realtime.emitMessageUpdate(Message(
+        id: 'm1',
+        content: '改过的内容',
+        senderId: 'alice',
+        senderName: 'Alice',
+        chatRoomId: '1',
+        timestamp: DateTime.parse('2024-01-01T10:01:00'),
+      ));
+      // 更早的一条被编辑：连预览都不该动。
+      realtime.emitMessageUpdate(Message(
+        id: 'm0',
+        content: '更早的消息被改了',
+        senderId: 'alice',
+        senderName: 'Alice',
+        chatRoomId: '1',
+        timestamp: DateTime.parse('2024-01-01T09:00:00'),
+      ));
+      await tester.pump();
+
+      expect(find.text('改过的内容'), findsOneWidget);
+      expect(find.text('更早的消息被改了'), findsNothing);
+      expect(backend.lastUnreadCount, 0);
+      expect(backend.shownNotifications, isEmpty);
+    });
+
     testWidgets('does not count own realtime message as unread notification',
         (tester) async {
       final realtime = FakeRealtimeService();
@@ -615,6 +675,8 @@ class FakeChatListService extends ChatDataService {
 class FakeRealtimeService implements ChatRealtimeService {
   final StreamController<Message> _messageController =
       StreamController<Message>.broadcast();
+  final StreamController<Message> _messageUpdateController =
+      StreamController<Message>.broadcast();
   final StreamController<Map<String, dynamic>> _typingController =
       StreamController<Map<String, dynamic>>.broadcast();
   final StreamController<Map<String, dynamic>> _statusController =
@@ -628,6 +690,9 @@ class FakeRealtimeService implements ChatRealtimeService {
 
   @override
   Stream<Message> get onMessage => _messageController.stream;
+
+  @override
+  Stream<Message> get onMessageUpdated => _messageUpdateController.stream;
 
   @override
   Stream<Map<String, dynamic>> get onTyping => _typingController.stream;
@@ -663,6 +728,10 @@ class FakeRealtimeService implements ChatRealtimeService {
 
   void emitMessage(Message message) {
     _messageController.add(message);
+  }
+
+  void emitMessageUpdate(Message message) {
+    _messageUpdateController.add(message);
   }
 
   void emitStatus(Map<String, dynamic> status) {
