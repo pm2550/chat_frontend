@@ -165,6 +165,10 @@ class Message {
   /// 当前用户是否收藏了这条消息（后端按请求用户填充 `starredByMe`）。
   final bool starredByMe;
 
+  /// 这条消息是不是"我"发的，后端按查看者计算。匿名消息对别人不带 senderId，
+  /// 发送者只能靠它认出自己的匿名消息；老服务器/老缓存没有这个字段时为 null。
+  final bool? sentByMe;
+
   const Message({
     required this.id,
     required this.content,
@@ -213,6 +217,7 @@ class Message {
     this.readCount = 0,
     this.clientMessageId,
     this.starredByMe = false,
+    this.sentByMe,
   });
 
   factory Message.fromJson(Map<String, dynamic> json,
@@ -357,6 +362,7 @@ class Message {
       readCount: _parseInt(json['readCount'] ?? json['read_count']) ?? 0,
       clientMessageId: _stringOrNull(json['clientMessageId']),
       starredByMe: _parseBool(json['starredByMe'] ?? json['starred_by_me']),
+      sentByMe: _parseNullableBool(json['sentByMe'] ?? json['sent_by_me']),
     );
   }
 
@@ -408,6 +414,7 @@ class Message {
       'readCount': readCount,
       if (clientMessageId != null) 'clientMessageId': clientMessageId,
       'starredByMe': starredByMe,
+      if (sentByMe != null) 'sentByMe': sentByMe,
     };
   }
 
@@ -459,6 +466,7 @@ class Message {
     int? readCount,
     String? clientMessageId,
     bool? starredByMe,
+    bool? sentByMe,
   }) {
     return Message(
       id: id ?? this.id,
@@ -510,6 +518,7 @@ class Message {
       readCount: readCount ?? this.readCount,
       clientMessageId: clientMessageId ?? this.clientMessageId,
       starredByMe: starredByMe ?? this.starredByMe,
+      sentByMe: sentByMe ?? this.sentByMe,
     );
   }
 
@@ -520,8 +529,16 @@ class Message {
       (botConfigId?.isNotEmpty ?? false) ||
       (botSenderId?.isNotEmpty ?? false) ||
       (botName?.trim().isNotEmpty ?? false);
-  bool isFromCurrentUser(String? currentUserId) =>
-      currentUserId != null && senderId == currentUserId && !isBotMessage;
+  /// "是不是我发的"的唯一判断：以服务器按查看者算好的 [sentByMe] 为准；
+  /// 没有它时（老服务器）普通消息退回比较 senderId，匿名消息一律不是——
+  /// 匿名消息不能靠 senderId 认人。
+  bool isFromCurrentUser(String? currentUserId) {
+    if (isBotMessage) return false;
+    final mine = sentByMe;
+    if (mine != null) return mine;
+    if (isAnonymous) return false;
+    return currentUserId != null && senderId == currentUserId;
+  }
   String get effectiveBotName {
     final explicit = botName?.trim();
     if (explicit != null && explicit.isNotEmpty) return explicit;
@@ -668,6 +685,11 @@ class Message {
     if (value == null) return false;
     if (value is bool) return value;
     return value.toString().toLowerCase() == 'true';
+  }
+
+  static bool? _parseNullableBool(dynamic value) {
+    if (value == null) return null;
+    return _parseBool(value);
   }
 
   static const Set<String> _videoFileExtensions = {

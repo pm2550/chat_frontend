@@ -58,7 +58,9 @@ void main() {
       expect(find.text('Requester'), findsOneWidget);
       expect(find.text('联系人'), findsWidgets);
       expect(find.text('Alice'), findsOneWidget);
-      expect(find.text('alice@example.com'), findsOneWidget);
+      // 邮箱只属于本人：好友列表展示用户名，不展示邮箱。
+      expect(find.text('@alice'), findsOneWidget);
+      expect(find.text('alice@example.com'), findsNothing);
     });
 
     testWidgets('renders empty state when there are no contacts',
@@ -299,6 +301,7 @@ void main() {
 
       expect(service.searchKeywords, ['hit']);
       expect(find.text('Search Hit'), findsOneWidget);
+      expect(find.text('hit@example.com'), findsNothing);
 
       await tester.tap(find.text('添加'));
       await tester.pumpAndSettle();
@@ -347,8 +350,12 @@ void main() {
       await tester.tap(find.text('Carol'));
       await tester.pumpAndSettle();
 
-      expect(find.text('手机号'), findsOneWidget);
-      expect(find.text('555-0101'), findsWidgets);
+      // 别人的邮箱、手机号不展示（服务器也不再下发）。
+      expect(find.text('手机号'), findsNothing);
+      expect(find.text('555-0101'), findsNothing);
+      expect(find.text('邮箱'), findsNothing);
+      expect(find.text('carol@example.com'), findsNothing);
+      expect(find.text('用户名'), findsOneWidget);
       expect(find.text('简介'), findsOneWidget);
       expect(find.text('Design lead'), findsOneWidget);
 

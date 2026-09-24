@@ -545,6 +545,53 @@ void main() {
       expect(find.text('通知群聊: 自己发出的消息'), findsNothing);
     });
 
+    testWidgets(
+        'own anonymous realtime message (sentByMe, no senderId) is not unread',
+        (tester) async {
+      final realtime = FakeRealtimeService();
+      final backend = StubDesktopNotificationBackend(
+        supported: true,
+        permissionGranted: true,
+        visible: false,
+      );
+      final notificationService = DesktopNotificationService(backend: backend);
+      final service = FakeChatListService(chats: [
+        Chat(
+          id: '1',
+          name: '匿名群聊',
+          type: ChatType.group,
+          createdAt: DateTime.parse('2024-01-01T10:00:00'),
+          unreadCount: 2,
+        ),
+      ]);
+
+      await tester.pumpWidget(buildTestWidget(
+        service,
+        realtimeService: realtime,
+        notificationService: notificationService,
+        currentUserId: 'me',
+      ));
+      await tester.pump();
+
+      // 匿名消息对外不带 senderId；本人设备收到的那份靠 sentByMe 认出自己。
+      realtime.emitMessage(Message.fromJson({
+        'id': 'm-anon',
+        'content': '我匿名发的',
+        'senderId': null,
+        'senderName': '匿名淡定羊驼',
+        'chatRoomId': '1',
+        'createdAt': '2024-01-01T10:02:00',
+        'isAnonymous': true,
+        'anonymousName': '匿名淡定羊驼',
+        'sentByMe': true,
+      }));
+      await tester.pump();
+
+      expect(find.text('我匿名发的'), findsOneWidget);
+      expect(backend.lastUnreadCount, 2);
+      expect(backend.shownNotifications, isEmpty);
+    });
+
     testWidgets('shows @ badge for unread latest mention', (tester) async {
       final service = FakeChatListService(chats: [
         Chat(

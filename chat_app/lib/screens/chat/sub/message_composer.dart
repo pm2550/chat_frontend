@@ -54,6 +54,8 @@ extension _ChatScreenComposerParts on _ChatScreenState {
       isAnonymous: sendIdentity != null,
       anonymousName: sendIdentity?.anonymousName,
       anonymousAvatar: sendIdentity?.anonymousAvatar,
+      // 匿名消息不能靠 senderId 认"我"，本地气泡直接标明是自己发的。
+      sentByMe: true,
     );
     _upsertMessage(pending);
     _scrollToBottom();
