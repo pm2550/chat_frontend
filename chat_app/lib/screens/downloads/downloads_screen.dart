@@ -1,4 +1,6 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../constants/app_brand.dart';
 import '../../constants/app_colors.dart';
@@ -12,10 +14,14 @@ class DownloadsScreen extends StatefulWidget {
     super.key,
     this.downloadService = const DownloadCatalogService(),
     this.downloadOpener,
+    this.linkOpener,
   });
 
   final DownloadCatalogService downloadService;
   final Future<bool> Function(String url, String filename)? downloadOpener;
+
+  /// 打开外部链接（TestFlight / 网页版）；测试里替换。
+  final Future<bool> Function(String url)? linkOpener;
 
   @override
   State<DownloadsScreen> createState() => _DownloadsScreenState();
@@ -42,6 +48,16 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
       return;
     }
 
+    if (status.target.showsPwaInstructions) {
+      await _showPwaInstructions();
+      return;
+    }
+    final externalUrl = status.target.externalUrl;
+    if (externalUrl != null && externalUrl.isNotEmpty) {
+      await _openExternal(externalUrl);
+      return;
+    }
+
     final rawUrl = status.downloadUrl;
     if (rawUrl == null || rawUrl.isEmpty) {
       _showMessage('${status.target.shortLabel} 客户端还没有发布包');
@@ -55,6 +71,49 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
     if (!opened) {
       _showMessage('无法打开下载链接');
     }
+  }
+
+  Future<void> _openExternal(String url) async {
+    var opened = false;
+    try {
+      opened = await (widget.linkOpener?.call(url) ??
+          launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication));
+    } catch (_) {}
+    if (!opened) _showMessage('无法打开 $url');
+  }
+
+  /// iPhone/iPad 没有可装的安装包：讲清楚怎么把网页版添加到主屏幕。
+  Future<void> _showPwaInstructions() async {
+    final openWebApp = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('在 iPhone / iPad 上使用'),
+        content: const Text(
+          '暂时没有可以直接安装的 iOS 安装包。\n\n'
+          '1. 用 Safari 打开 PM chat 网页版\n'
+          '2. 点底部的「分享」按钮\n'
+          '3. 选择「添加到主屏幕」\n\n'
+          '之后从主屏幕图标打开，就和 App 一样使用。',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('知道了'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('打开网页版'),
+          ),
+        ],
+      ),
+    );
+    if (openWebApp != true || !mounted) return;
+    if (kIsWeb) {
+      // 已经在网页版里了，直接去登录页。
+      Navigator.of(context).pushNamedAndRemoveUntil('/login', (route) => false);
+      return;
+    }
+    await _openExternal(widget.downloadService.webAppUrl);
   }
 
   void _showMessage(String message) {
@@ -470,6 +529,12 @@ class _LoadingPanel extends StatelessWidget {
 String _statusLine(ClientDownloadStatus status) {
   if (status.target.isWeb) {
     return '当前可用';
+  }
+  if (status.target.showsPwaInstructions) {
+    return '暂无安装包，使用网页版';
+  }
+  if (status.target.externalUrl != null) {
+    return '通过链接安装';
   }
   if (status.hasError) {
     return status.error!;

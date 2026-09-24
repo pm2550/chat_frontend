@@ -75,6 +75,43 @@ void main() {
     expect(openedFilename, 'pm-chat');
     expect(find.text('Login'), findsNothing);
   });
+
+  _iosInstructionsTest();
+}
+
+
+void _iosInstructionsTest() {
+  testWidgets('iPhone card explains Add to Home Screen instead of an .ipa',
+      (tester) async {
+    tester.view.physicalSize = const Size(1400, 2400);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    String? openedDownload;
+    await tester.pumpWidget(
+      MaterialApp(
+        routes: {
+          '/login': (context) => const _LoginPlaceholder(),
+        },
+        home: DownloadsScreen(
+          downloadService: const DownloadCatalogService(),
+          downloadOpener: (url, filename) async {
+            openedDownload = url;
+            return true;
+          },
+          linkOpener: (url) async => true,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('网页版 · 添加到主屏幕'), findsOneWidget);
+    await tester.tap(find.byTooltip('在 iPhone 上使用'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('在 iPhone / iPad 上使用'), findsOneWidget);
+    expect(find.textContaining('添加到主屏幕'), findsWidgets);
+    expect(openedDownload, isNull);
+  });
 }
 
 class _LoginPlaceholder extends StatelessWidget {
