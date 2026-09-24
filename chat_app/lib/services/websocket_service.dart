@@ -27,6 +27,48 @@ abstract class ChatRealtimeService {
   void sendTyping(int chatRoomId, bool isTyping);
 }
 
+/// 服务器推送的 message_action：置顶（全房间）或收藏（只发给收藏者本人的各个设备）。
+class MessageActionEvent {
+  const MessageActionEvent({
+    required this.chatRoomId,
+    required this.action,
+    this.messageId,
+    this.pins,
+  });
+
+  final String chatRoomId;
+  final String action;
+  final String? messageId;
+
+  /// 置顶变化时服务器附带的最新置顶列表；为 null 表示需要自己重新拉取。
+  final List<Message>? pins;
+
+  bool get isPinChange => action == 'pin_added' || action == 'pin_removed';
+  bool get isStarChange => action == 'star_added' || action == 'star_removed';
+
+  static MessageActionEvent? fromJson(Map<String, dynamic> json) {
+    final chatRoomId = json['chatRoomId']?.toString();
+    final action = json['action']?.toString();
+    if (chatRoomId == null || action == null) return null;
+    final data = json['data'];
+    final pinsValue = data is Map ? data['pins'] : null;
+    return MessageActionEvent(
+      chatRoomId: chatRoomId,
+      action: action,
+      messageId: data is Map ? data['messageId']?.toString() : null,
+      pins: pinsValue is List
+          ? pinsValue
+              .whereType<Map>()
+              .map((item) => Message.fromJson(
+                    Map<String, dynamic>.from(item),
+                    fallbackChatRoomId: chatRoomId,
+                  ))
+              .toList()
+          : null,
+    );
+  }
+}
+
 class WebSocketService extends ChangeNotifier implements ChatRealtimeService {
   static final WebSocketService _instance = WebSocketService._internal();
   factory WebSocketService() => _instance;
@@ -63,6 +105,9 @@ class WebSocketService extends ChangeNotifier implements ChatRealtimeService {
       StreamController<Map<String, dynamic>>.broadcast();
   final StreamController<Map<String, dynamic>> _appUpdateController =
       StreamController<Map<String, dynamic>>.broadcast();
+  final StreamController<MessageActionEvent> _messageActionController =
+      StreamController<MessageActionEvent>.broadcast();
+  final Map<String, List<Message>> _pinnedMessagesByRoom = {};
 
   @override
   Stream<Message> get onMessage => _messageController.stream;
@@ -73,6 +118,17 @@ class WebSocketService extends ChangeNotifier implements ChatRealtimeService {
   Stream<Map<String, dynamic>> get onCallSignal => _callController.stream;
   Stream<Map<String, dynamic>> get onAppUpdateAvailable =>
       _appUpdateController.stream;
+
+  /// 置顶 / 收藏变化。置顶消息列表页可以监听 [MessageActionEvent.isPinChange]
+  /// 刷新（或直接用事件里带的 pins），收藏页监听 [MessageActionEvent.isStarChange]。
+  Stream<MessageActionEvent> get onMessageAction =>
+      _messageActionController.stream;
+
+  /// 本次连接期间从推送里拿到的最新置顶列表；没收到过推送时为 null，应走 REST。
+  List<Message>? pinnedMessagesFor(String chatRoomId) {
+    final pins = _pinnedMessagesByRoom[chatRoomId];
+    return pins == null ? null : List<Message>.unmodifiable(pins);
+  }
 
   /// Connect to WebSocket server
   @override
@@ -306,9 +362,11 @@ class WebSocketService extends ChangeNotifier implements ChatRealtimeService {
             _messageController.add(Message.fromJson(json['message']));
           }
           break;
-        case 'typing':
         case 'typing_aggregated':
           _typingController.add(json);
+          break;
+        case 'typing':
+          // 旧服务器会把同一份聚合快照再以 typing 发一遍，只处理 typing_aggregated。
           break;
         case 'status':
           _statusController.add(json);
@@ -319,7 +377,13 @@ class WebSocketService extends ChangeNotifier implements ChatRealtimeService {
         case 'reaction_changed':
         case 'poll_voted':
         case 'room_updated':
+        case 'room_display_state_changed':
+        case 'room_membership_added':
+        case 'room_membership_removed':
           _statusController.add(json);
+          break;
+        case 'message_action':
+          _handleMessageAction(Map<String, dynamic>.from(json));
           break;
         case 'call':
           _callController.add(Map<String, dynamic>.from(json));
@@ -339,6 +403,20 @@ class WebSocketService extends ChangeNotifier implements ChatRealtimeService {
     } catch (e) {
       debugPrint('WebSocket message parse error: $e');
     }
+  }
+
+  void _handleMessageAction(Map<String, dynamic> json) {
+    final event = MessageActionEvent.fromJson(json);
+    if (event == null) return;
+    final pins = event.pins;
+    if (event.isPinChange) {
+      if (pins != null) {
+        _pinnedMessagesByRoom[event.chatRoomId] = pins;
+      } else {
+        _pinnedMessagesByRoom.remove(event.chatRoomId);
+      }
+    }
+    _messageActionController.add(event);
   }
 
   @visibleForTesting
@@ -451,6 +529,7 @@ class WebSocketService extends ChangeNotifier implements ChatRealtimeService {
     _statusController.close();
     _callController.close();
     _appUpdateController.close();
+    _messageActionController.close();
     super.dispose();
   }
 }

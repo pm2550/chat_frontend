@@ -263,28 +263,31 @@ class _ChatListPageState extends State<ChatListPage>
 
   void _handleStatusChange(Map<String, dynamic> event) {
     if (!mounted) return;
-    if (event['type'] == 'room_display_state_changed') {
-      unawaited(_loadChats(showLoading: false));
-      return;
+    switch (event['type']) {
+      case 'room_display_state_changed':
+        _applyDisplayState(event);
+        return;
+      case 'read_receipt':
+        _applyOwnReadReceipt(event);
+        return;
+      case 'room_membership_added':
+        unawaited(_loadChats(showLoading: false, forceRefresh: true));
+        return;
+      case 'room_membership_removed':
+        final roomId = event['chatRoomId']?.toString();
+        if (roomId != null) _removeChatFromList(roomId);
+        return;
     }
     if (event['type'] == 'room_updated') {
       final roomId = event['chatRoomId']?.toString();
       final chatRoomJson = event['chatRoom'];
-      if (roomId == null || chatRoomJson is! Map<String, dynamic>) return;
-      final updated = Chat.fromJson(chatRoomJson);
+      if (roomId == null || chatRoomJson is! Map) return;
       final index = _chats.indexWhere((chat) => chat.id == roomId);
       if (index == -1) return;
       setState(() {
-        _chats[index] = _chats[index].copyWith(
-          name: updated.name,
-          description: updated.description,
-          announcement: updated.announcement,
-          avatarUrl: updated.avatarUrl,
-          anonymousEnabled: updated.anonymousEnabled,
-          anonymousTheme: updated.anonymousTheme,
-          customBackgroundPreset: updated.customBackgroundPreset,
-          customBackgroundUrl: updated.customBackgroundUrl,
-        );
+        _chats[index] = _chats[index]
+            .withRoomUpdate(Map<String, dynamic>.from(chatRoomJson));
+        ChatDataService.patchCachedChatRoom(_chats[index]);
       });
       return;
     }
@@ -318,6 +321,71 @@ class _ChatListPageState extends State<ChatListPage>
         _chats = updatedChats;
       });
     }
+  }
+
+  /// 自己在另一台设备上置顶 / 免打扰 / 隐藏 / 屏蔽 / 清空 / 恢复了会话。
+  void _applyDisplayState(Map<String, dynamic> event) {
+    final roomId = event['chatRoomId']?.toString();
+    final state = event['state'];
+    if (roomId == null || state is! Map) {
+      unawaited(_loadChats(showLoading: false, forceRefresh: true));
+      return;
+    }
+    final hidden = state['isHidden'] == true || state['hiddenAt'] != null;
+    final blocked = state['isBlocked'] == true || state['blocked'] == true;
+    if (hidden || blocked) {
+      _removeChatFromList(roomId);
+      return;
+    }
+    final index = _chats.indexWhere((chat) => chat.id == roomId);
+    final clearedBefore = state['clearedBeforeMessageId']?.toString();
+    if (index == -1 || clearedBefore != _chats[index].clearedBeforeMessageId) {
+      // 恢复显示或清空了记录：列表项的最后一条消息要从服务器重新取。
+      unawaited(_loadChats(showLoading: false, forceRefresh: true));
+      return;
+    }
+    final unread = state['unreadCount'];
+    setState(() {
+      _chats[index] = _chats[index].copyWith(
+        isPinned: state['pinned'] == true,
+        isMuted: state['muted'] == true,
+        unreadCount: unread is num ? unread.toInt() : null,
+      );
+      ChatDataService.patchCachedChatRoom(_chats[index]);
+      _sortChatsInPlace();
+    });
+    _syncDesktopUnreadBadge();
+  }
+
+  /// 自己在另一台设备上读完了会话：这里的未读数也要清掉。
+  void _applyOwnReadReceipt(Map<String, dynamic> event) {
+    final roomId = event['chatRoomId']?.toString();
+    final readerId = event['userId']?.toString();
+    if (roomId == null || readerId == null || readerId != _currentUserId) {
+      return;
+    }
+    final index = _chats.indexWhere((chat) => chat.id == roomId);
+    if (index == -1) return;
+    final unread = event['unreadCount'];
+    final nextUnread = unread is num
+        ? unread.toInt()
+        : (event['lastReadMessageId'] != null ? 0 : _chats[index].unreadCount);
+    if (nextUnread == _chats[index].unreadCount) return;
+    setState(() {
+      _chats[index] = _chats[index].copyWith(unreadCount: nextUnread);
+      ChatDataService.patchCachedChatRoom(_chats[index]);
+    });
+    _syncDesktopUnreadBadge();
+  }
+
+  void _removeChatFromList(String roomId) {
+    ChatDataService.removeCachedChatRoom(roomId);
+    if (!_chats.any((chat) => chat.id == roomId)) return;
+    setState(() {
+      _chats.removeWhere((chat) => chat.id == roomId);
+      _mentionHits.removeWhere((hit) => hit.chat.id == roomId);
+    });
+    _syncDesktopUnreadBadge();
   }
 
   String? get _currentUserId =>

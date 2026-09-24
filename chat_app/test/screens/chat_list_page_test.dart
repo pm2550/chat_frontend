@@ -455,6 +455,224 @@ void main() {
       tester.takeException();
     });
 
+    testWidgets(
+        'room_display_state_changed from another device applies pin and mute',
+        (tester) async {
+      final realtime = FakeRealtimeService();
+      final service = FakeChatListService(chats: [
+        Chat(
+          id: '1',
+          name: '多端会话',
+          type: ChatType.group,
+          createdAt: DateTime.parse('2024-01-01T10:00:00'),
+        ),
+      ]);
+
+      await tester.pumpWidget(buildTestWidget(
+        service,
+        realtimeService: realtime,
+      ));
+      await tester.pump();
+      expect(find.byIcon(Icons.volume_off), findsNothing);
+      final loadsBefore = service.forceRefreshRequests.length;
+
+      realtime.emitStatus({
+        'type': 'room_display_state_changed',
+        'chatRoomId': 1,
+        'state': {
+          'roomId': 1,
+          'pinned': true,
+          'muted': true,
+          'isHidden': false,
+          'isBlocked': false,
+          'unreadCount': 0,
+        },
+      });
+      await tester.pump();
+
+      expect(find.byIcon(Icons.volume_off), findsOneWidget);
+      // 直接套用推送里的状态，不用再整页刷新。
+      expect(service.forceRefreshRequests.length, loadsBefore);
+    });
+
+    testWidgets('room hidden on another device leaves this list',
+        (tester) async {
+      final realtime = FakeRealtimeService();
+      final service = FakeChatListService(chats: [
+        Chat(
+          id: '1',
+          name: '别处隐藏',
+          type: ChatType.group,
+          createdAt: DateTime.parse('2024-01-01T10:00:00'),
+        ),
+      ]);
+
+      await tester.pumpWidget(buildTestWidget(
+        service,
+        realtimeService: realtime,
+      ));
+      await tester.pump();
+
+      realtime.emitStatus({
+        'type': 'room_display_state_changed',
+        'chatRoomId': 1,
+        'state': {'roomId': 1, 'isHidden': true, 'hiddenAt': '2024-01-02'},
+      });
+      await tester.pump();
+
+      expect(find.text('别处隐藏'), findsNothing);
+    });
+
+    testWidgets('reading a room on another device clears its unread badge',
+        (tester) async {
+      final realtime = FakeRealtimeService();
+      final service = FakeChatListService(chats: [
+        Chat(
+          id: '1',
+          name: '未读会话',
+          type: ChatType.group,
+          createdAt: DateTime.parse('2024-01-01T10:00:00'),
+          unreadCount: 7,
+        ),
+      ]);
+
+      await tester.pumpWidget(buildTestWidget(
+        service,
+        realtimeService: realtime,
+      ));
+      await tester.pump();
+      expect(find.text('7'), findsOneWidget);
+
+      // 别人读了不影响我的未读数。
+      realtime.emitStatus({
+        'type': 'read_receipt',
+        'chatRoomId': 1,
+        'userId': 'someone-else',
+        'lastReadMessageId': 99,
+      });
+      await tester.pump();
+      expect(find.text('7'), findsOneWidget);
+
+      realtime.emitStatus({
+        'type': 'read_receipt',
+        'chatRoomId': 1,
+        'userId': 'me',
+        'lastReadMessageId': 99,
+        'unreadCount': 0,
+      });
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.text('7'), findsNothing);
+    });
+
+    testWidgets('being removed from a room drops it from the list',
+        (tester) async {
+      final realtime = FakeRealtimeService();
+      final service = FakeChatListService(chats: [
+        Chat(
+          id: '1',
+          name: '被踢的群',
+          type: ChatType.group,
+          createdAt: DateTime.parse('2024-01-01T10:00:00'),
+        ),
+        Chat(
+          id: '2',
+          name: '还在的群',
+          type: ChatType.group,
+          createdAt: DateTime.parse('2024-01-01T10:00:00'),
+        ),
+      ]);
+
+      await tester.pumpWidget(buildTestWidget(
+        service,
+        realtimeService: realtime,
+      ));
+      await tester.pump();
+
+      realtime.emitStatus({
+        'type': 'room_membership_removed',
+        'chatRoomId': 1,
+        'reason': 'kicked',
+      });
+      await tester.pump();
+
+      expect(find.text('被踢的群'), findsNothing);
+      expect(find.text('还在的群'), findsOneWidget);
+    });
+
+    testWidgets('being added to a room reloads the list from the server',
+        (tester) async {
+      final realtime = FakeRealtimeService();
+      final service = FakeChatListService(chats: [
+        Chat(
+          id: '1',
+          name: '旧群',
+          type: ChatType.group,
+          createdAt: DateTime.parse('2024-01-01T10:00:00'),
+        ),
+      ]);
+
+      await tester.pumpWidget(buildTestWidget(
+        service,
+        realtimeService: realtime,
+      ));
+      await tester.pump();
+
+      service.chats = [
+        ...service.chats,
+        Chat(
+          id: '2',
+          name: '新拉进的群',
+          type: ChatType.group,
+          createdAt: DateTime.parse('2024-01-01T10:00:00'),
+        ),
+      ];
+      realtime.emitStatus({
+        'type': 'room_membership_added',
+        'chatRoomId': 2,
+      });
+      await tester.pump();
+      await tester.pump();
+
+      expect(service.forceRefreshRequests.last, isTrue);
+      expect(find.text('新拉进的群'), findsOneWidget);
+    });
+
+    testWidgets('room_updated applies renamed title and member count',
+        (tester) async {
+      final realtime = FakeRealtimeService();
+      final service = FakeChatListService(chats: [
+        Chat(
+          id: '1',
+          name: '旧群名',
+          type: ChatType.group,
+          createdAt: DateTime.parse('2024-01-01T10:00:00'),
+        ),
+      ]);
+
+      await tester.pumpWidget(buildTestWidget(
+        service,
+        realtimeService: realtime,
+      ));
+      await tester.pump();
+
+      realtime.emitStatus({
+        'type': 'room_updated',
+        'chatRoomId': 1,
+        'chatRoom': {
+          'id': 1,
+          'name': '新群名',
+          'roomType': 'GROUP',
+          'memberCount': 3,
+        },
+      });
+      await tester.pump();
+
+      expect(find.text('新群名'), findsOneWidget);
+      expect(find.text('旧群名'), findsNothing);
+    });
+
     testWidgets('long press menu clears chat history after confirmation',
         (tester) async {
       final service = FakeChatListService(chats: [
@@ -528,7 +746,7 @@ class FakeChatListService extends ChatDataService {
     this.error,
   }) : super(authenticatedRequest: _unusedRequest);
 
-  final List<Chat> chats;
+  List<Chat> chats;
   final Map<String, List<Message>> mentionedMessages;
   final Object? error;
   final List<String> loadedMentionRoomIds = [];
