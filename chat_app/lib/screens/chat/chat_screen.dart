@@ -736,7 +736,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     if (currentUserId == null || !_scrollController.hasClients) return;
     final screenHeight = MediaQuery.sizeOf(context).height;
     for (final message in _messages) {
-      if (message.senderId == currentUserId ||
+      if (message.isFromCurrentUser(currentUserId) ||
           _viewportReadMarkedMessageIds.contains(message.id)) {
         continue;
       }

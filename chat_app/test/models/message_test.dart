@@ -536,4 +536,69 @@ void main() {
       expect(MessageType.system.description, '系统消息');
     });
   });
+
+  group('Message.isFromCurrentUser (anonymous privacy)', () {
+    Map<String, dynamic> anonymousJson({Object? senderId, Object? sentByMe}) => {
+          'id': 7,
+          'content': '匿名说一句',
+          if (senderId != null) 'senderId': senderId,
+          'senderName': '匿名淡定羊驼',
+          'chatRoomId': 3,
+          'type': 'TEXT',
+          'status': 'SENT',
+          'createdAt': '2024-01-01T12:00:00',
+          'isAnonymous': true,
+          'anonymousIdentityId': 42,
+          'anonymousName': '匿名淡定羊驼',
+          'anonymousAvatar': '#8B5CF6',
+          if (sentByMe != null) 'sentByMe': sentByMe,
+        };
+
+    test('own anonymous message is recognised by sentByMe without a senderId',
+        () {
+      final message = Message.fromJson(anonymousJson(sentByMe: true));
+
+      expect(message.senderId, isEmpty);
+      expect(message.sentByMe, isTrue);
+      expect(message.isFromCurrentUser('1'), isTrue);
+      expect(message.senderName, '匿名淡定羊驼');
+    });
+
+    test('someone else\'s anonymous message is never mine', () {
+      final message = Message.fromJson(anonymousJson(sentByMe: false));
+
+      expect(message.isFromCurrentUser('1'), isFalse);
+    });
+
+    test('anonymous message without sentByMe is not guessed from senderId', () {
+      final message = Message.fromJson(anonymousJson(senderId: 1));
+
+      expect(message.sentByMe, isNull);
+      expect(message.isFromCurrentUser('1'), isFalse);
+    });
+
+    test('plain messages from older servers still fall back to senderId', () {
+      final message = Message.fromJson({
+        'id': 8,
+        'content': '普通消息',
+        'senderId': 1,
+        'senderName': '我',
+        'chatRoomId': 3,
+        'type': 'TEXT',
+      });
+
+      expect(message.sentByMe, isNull);
+      expect(message.isFromCurrentUser('1'), isTrue);
+      expect(message.isFromCurrentUser('2'), isFalse);
+    });
+
+    test('sentByMe survives the local cache round trip and copyWith', () {
+      final message = Message.fromJson(anonymousJson(sentByMe: true));
+      final restored = Message.fromJson(message.toJson());
+
+      expect(restored.sentByMe, isTrue);
+      expect(restored.isFromCurrentUser('1'), isTrue);
+      expect(restored.copyWith(content: '改过').sentByMe, isTrue);
+    });
+  });
 }

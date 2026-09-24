@@ -371,10 +371,9 @@ class _ContactsPageState extends State<ContactsPage>
     }
     final keyword = _searchQuery.toLowerCase();
     return _contacts.where((contact) {
+      // 服务器不再下发别人的邮箱和手机号，只按名字匹配。
       return contact.displayName.toLowerCase().contains(keyword) ||
-          contact.username.toLowerCase().contains(keyword) ||
-          contact.email.toLowerCase().contains(keyword) ||
-          (contact.phone?.contains(_searchQuery) ?? false);
+          contact.username.toLowerCase().contains(keyword);
     }).toList();
   }
 
@@ -1290,8 +1289,8 @@ class _ContactsPageState extends State<ContactsPage>
         targetId: contact.id,
         title: _displayName(contact),
       ),
-      subtitle: contact.email,
-      secondarySubtitle: contact.phone,
+      subtitle: '@${contact.username}',
+      secondarySubtitle: null,
       trailing: isOpening
           ? const SizedBox(
               width: 18,
@@ -2203,17 +2202,12 @@ class _ContactsPageState extends State<ContactsPage>
                         ],
                       ),
                       const SizedBox(height: 20),
+                      // 邮箱、手机号只有本人能看到，这里展示用户名。
                       _buildContactDetailLine(
-                        Icons.email,
-                        '邮箱',
-                        contact.email,
+                        Icons.alternate_email,
+                        '用户名',
+                        contact.username,
                       ),
-                      if (contact.phone != null && contact.phone!.isNotEmpty)
-                        _buildContactDetailLine(
-                          Icons.phone,
-                          '手机号',
-                          contact.phone!,
-                        ),
                       if (contact.bio != null && contact.bio!.isNotEmpty)
                         _buildContactDetailLine(
                           Icons.notes,
@@ -2416,7 +2410,7 @@ class _ContactsPageState extends State<ContactsPage>
                                   overflow: TextOverflow.ellipsis,
                                 ),
                                 subtitle: Text(
-                                  user.email,
+                                  '@${user.username}',
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                 ),
@@ -2551,7 +2545,7 @@ class _ContactsPageState extends State<ContactsPage>
                           return CheckboxListTile(
                             value: selected,
                             title: Text(_displayName(contact)),
-                            subtitle: Text(contact.email),
+                            subtitle: Text('@${contact.username}'),
                             onChanged: (value) {
                               setSheetState(() {
                                 if (value == true) {

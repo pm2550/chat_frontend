@@ -631,7 +631,7 @@ class _PointsScreenState extends State<PointsScreen> {
               title: Text(user.displayName.isNotEmpty
                   ? user.displayName
                   : user.username),
-              subtitle: Text('@${user.username} · ${user.email}'),
+              subtitle: Text('@${user.username}'),
               onTap: () => _selectAdminUser(user),
             ),
         ],
