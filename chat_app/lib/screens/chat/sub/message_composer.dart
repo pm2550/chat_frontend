@@ -4,9 +4,14 @@ extension _ChatScreenComposerParts on _ChatScreenState {
   Future<void> _sendMessage() async {
     final content = _messageController.text.trim();
     if (content.isEmpty && !_hasPendingAttachments) return;
-    // 粘贴进来的图片先排在发送栏里，这一下才真正发出去。
-    await _sendPendingAttachments();
-    if (content.isEmpty) return;
+    // 粘贴进来的图片先排在发送栏里，这一下才真正发出去：每张立刻有自己的上传气泡，
+    // 文字排在它们后面发。输入框马上清空——慢网下传图要好几分钟，
+    // 等传完再清的话用户再按一次发送，这句话就发了两遍。
+    final attachmentsSent = _sendPendingAttachments();
+    if (content.isEmpty) {
+      await attachmentsSent;
+      return;
+    }
     final replyToMessage = _replyingToMessage;
     final sendIdentity = _activeSendIdentity();
 
@@ -23,16 +28,19 @@ extension _ChatScreenComposerParts on _ChatScreenState {
       content,
       replyToMessage: replyToMessage,
       sendIdentity: sendIdentity,
+      after: attachmentsSent,
     );
   }
 
   /// 先在列表里放一条"发送中"的本地消息（id 就是 clientMessageId），再发出去：
   /// 服务器推回正式消息时 [_upsertMessage] 按 clientMessageId 把它换掉；
   /// 服务器拒收或超时就把它标成失败并提示原因，气泡上可以重发。
+  /// [after] 是同一次发送里排在前面的附件：等它们发完（或失败/取消）再发文字，保持先后顺序。
   Future<void> _deliverTextMessage(
     String content, {
     Message? replyToMessage,
     AnonymousIdentity? sendIdentity,
+    Future<void>? after,
   }) async {
     final replyToId = replyToMessage?.id;
     final clientMessageId = WebSocketService.newClientMessageId();
@@ -48,7 +56,7 @@ extension _ChatScreenComposerParts on _ChatScreenState {
       chatRoomId: _chat.id,
       type: MessageType.text,
       status: MessageStatus.sending,
-      timestamp: DateTime.now(),
+      timestamp: _nextLocalSendTime(),
       replyToMessage: replyToMessage,
       replyToMessageId: replyToId,
       isAnonymous: sendIdentity != null,
@@ -61,6 +69,7 @@ extension _ChatScreenComposerParts on _ChatScreenState {
     _scrollToBottom();
 
     try {
+      if (after != null) await after;
       // 双方都开了端到端加密的私聊：明文只留在本机，发出去的是密文信封。
       final encryptedContent = await _sealOutgoingText(
         content,
@@ -122,56 +131,13 @@ extension _ChatScreenComposerParts on _ChatScreenState {
     }
   }
 
+  /// 发一个附件：列表里先出现发送端的上传气泡（进度、取消），传完换成正式消息。
   Future<void> _sendPickedFile(
     PickedChatFile file, {
     MessageType? messageType,
-  }) async {
-    _setViewState(() {
-      _isSendingAttachment = true;
-    });
-
-    try {
-      final sent = await _chatService.sendFileMessage(
-        _chat.id,
-        file,
-        messageType: messageType,
-        chat: _chat,
-      );
-      _upsertMessage(sent);
-      _scrollToBottom();
-    } catch (e) {
-      final currentUser = _authService.currentUser;
-      _upsertMessage(Message(
-        id: 'local-file-${DateTime.now().microsecondsSinceEpoch}',
-        content: file.name,
-        senderId: currentUser?.id ?? '',
-        senderName: currentUser?.displayName ?? '我',
-        senderAvatar: currentUser?.avatarUrl,
-        chatRoomId: _chat.id,
-        type: messageType ??
-            (_isImageFile(file) ? MessageType.image : MessageType.file),
-        status: MessageStatus.failed,
-        timestamp: DateTime.now(),
-        fileName: file.name,
-        fileSize: file.size,
-        fileType: file.mimeType,
-      ));
-      _scrollToBottom();
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('文件发送失败: $e'),
-            backgroundColor: AppColors.error,
-          ),
-        );
-      }
-    } finally {
-      if (mounted) {
-        _setViewState(() {
-          _isSendingAttachment = false;
-        });
-      }
-    }
+  }) {
+    final upload = _createOutgoingUpload(file: file, messageType: messageType);
+    return _runOutgoingUpload(upload);
   }
 
   Future<void> _generateImageMessage(String prompt) async {
@@ -328,7 +294,7 @@ extension _ChatScreenComposerParts on _ChatScreenState {
   }
 
   Future<void> _toggleVoiceRecording() async {
-    if (_isStoppingVoice || _isSendingAttachment) return;
+    if (_isStoppingVoice) return;
     if (_isRecordingVoice) {
       await _stopAndSendVoiceRecording();
     } else {
@@ -1633,7 +1599,6 @@ extension _ChatScreenComposerParts on _ChatScreenState {
     required String label,
     required VoidCallback onTap,
   }) {
-    final isBusy = _isSendingAttachment && (label == '相册' || label == '文件');
     return Tooltip(
       message: label,
       child: GestureDetector(
@@ -1648,16 +1613,11 @@ extension _ChatScreenComposerParts on _ChatScreenState {
                 borderRadius: BorderRadius.circular(16),
               ),
               child: Center(
-                child: isBusy
-                    ? const SizedBox.square(
-                        dimension: 24,
-                        child: CircularProgressIndicator(strokeWidth: 2.4),
-                      )
-                    : PMSymbolIcon(
-                        symbol,
-                        color: AppColors.primary,
-                        size: 28,
-                      ),
+                child: PMSymbolIcon(
+                  symbol,
+                  color: AppColors.primary,
+                  size: 28,
+                ),
               ),
             ),
             const SizedBox(height: 6),

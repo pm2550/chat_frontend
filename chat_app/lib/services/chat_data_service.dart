@@ -15,6 +15,7 @@ import '../models/read_receipt.dart';
 import '../models/sticker.dart';
 import '../models/user.dart';
 import 'auth_service.dart';
+import 'chat_upload.dart';
 import 'encryption_service.dart';
 import 'persistent_data_cache.dart';
 import 'request_coordinator.dart';
@@ -99,11 +100,13 @@ class ChatDataService {
     AuthenticatedRequest? authenticatedRequest,
     AuthenticatedMultipartRequest? multipartRequest,
     AuthenticatedMultipartFilesRequest? multipartFilesRequest,
+    MultipartUploadTransport? uploadTransport,
     EncryptionService? encryptionService,
   })  : _authService = authService ?? AuthService(),
         _authenticatedRequest = authenticatedRequest,
         _multipartRequest = multipartRequest,
         _multipartFilesRequest = multipartFilesRequest,
+        _uploadTransport = uploadTransport ?? dioMultipartUpload,
         _encryptionService = encryptionService;
 
   final AuthService _authService;
@@ -112,6 +115,7 @@ class ChatDataService {
   final AuthenticatedRequest? _authenticatedRequest;
   final AuthenticatedMultipartRequest? _multipartRequest;
   final AuthenticatedMultipartFilesRequest? _multipartFilesRequest;
+  final MultipartUploadTransport _uploadTransport;
 
   static const Duration _chatRoomsCacheTtl = Duration(seconds: 30);
   static List<Chat>? _cachedChatRooms;
@@ -1070,11 +1074,18 @@ class ChatDataService {
   /// 发附件。传了 [chat] 且它是双方都开了端到端加密的私聊时，文件先在本机加密：
   /// 服务器只收到一个 encrypted.bin 和密文信封（真实文件名、类型、文件密钥都在信封里），
   /// 也就不会转码语音。转发附件走同一条路：先下载解密，到了目标会话再按它的状态加密。
+  ///
+  /// [onProgress] 报真实的上传字节进度；[cancelToken] 能中止上传；整次上传超过
+  /// [uploadTimeoutForBytes] 算出的时限就中止并抛 [UploadTimeoutException]。
+  /// [clientMessageId] 交给服务器，它推回这条消息时带上，发送端据此换掉本地的上传气泡。
   Future<Message> sendFileMessage(
     String chatRoomId,
     PickedChatFile file, {
     MessageType? messageType,
     Chat? chat,
+    String? clientMessageId,
+    UploadProgressCallback? onProgress,
+    UploadCancelToken? cancelToken,
   }) async {
     final roomId = _parseRoomId(chatRoomId);
     final sealed = chat == null
@@ -1088,8 +1099,12 @@ class ChatDataService {
             kind: _attachmentKind(file, messageType),
             readBytes: () => _readPickedFileBytes(file),
           );
+    if (cancelToken?.isCancelled == true) {
+      throw const UploadCancelledException();
+    }
     final fields = {
       'chatRoomId': roomId.toString(),
+      if (clientMessageId != null) 'clientMessageId': clientMessageId,
       if (sealed != null) ...{
         'messageType': 'FILE',
         'encryptedContent': sealed.envelope,
@@ -1097,17 +1112,21 @@ class ChatDataService {
       } else if (messageType != null)
         'messageType': messageType.name.toUpperCase(),
     };
+    final upload = sealed == null
+        ? file
+        : PickedChatFile(
+            name: 'encrypted.bin',
+            size: sealed.ciphertext.length,
+            mimeType: 'application/octet-stream',
+            bytes: sealed.ciphertext,
+          );
     final response = await _requestMultipart(
       ApiConstants.sendFileMessage,
       fields: fields,
-      file: sealed == null
-          ? file
-          : PickedChatFile(
-              name: 'encrypted.bin',
-              size: sealed.ciphertext.length,
-              mimeType: 'application/octet-stream',
-              bytes: sealed.ciphertext,
-            ),
+      file: upload,
+      onSendProgress: onProgress,
+      cancelToken: cancelToken,
+      timeout: uploadTimeoutForBytes(upload.size),
     );
     final data = _decodeResponse(response);
     final messageJson = data['data'];
@@ -1188,12 +1207,20 @@ class ChatDataService {
 
   /// 按图片地址发图：粘贴网页图片时剪贴板里只有远程 URL，
   /// 浏览器 fetch 会被 CORS 挡住，交给服务端代抓。
-  Future<Message> sendImageFromUrl(String chatRoomId, String url) async {
+  Future<Message> sendImageFromUrl(
+    String chatRoomId,
+    String url, {
+    String? clientMessageId,
+  }) async {
     final roomId = _parseRoomId(chatRoomId);
     final response = await _request(
       'POST',
       ApiConstants.sendFileFromUrl,
-      body: {'chatRoomId': roomId, 'url': url},
+      body: {
+        'chatRoomId': roomId,
+        'url': url,
+        if (clientMessageId != null) 'clientMessageId': clientMessageId,
+      },
     );
     final data = _decodeResponse(response);
     final messageJson = data['data'];
@@ -1653,53 +1680,68 @@ class ChatDataService {
     return Chat.fromJson(chatRoomJson);
   }
 
+  /// 单文件 multipart 上传：带真实进度、可取消、有硬时限；401/403 时刷新令牌再发一次
+  /// （和原来 http.MultipartRequest 的做法一致）。时限到了就中止请求，别让 XHR 挂在后台。
   Future<dynamic> _requestMultipart(
     String url, {
     required Map<String, String> fields,
     required PickedChatFile file,
+    UploadProgressCallback? onSendProgress,
+    UploadCancelToken? cancelToken,
+    Duration timeout = ApiConstants.uploadTimeout,
   }) async {
     if (_multipartRequest != null) {
       return _multipartRequest(url, fields: fields, file: file);
     }
+    final bytes = file.bytes;
+    final path = file.path;
+    if (bytes == null && (path == null || path.isEmpty)) {
+      throw const ChatDataException('请选择有效文件');
+    }
 
-    Future<http.Response> send() async {
-      final request = http.MultipartRequest('POST', Uri.parse(url));
+    // 内部令牌：调用方取消或超时都走它，真正中止正在进行的请求。
+    final abort = UploadCancelToken();
+    var timedOut = false;
+    final deadline = Timer(timeout, () {
+      timedOut = true;
+      abort.cancel();
+    });
+    final forwardCancel = cancelToken?.whenCancelled.then((_) => abort.cancel());
+    unawaited(forwardCancel);
+
+    Future<http.Response> send() {
       final token = _authService.accessToken;
-      if (token != null) {
-        request.headers['Authorization'] = 'Bearer $token';
-      }
-      request.fields.addAll(fields);
-
-      final bytes = file.bytes;
-      if (bytes != null) {
-        request.files.add(http.MultipartFile.fromBytes(
-          'file',
-          bytes,
-          filename: file.name,
-          contentType: _mediaTypeFor(file),
-        ));
-      } else if (file.path != null && file.path!.isNotEmpty) {
-        request.files.add(await http.MultipartFile.fromPath(
-          'file',
-          file.path!,
-          filename: file.name,
-          contentType: _mediaTypeFor(file),
-        ));
-      } else {
-        throw const ChatDataException('请选择有效文件');
-      }
-
-      final streamedResponse =
-          await request.send().timeout(ApiConstants.uploadTimeout);
-      return http.Response.fromStream(streamedResponse);
+      return _uploadTransport(
+        url,
+        headers: {if (token != null) 'Authorization': 'Bearer $token'},
+        fields: fields,
+        fileField: 'file',
+        fileName: file.name,
+        bytes: bytes,
+        path: path,
+        contentType: _mediaTypeFor(file),
+        onSendProgress: onSendProgress,
+        cancelToken: abort,
+      );
     }
 
-    var response = await send();
-    if ((response.statusCode == 401 || response.statusCode == 403) &&
-        await _authService.refreshAccessToken()) {
-      response = await send();
+    try {
+      if (cancelToken?.isCancelled == true) {
+        throw const UploadCancelledException();
+      }
+      var response = await send();
+      if ((response.statusCode == 401 || response.statusCode == 403) &&
+          await _authService.refreshAccessToken()) {
+        if (abort.isCancelled) throw const UploadCancelledException();
+        response = await send();
+      }
+      return response;
+    } on UploadCancelledException {
+      if (timedOut) throw UploadTimeoutException(timeout);
+      rethrow;
+    } finally {
+      deadline.cancel();
     }
-    return response;
   }
 
   Future<dynamic> _requestMultipartFiles(

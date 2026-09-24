@@ -39,8 +39,7 @@ extension _ChatScreenMessageListParts on _ChatScreenState {
   Widget _buildMessageList() {
     final currentUserId = _authService.currentUser?.id;
     final messageOffset = _isLoadingOlderMessages ? 1 : 0;
-    final typingOffset = messageOffset + _messages.length;
-    final remoteTypingOffset = typingOffset + (_isSendingAttachment ? 1 : 0);
+    final remoteTypingOffset = messageOffset + _messages.length;
     final itemCount =
         remoteTypingOffset + (_typingUserNames.isNotEmpty ? 1 : 0);
     return Listener(
@@ -69,12 +68,6 @@ extension _ChatScreenMessageListParts on _ChatScreenState {
                 child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
               );
             }
-            if (index == typingOffset && _isSendingAttachment) {
-              return const Align(
-                alignment: Alignment.centerLeft,
-                child: TypingIndicator(userName: '文件'),
-              );
-            }
             if (index == remoteTypingOffset && _typingUserNames.isNotEmpty) {
               return Align(
                 alignment: Alignment.centerLeft,
@@ -100,6 +93,28 @@ extension _ChatScreenMessageListParts on _ChatScreenState {
             final showDateSeparator = previousMessage == null ||
                 !_isSameMessageDate(
                     previousMessage.timestamp, message.timestamp);
+
+            // 自己正在上传的附件：发送端的上传气泡，不是普通消息（不能长按操作）。
+            final upload = _outgoingUploads[message.id];
+            if (upload != null) {
+              return Column(
+                key: _messageKeyFor(message.id),
+                children: [
+                  if (showDateSeparator)
+                    _MessageDateSeparator(
+                      label: _formatMessageDateLabel(message.timestamp),
+                    ),
+                  Padding(
+                    padding: EdgeInsets.only(
+                      top: startsNewGroup ? 8 : 2,
+                      left: 2,
+                      right: 2,
+                    ),
+                    child: _buildOutgoingUploadBubble(upload),
+                  ),
+                ],
+              );
+            }
 
             return Column(
               key: _messageKeyFor(message.id),

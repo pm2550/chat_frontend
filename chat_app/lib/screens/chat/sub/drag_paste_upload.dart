@@ -28,45 +28,6 @@ extension _ChatScreenDragPasteUploadParts on _ChatScreenState {
     }
   }
 
-  /// 粘贴网页图片时剪贴板里只有第三方地址，浏览器取不到，交服务端代抓。
-  Future<void> _sendPastedImageUrl(String url) async {
-    _setViewState(() {
-      _isSendingAttachment = true;
-    });
-    try {
-      final Message sent;
-      if (_chat.type == ChatType.private && await _e2ee.shouldEncrypt(_chat)) {
-        // 加密私聊：先把图片取回本机，再按普通附件加密上传（服务器只存密文）。
-        final image = await _chatService.fetchRemoteImage(url);
-        sent = await _chatService.sendFileMessage(
-          _chat.id,
-          image,
-          messageType: MessageType.image,
-          chat: _chat,
-        );
-      } else {
-        sent = await _chatService.sendImageFromUrl(_chat.id, url);
-      }
-      _upsertMessage(sent);
-      _scrollToBottom();
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('粘贴的图片没能发出去: $e'),
-            backgroundColor: AppColors.error,
-          ),
-        );
-      }
-    } finally {
-      if (mounted) {
-        _setViewState(() {
-          _isSendingAttachment = false;
-        });
-      }
-    }
-  }
-
   void _showDragUploadOverlay(int fileCount) {
     _setViewState(() {
       _isDragUploadActive = true;
