@@ -11,6 +11,7 @@ import 'package:path_provider/path_provider.dart';
 import '../constants/api_constants.dart';
 import '../models/app_version.dart';
 import 'app_update_installer.dart';
+import 'device_abi.dart';
 
 class UpdateService {
   static final Dio _dio = Dio();
@@ -56,20 +57,57 @@ class UpdateService {
           ? payload['fileSize'] as int
           : int.tryParse(payload['fileSize']?.toString() ?? ''),
       sha256: payload['sha256']?.toString(),
+      abi: payload['abi']?.toString(),
+    );
+  }
+
+  /// 推送里的包是不是本机架构的。服务器已经按连接上报的 ABI 只推对应的包，
+  /// 这里再兜一层：32 位手机万一收到 64 位包，装也装不上，不该弹框。
+  /// 任一边不知道架构（整包、非 Android、没检测出来）时照常处理。
+  static bool shouldHandleUpdateForAbi(String? updateAbi, String? deviceAbi) {
+    final update = updateAbi?.trim().toLowerCase() ?? '';
+    final device = deviceAbi?.trim().toLowerCase() ?? '';
+    if (update.isEmpty || device.isEmpty) return true;
+    return update == device;
+  }
+
+  /// 版本检查地址。Android 带上本机架构（[abi]），服务器给对应的分包 APK；
+  /// 不带时服务器按旧客户端处理，给 64 位包。
+  static Uri buildCheckUri({
+    required String platform,
+    required int currentVersionCode,
+    String? abi,
+  }) {
+    return Uri.parse(ApiConstants.appVersionCheck).replace(
+      queryParameters: {
+        'platform': platform,
+        'currentVersionCode': '$currentVersionCode',
+        if (abi != null && abi.isNotEmpty) 'abi': abi,
+      },
     );
   }
 
   /// Check the backend for a newer version.
-  static Future<AppVersionCheck> checkForUpdate() async {
+  static Future<AppVersionCheck> checkForUpdate({
+    http.Client? client,
+    String? platform,
+    Future<int> Function()? currentVersionCode,
+    Future<String?> Function()? deviceAbi,
+  }) async {
     try {
-      final info = await PackageInfo.fromPlatform();
-      final currentCode = int.tryParse(info.buildNumber) ?? 0;
-      final platform = _platformName();
+      final currentCode = await (currentVersionCode ?? _installedVersionCode)();
+      final resolvedPlatform = platform ?? _platformName();
+      final abi = resolvedPlatform == 'ANDROID'
+          ? await (deviceAbi ?? DeviceAbi.current)()
+          : null;
 
-      final uri = Uri.parse(
-        '${ApiConstants.appVersionCheck}?platform=$platform&currentVersionCode=$currentCode',
+      final uri = buildCheckUri(
+        platform: resolvedPlatform,
+        currentVersionCode: currentCode,
+        abi: abi,
       );
-      final response = await http.get(uri).timeout(ApiConstants.requestTimeout);
+      final response = await (client?.get(uri) ?? http.get(uri))
+          .timeout(ApiConstants.requestTimeout);
 
       if (response.statusCode == 200) {
         final json = jsonDecode(response.body) as Map<String, dynamic>;
@@ -79,6 +117,11 @@ class UpdateService {
       _log('Update check failed: $e');
     }
     return AppVersionCheck.noUpdate();
+  }
+
+  static Future<int> _installedVersionCode() async {
+    final info = await PackageInfo.fromPlatform();
+    return int.tryParse(info.buildNumber) ?? 0;
   }
 
   /// Resolve absolute download URL from the version check response.

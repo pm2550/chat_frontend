@@ -9,6 +9,7 @@ import '../models/message.dart';
 import 'active_call_tracker.dart';
 import 'agent_client_tools.dart';
 import 'auth_service.dart';
+import 'device_abi.dart';
 import 'e2ee/e2ee_constants.dart';
 
 /// 服务器拒收一条消息（被禁言、不是成员、引用的消息无效……），[reason] 是服务器给的原因。
@@ -213,8 +214,13 @@ class WebSocketService extends ChangeNotifier implements ChatRealtimeService {
     final token = _authService.accessToken;
     if (token == null) return;
 
+    // Android 报上 CPU 架构：更新推送只发本机能装的那个分包 APK。
+    final abi = await DeviceAbi.current();
+    if (generation != _connectionGeneration) return;
+
     try {
-      final uri = Uri.parse('${ApiConstants.wsEndpoint}?token=$token');
+      final uri = Uri.parse('${ApiConstants.wsEndpoint}?token=$token'
+          '${abi == null ? '' : '&abi=${Uri.encodeQueryComponent(abi)}'}');
       final channel = _channelFactory(uri);
       // 握手完成前不能算已连接：以前这里立刻置 true，握手失败期间发出的消息
       // 返回"已发送"却直接丢了。

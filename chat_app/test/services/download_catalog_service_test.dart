@@ -58,9 +58,11 @@ void main() {
       await Future<void>.delayed(Duration.zero);
 
       // iOS 是链接型通道（.ipa 在浏览器里装不上），不查发布包。
+      // Android 查两次：64 位主包 + 32 位旧手机包。
       expect(requests, containsAll(['ANDROID', 'WINDOWS', 'MACOS', 'LINUX']));
       expect(requests, isNot(contains('IOS')));
-      expect(requests, hasLength(4));
+      expect(requests.where((p) => p == 'ANDROID'), hasLength(2));
+      expect(requests, hasLength(5));
       for (final response in responses) {
         response.complete(http.Response(
           jsonEncode({'updateAvailable': false}),
@@ -128,6 +130,61 @@ void main() {
       expect(status.downloadUrl, '/api/v1/app/download/android/pm-chat.apk');
       expect(status.fileSize, 42);
       expect(status.isAvailable, isTrue);
+    });
+
+    test('Android offers the 64-bit APK first and the 32-bit APK as a link',
+        () async {
+      final requestedAbis = <String?>[];
+      final client = _FakeClient((request) async {
+        final abi = request.url.queryParameters['abi'];
+        requestedAbis.add(abi);
+        return http.Response(
+          jsonEncode({
+            'updateAvailable': true,
+            'latestVersion': '1.1.52',
+            'downloadUrl':
+                '/api/v1/app/download/android/pm-chat-android-$abi-v1.1.52-11052.apk',
+            'fileSize': abi == 'arm64-v8a' ? 52000000 : 47000000,
+            'abi': abi,
+          }),
+          200,
+        );
+      });
+      final service = DownloadCatalogService(client: client);
+      final android =
+          service.recommendedTarget(platform: TargetPlatform.android);
+
+      final status = await service.fetchStatus(android);
+
+      expect(requestedAbis, unorderedEquals(['arm64-v8a', 'armeabi-v7a']));
+      expect(android.primaryAction, contains('推荐，64 位'));
+      expect(status.downloadUrl, contains('arm64-v8a'));
+      expect(status.fileSize, 52000000);
+      expect(status.secondary, isNotNull);
+      expect(status.secondary!.target.primaryAction, '32 位旧手机');
+      expect(status.secondary!.downloadUrl, contains('armeabi-v7a'));
+      expect(status.secondary!.fileSize, 47000000);
+    });
+
+    test('a pre-split universal APK is not listed twice', () async {
+      final client = _FakeClient((request) async => http.Response(
+            jsonEncode({
+              'updateAvailable': true,
+              'latestVersion': '1.1.51',
+              'downloadUrl':
+                  '/api/v1/app/download/android/pm-chat-android-v1.1.51-11051.apk',
+              'fileSize': 102375315,
+            }),
+            200,
+          ));
+      final service = DownloadCatalogService(client: client);
+
+      final status = await service.fetchStatus(
+        service.recommendedTarget(platform: TargetPlatform.android),
+      );
+
+      expect(status.hasDownloadUrl, isTrue);
+      expect(status.secondary, isNull);
     });
 
     test('resolves compatibility download route to final static artifact', () {

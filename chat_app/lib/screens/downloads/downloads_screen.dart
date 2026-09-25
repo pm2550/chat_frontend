@@ -154,6 +154,7 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
                           _RecommendedDownloadCard(
                             status: recommended,
                             onOpen: () => _open(recommended),
+                            onOpenSecondary: _open,
                           ),
                           const SizedBox(height: 20),
                           _AllClientsGrid(
@@ -247,10 +248,12 @@ class _RecommendedDownloadCard extends StatelessWidget {
   const _RecommendedDownloadCard({
     required this.status,
     required this.onOpen,
+    required this.onOpenSecondary,
   });
 
   final ClientDownloadStatus status;
   final VoidCallback onOpen;
+  final ValueChanged<ClientDownloadStatus> onOpenSecondary;
 
   @override
   Widget build(BuildContext context) {
@@ -299,11 +302,26 @@ class _RecommendedDownloadCard extends StatelessWidget {
             ),
           ];
 
-          final button = FilledButton.icon(
+          final primaryButton = FilledButton.icon(
             onPressed: status.isAvailable ? onOpen : null,
             icon: Icon(target.isWeb ? Icons.open_in_browser : Icons.download),
             label: Text(target.primaryAction),
           );
+          final secondary = status.secondary;
+          final button = secondary == null
+              ? primaryButton
+              : Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    primaryButton,
+                    const SizedBox(height: 6),
+                    _SecondaryDownloadLink(
+                      status: secondary,
+                      onOpen: () => onOpenSecondary(secondary),
+                    ),
+                  ],
+                );
 
           if (compact) {
             return Column(
@@ -320,7 +338,7 @@ class _RecommendedDownloadCard extends StatelessWidget {
             children: [
               ...content,
               const SizedBox(width: 22),
-              button,
+              if (secondary == null) button else IntrinsicWidth(child: button),
             ],
           );
         },
@@ -365,9 +383,12 @@ class _AllClientsGrid extends StatelessWidget {
           ),
           itemBuilder: (context, index) {
             final status = statuses[index];
+            final secondary = status.secondary;
             return _ClientDownloadTile(
               status: status,
               onOpen: () => onOpen(status),
+              onOpenSecondary:
+                  secondary == null ? null : () => onOpen(secondary),
             );
           },
         ),
@@ -380,10 +401,14 @@ class _ClientDownloadTile extends StatelessWidget {
   const _ClientDownloadTile({
     required this.status,
     required this.onOpen,
+    this.onOpenSecondary,
   });
 
   final ClientDownloadStatus status;
   final VoidCallback onOpen;
+
+  /// Android 的 32 位旧手机包。
+  final VoidCallback? onOpenSecondary;
 
   @override
   Widget build(BuildContext context) {
@@ -459,6 +484,13 @@ class _ClientDownloadTile extends StatelessWidget {
                   ),
                 ),
               ),
+              if (status.secondary != null && onOpenSecondary != null) ...[
+                const SizedBox(width: 6),
+                _SecondaryDownloadLink(
+                  status: status.secondary!,
+                  onOpen: onOpenSecondary!,
+                ),
+              ],
               const SizedBox(width: 10),
               IconButton.filledTonal(
                 tooltip: target.primaryAction,
@@ -468,6 +500,34 @@ class _ClientDownloadTile extends StatelessWidget {
             ],
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// 次要下载的小链接（Android 32 位旧手机包）：不和主按钮抢，但一眼能找到。
+class _SecondaryDownloadLink extends StatelessWidget {
+  const _SecondaryDownloadLink({required this.status, required this.onOpen});
+
+  final ClientDownloadStatus status;
+  final VoidCallback onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    final target = status.target;
+    final size =
+        status.fileSize == null ? '' : ' · ${_formatBytes(status.fileSize!)}';
+    return Tooltip(
+      message: '${target.description}$size',
+      child: TextButton.icon(
+        onPressed: status.hasDownloadUrl ? onOpen : null,
+        icon: const Icon(Icons.download, size: 16),
+        label: Text(target.primaryAction),
+        style: TextButton.styleFrom(
+          foregroundColor: AppColors.textSecondary,
+          visualDensity: VisualDensity.compact,
+          textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+        ),
       ),
     );
   }

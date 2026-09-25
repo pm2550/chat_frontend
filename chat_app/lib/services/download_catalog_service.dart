@@ -27,6 +27,8 @@ class ClientDownloadTarget {
     this.isWeb = false,
     this.externalUrl,
     this.showsPwaInstructions = false,
+    this.abi,
+    this.secondary,
   });
 
   final ClientDownloadPlatform platform;
@@ -43,6 +45,12 @@ class ClientDownloadTarget {
 
   /// 点了先讲清楚怎么在 iPhone/iPad 上把网页版添加到主屏幕。
   final bool showsPwaInstructions;
+
+  /// Android 分架构安装包：查版本时带上的 ABI（arm64-v8a / armeabi-v7a）。
+  final String? abi;
+
+  /// 同一平台的次要下载（Android 的 32 位旧手机包），卡片上显示成一个小链接。
+  final ClientDownloadTarget? secondary;
 }
 
 class ClientDownloadStatus {
@@ -53,6 +61,7 @@ class ClientDownloadStatus {
     this.fileSize,
     this.releaseNotes,
     this.error,
+    this.secondary,
   });
 
   final ClientDownloadTarget target;
@@ -62,9 +71,23 @@ class ClientDownloadStatus {
   final String? releaseNotes;
   final String? error;
 
+  /// 次要下载（Android 32 位包）；没发布、或者和主下载是同一个文件（拆包前的整包）时为 null。
+  final ClientDownloadStatus? secondary;
+
   bool get hasDownloadUrl => downloadUrl != null && downloadUrl!.isNotEmpty;
   bool get isAvailable => target.isWeb || hasDownloadUrl;
   bool get hasError => error != null && error!.isNotEmpty;
+
+  ClientDownloadStatus withSecondary(ClientDownloadStatus? value) =>
+      ClientDownloadStatus(
+        target: target,
+        latestVersion: latestVersion,
+        downloadUrl: downloadUrl,
+        fileSize: fileSize,
+        releaseNotes: releaseNotes,
+        error: error,
+        secondary: value,
+      );
 }
 
 class DownloadCatalogService {
@@ -110,19 +133,36 @@ class DownloadCatalogService {
       description: '适合 Linux x64 桌面环境，解压后运行 bundle/chat_app。',
       primaryAction: '下载 Linux 版',
     ),
+    // Android 按 CPU 架构拆成两个 APK：主按钮给 64 位（绝大多数手机），
+    // 32 位旧手机单独一个小链接。
     ClientDownloadTarget(
       platform: ClientDownloadPlatform.android,
       apiPlatform: 'ANDROID',
       label: 'Android',
       shortLabel: 'Android',
-      packageLabel: '.apk',
-      description: '适合 Android 手机和平板安装包分发。',
-      primaryAction: '下载 Android APK',
+      packageLabel: '.apk · 64 位',
+      description: '适合绝大多数 Android 手机和平板（64 位）。'
+          '装不上的 32 位旧手机请下 32 位版。',
+      primaryAction: '下载 Android（推荐，64 位）',
+      abi: 'arm64-v8a',
+      secondary: android32Target,
     ),
     ApiConstants.iosTestFlightUrl.length == 0
         ? iosWebAppTarget
         : iosTestFlightTarget,
   ];
+
+  /// 只给装不上 64 位版的旧手机（多是 2015 年前后的机型）。
+  static const ClientDownloadTarget android32Target = ClientDownloadTarget(
+    platform: ClientDownloadPlatform.android,
+    apiPlatform: 'ANDROID',
+    label: 'Android 32 位',
+    shortLabel: 'Android 32 位',
+    packageLabel: '.apk · 32 位',
+    description: '只给装不上 64 位版的 32 位旧手机。',
+    primaryAction: '32 位旧手机',
+    abi: 'armeabi-v7a',
+  );
 
   /// 浏览器下载的 .ipa 装不到 iPhone 上。没有配置 TestFlight 公开链接时，
   /// 老实告诉用户用网页版（添加到主屏幕）。
@@ -185,11 +225,32 @@ class DownloadCatalogService {
       );
     }
 
+    final secondaryTarget = target.secondary;
+    final results = await Future.wait([
+      _fetchPackage(target),
+      if (secondaryTarget != null) _fetchPackage(secondaryTarget),
+    ]);
+    final primary = results.first;
+    if (results.length < 2) return primary;
+    final secondary = results[1];
+    // 服务器上还只有拆包前的整包时，两个架构查到的是同一个文件：不重复列出。
+    if (!secondary.hasDownloadUrl ||
+        secondary.downloadUrl == primary.downloadUrl) {
+      return primary;
+    }
+    return primary.withSecondary(secondary);
+  }
+
+  Future<ClientDownloadStatus> _fetchPackage(
+    ClientDownloadTarget target,
+  ) async {
     try {
+      final abi = target.abi;
       final uri = Uri.parse(ApiConstants.appVersionCheck).replace(
         queryParameters: {
           'platform': target.apiPlatform,
           'currentVersionCode': '0',
+          if (abi != null) 'abi': abi,
         },
       );
       final response = await (_client?.get(uri) ?? http.get(uri))

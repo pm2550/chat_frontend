@@ -66,6 +66,9 @@ jobs:
         run: |
           perl -0pi -e "s/^version:\s*.*\$/version: ${VERSION_NAME}+${VERSION_CODE}/m" pubspec.yaml
 
+      - name: Test publish script
+        run: python3 -m unittest discover -s scripts/ci -p 'test_*.py' -v
+
       - name: Install Linux desktop dependencies
         run: |
           sudo apt-get update
@@ -111,9 +114,11 @@ jobs:
             flutter pub get
             bash scripts/ci/patch_flutter_sound_linux.sh
 
-            # 只打手机用的 ARM（32/64 位）。x86_64 只有模拟器和少数平板用得上，
-            # 加上 WebRTC 原生库后三套 ABI 的 APK 超过 100MB（服务器上传上限），下载也慢。
-            flutter build apk --release \
+            # 只打手机用的 ARM（32/64 位），并按 ABI 拆成两个 APK：两套原生库打在一个
+            # 包里已经到 ~100MB（服务器上传上限 100MB），用户每次更新也要多下一半。
+            # x86_64 只有模拟器用，不发布（Android smoke 自己打 debug 包）。
+            # 两个分包用同一个 versionCode（见 android/app/build.gradle.kts）。
+            flutter build apk --release --split-per-abi \
               --target-platform android-arm,android-arm64 \
               --build-name "$VERSION_NAME" \
               --build-number "$VERSION_CODE" \
@@ -121,7 +126,11 @@ jobs:
               --dart-define=WS_BASE_URL="$WS_BASE_URL" \
               --dart-define=WEB_APP_URL="$WEB_APP_URL" \
               --dart-define=WEBRTC_ICE_SERVERS="$WEBRTC_ICE_SERVERS"
-            cp build/app/outputs/flutter-apk/app-release.apk "../pm-chat-android-v${VERSION_NAME}-${VERSION_CODE}.apk"
+            for abi in arm64-v8a armeabi-v7a; do
+              cp "build/app/outputs/flutter-apk/app-${abi}-release.apk" \
+                "../pm-chat-android-${abi}-v${VERSION_NAME}-${VERSION_CODE}.apk"
+            done
+            bash scripts/ci/check_split_apks.sh "$VERSION_CODE" ../pm-chat-android-*-v"${VERSION_NAME}-${VERSION_CODE}".apk
 
             flutter build appbundle --release \
               --build-name "$VERSION_NAME" \
@@ -147,7 +156,7 @@ jobs:
         with:
           name: linux-android
           path: |
-            pm-chat-android-v*.apk
+            pm-chat-android-*.apk
             pm-chat-android-v*.aab
             pm-chat-linux-x64-v*.tar.gz
             build-logs/linux-android.log
@@ -397,45 +406,22 @@ jobs:
             gh release create "$tag" "${assets[@]}" \
               --repo "$GITHUB_REPOSITORY" \
               --title "PM chat ${VERSION_NAME}-${VERSION_CODE}" \
-              --notes "PM chat installers. Windows/macOS are unsigned unless signing secrets are configured."
+              --notes "PM chat installers. Android: arm64-v8a is for almost all phones; armeabi-v7a is only for old 32-bit phones. Windows/macOS are unsigned unless signing secrets are configured."
           fi
+
+      - name: Test publish script
+        run: python3 -m unittest discover -s chat_app/scripts/ci -p 'test_*.py' -v
 
       - name: Mirror installers to PM chat server
         if: success() && hashFiles('dist/pm-chat-*') != ''
         env:
           PMCHAT_PUBLISH_TOKEN: ${{ secrets.PMCHAT_PUBLISH_TOKEN }}
-          COMMIT_SHA: ${{ github.sha }}
+          PMCHAT_API_BASE_URL: https://gateway.chat.pm2550.com
+          RELEASE_NOTES: Built from commit ${{ github.sha }}
         run: |
           if [ -z "$PMCHAT_PUBLISH_TOKEN" ]; then
             echo "::warning::PMCHAT_PUBLISH_TOKEN is not configured; skipping PM chat mirror."
             exit 0
           fi
 
-          publish_one() {
-            local artifact="$1"
-            local platform=""
-            case "$(basename "$artifact")" in
-              pm-chat-android-*.apk) platform="ANDROID" ;;
-              pm-chat-windows-*.zip) platform="WINDOWS" ;;
-              pm-chat-macos-*.zip) platform="MACOS" ;;
-              pm-chat-linux-*.tar.gz) platform="LINUX" ;;
-              *) return 0 ;;
-            esac
-
-            metadata=$(jq -nc \
-              --arg p "$platform" \
-              --arg n "$VERSION_NAME" \
-              --argjson c "$VERSION_CODE" \
-              --arg notes "Built from commit $COMMIT_SHA" \
-              '{platform: $p, versionName: $n, versionCode: $c, forceUpdate: false, releaseNotes: $notes}')
-
-            curl --retry 3 --retry-delay 5 --fail-with-body -SL -X POST https://gateway.chat.pm2550.com/api/v1/app/version/publish-from-ci \
-              -H "Authorization: Bearer $PMCHAT_PUBLISH_TOKEN" \
-              -F "metadata=$metadata;type=application/json" \
-              -F "artifact=@$artifact"
-            echo "Mirrored $platform $(basename "$artifact")"
-          }
-
-          while IFS= read -r -d '' artifact; do
-            publish_one "$artifact"
-          done < <(find dist -type f -print0)
+          python3 chat_app/scripts/ci/publish_app_versions.py dist

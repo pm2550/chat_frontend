@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../models/app_version.dart';
+import '../services/device_abi.dart';
 import '../services/update_service.dart';
 import '../services/websocket_service.dart';
 import 'update_dialog.dart';
@@ -11,6 +12,9 @@ class AppUpdateListener extends StatefulWidget {
   final Widget child;
   final Stream<Map<String, dynamic>>? updateEvents;
   final String? currentPlatform;
+
+  /// 本机 Android ABI；测试里替换，默认 [DeviceAbi.current]。
+  final Future<String?> Function()? deviceAbi;
   final Future<void> Function(BuildContext context, AppVersionCheck check)?
       showUpdate;
 
@@ -19,6 +23,7 @@ class AppUpdateListener extends StatefulWidget {
     required this.child,
     this.updateEvents,
     this.currentPlatform,
+    this.deviceAbi,
     this.showUpdate,
   });
 
@@ -65,6 +70,11 @@ class _AppUpdateListenerState extends State<AppUpdateListener> {
 
     _showing = true;
     try {
+      final deviceAbi = await (widget.deviceAbi ?? DeviceAbi.current)();
+      if (!mounted ||
+          !UpdateService.shouldHandleUpdateForAbi(check.abi, deviceAbi)) {
+        return;
+      }
       final showUpdate = widget.showUpdate;
       if (showUpdate != null) {
         await showUpdate(context, check);

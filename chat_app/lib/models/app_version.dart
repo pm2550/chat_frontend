@@ -10,6 +10,9 @@ class AppVersionCheck {
   /// 安装包的 SHA-256（小写十六进制），旧版本服务端/旧发布没有。
   final String? sha256;
 
+  /// 下载地址对应的 Android ABI（arm64-v8a / armeabi-v7a）；整包、其他平台为 null。
+  final String? abi;
+
   const AppVersionCheck({
     required this.updateAvailable,
     this.forceUpdate = false,
@@ -19,6 +22,7 @@ class AppVersionCheck {
     this.downloadUrl,
     this.fileSize,
     this.sha256,
+    this.abi,
   });
 
   factory AppVersionCheck.fromJson(Map<String, dynamic> json) {
@@ -31,6 +35,7 @@ class AppVersionCheck {
       downloadUrl: json['downloadUrl'],
       fileSize: json['fileSize'],
       sha256: json['sha256'],
+      abi: json['abi'],
     );
   }
 
