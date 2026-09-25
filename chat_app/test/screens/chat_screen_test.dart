@@ -1927,7 +1927,8 @@ void main() {
       expect(find.text('发送失败: Exception: network down'), findsOneWidget);
     });
 
-    testWidgets('picks image and sends file message', (tester) async {
+    testWidgets('picked image waits in the send strip until 发送 is pressed',
+        (tester) async {
       final chat = createTestChat();
       final service = FakeChatDataService(messages: const []);
 
@@ -1946,6 +1947,15 @@ void main() {
       await tester.tap(find.byTooltip('附件'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('相册'));
+      await tester.pump();
+      await tester.pump();
+
+      // 和微信一样：选好的图先停在发送栏，按发送键才发。
+      expect(service.sentFiles, isEmpty);
+      expect(find.byKey(const ValueKey('chat-pending-attachment-0')),
+          findsOneWidget);
+      await tester.tap(find.byTooltip('发送'));
+      await tester.pump();
       await tester.pump();
 
       expect(service.sentFiles.single.name, 'photo.png');

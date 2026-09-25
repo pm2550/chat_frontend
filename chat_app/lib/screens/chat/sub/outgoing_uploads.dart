@@ -407,17 +407,22 @@ extension _ChatScreenOutgoingUploadParts on _ChatScreenState {
               ),
               if (!failed) ...[
                 const SizedBox(height: 8),
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(999),
-                  child: LinearProgressIndicator(
-                    minHeight: 4,
-                    // 压缩中不知道要多久：不定进度条。上传进度按压缩后的大小算。
-                    value: upload.phase == _UploadPhase.queued
-                        ? 0
-                        : upload.phase == _UploadPhase.compressing
-                            ? null
-                            : upload.fraction,
-                    backgroundColor: AppColors.primary.withValues(alpha: 0.12),
+                // 进度条只是视觉提示：它自带的语义值（"0"、"37"）会被读屏拼到状态文字后面，
+                // 变成"等待发送 0"。状态和百分比已经写在上面的文字里。
+                ExcludeSemantics(
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(999),
+                    child: LinearProgressIndicator(
+                      minHeight: 4,
+                      // 压缩中不知道要多久：不定进度条。上传进度按压缩后的大小算。
+                      value: upload.phase == _UploadPhase.queued
+                          ? 0
+                          : upload.phase == _UploadPhase.compressing
+                              ? null
+                              : upload.fraction,
+                      backgroundColor:
+                          AppColors.primary.withValues(alpha: 0.12),
+                    ),
                   ),
                 ),
               ],

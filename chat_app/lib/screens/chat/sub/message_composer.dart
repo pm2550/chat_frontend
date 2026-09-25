@@ -132,20 +132,12 @@ extension _ChatScreenComposerParts on _ChatScreenState {
   }
 
   /// 发一个附件：列表里先出现发送端的上传气泡（进度、取消），传完换成正式消息。
-  /// [compressImage]：从相册/相机发的图先在本机压缩、删元数据（气泡显示"正在压缩…"）；
-  /// "文件"入口选的图按文件原样发（和微信一样，想发原图可以走这里）。
+  /// 这里原样发送（"文件"入口、语音）；相册/相机的图片先进发送栏，见 [_queuePickedImages]。
   Future<void> _sendPickedFile(
     PickedChatFile file, {
     MessageType? messageType,
-    bool compressImage = false,
   }) {
-    final upload = _createOutgoingUpload(
-      file: file,
-      messageType: messageType,
-      preparation: compressImage && ImageUploadPreparer.looksLikeImage(file)
-          ? _imagePreparer.prepare(file)
-          : null,
-    );
+    final upload = _createOutgoingUpload(file: file, messageType: messageType);
     return _runOutgoingUpload(upload);
   }
 
@@ -186,9 +178,13 @@ extension _ChatScreenComposerParts on _ChatScreenState {
     }
   }
 
-  Future<PickedChatFile?> _pickImageFromGallery() async {
-    final image = await ImagePicker().pickImage(source: ImageSource.gallery);
-    if (image == null) return null;
+  /// 相册可以一次选多张（手机、桌面、网页都支持）。
+  Future<List<PickedChatFile>> _pickImagesFromGallery() async {
+    final images = await ImagePicker().pickMultiImage();
+    return [for (final image in images) await _pickedChatFileFromXFile(image)];
+  }
+
+  Future<PickedChatFile> _pickedChatFileFromXFile(XFile image) async {
     return PickedChatFile(
       name: image.name,
       path: image.path,
@@ -206,13 +202,7 @@ extension _ChatScreenComposerParts on _ChatScreenState {
   Future<PickedChatFile?> _pickImageFromCamera() async {
     final image = await ImagePicker().pickImage(source: ImageSource.camera);
     if (image == null) return null;
-    return PickedChatFile(
-      name: image.name,
-      path: image.path,
-      size: await image.length(),
-      mimeType: image.mimeType,
-      bytes: kIsWeb ? await image.readAsBytes() : null,
-    );
+    return _pickedChatFileFromXFile(image);
   }
 
   Future<PickedChatFile?> _pickGenericFile() async {
@@ -234,18 +224,23 @@ extension _ChatScreenComposerParts on _ChatScreenState {
     );
   }
 
-  Future<void> _pickAndSendImage() async {
-    final picker = widget.imagePicker ?? _pickImageFromGallery;
-    final PickedChatFile? file;
+  /// 相册：和微信一样，选好的图先放进发送栏（后台开始压缩、显示大小、可勾"原图"、可移除），
+  /// 按发送键才发出。
+  Future<void> _pickImagesIntoStrip() async {
+    final List<PickedChatFile> files;
     try {
-      file = await picker();
+      final picker = widget.imagePicker;
+      if (picker != null) {
+        final file = await picker();
+        files = [if (file != null) file];
+      } else {
+        files = await _pickImagesFromGallery();
+      }
     } catch (error) {
       _showPickerError('无法打开相册', error);
       return;
     }
-    if (file != null) {
-      await _sendPickedFile(file, compressImage: true);
-    }
+    _queuePickedImages(files);
   }
 
   Future<void> _pickAndSendFile() async {
@@ -256,22 +251,34 @@ extension _ChatScreenComposerParts on _ChatScreenState {
     }
   }
 
-  Future<void> _pickAndSendCameraImage() async {
+  /// 拍照：拍好的照片同样先进发送栏。
+  Future<void> _takePhotoIntoStrip() async {
     final PickedChatFile? file;
     try {
-      file = await _pickImageFromCamera();
+      file = await (widget.cameraPicker ?? _pickImageFromCamera)();
     } catch (error) {
       _showPickerError('无法打开相机', error);
       return;
     }
-    if (file != null) {
-      await _sendPickedFile(
-        file,
-        messageType: MessageType.image,
-        compressImage: true,
+    if (file != null) _queuePickedImages([file]);
+  }
+
+  void _queuePickedImages(List<PickedChatFile> files) {
+    if (!mounted || files.isEmpty) return;
+    for (final file in files) {
+      _queuePendingAttachment(
+        _PendingAttachment.file(file, messageType: MessageType.image),
+        focusComposer: false,
       );
     }
+    // 手机上选完图不弹键盘挡住发送栏；桌面/网页聚焦输入框，直接按 Enter 就能发。
+    if (!_isNativeMobile) _focusComposerAfterStripChange();
   }
+
+  bool get _isNativeMobile =>
+      !kIsWeb &&
+      (defaultTargetPlatform == TargetPlatform.android ||
+          defaultTargetPlatform == TargetPlatform.iOS);
 
   void _showPickerError(String action, Object error) {
     if (!mounted) return;
@@ -1046,7 +1053,7 @@ extension _ChatScreenComposerParts on _ChatScreenState {
                           symbol: PMSymbol.camera,
                           label: '拍照',
                           onTap: () {
-                            final sendFuture = _pickAndSendCameraImage();
+                            final sendFuture = _takePhotoIntoStrip();
                             Navigator.pop(context);
                             unawaited(sendFuture);
                           },
@@ -1055,7 +1062,7 @@ extension _ChatScreenComposerParts on _ChatScreenState {
                         symbol: PMSymbol.image,
                         label: '相册',
                         onTap: () {
-                          final sendFuture = _pickAndSendImage();
+                          final sendFuture = _pickImagesIntoStrip();
                           Navigator.pop(context);
                           unawaited(sendFuture);
                         },
@@ -1063,6 +1070,7 @@ extension _ChatScreenComposerParts on _ChatScreenState {
                       _buildInputOption(
                         symbol: PMSymbol.files,
                         label: '文件',
+                        tooltip: '发送文件（原样发送，图片不压缩）',
                         onTap: () {
                           final sendFuture = _pickAndSendFile();
                           Navigator.pop(context);
@@ -1611,9 +1619,10 @@ extension _ChatScreenComposerParts on _ChatScreenState {
     required PMSymbol symbol,
     required String label,
     required VoidCallback onTap,
+    String? tooltip,
   }) {
     return Tooltip(
-      message: label,
+      message: tooltip ?? label,
       child: GestureDetector(
         onTap: onTap,
         child: Column(

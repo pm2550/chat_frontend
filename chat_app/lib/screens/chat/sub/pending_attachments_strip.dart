@@ -64,10 +64,33 @@ class _PendingAttachment {
 extension _ChatScreenPendingAttachmentParts on _ChatScreenState {
   bool get _hasPendingAttachments => _pendingAttachments.isNotEmpty;
 
-  void _queuePendingAttachment(_PendingAttachment attachment) {
+  void _queuePendingAttachment(
+    _PendingAttachment attachment, {
+    bool focusComposer = true,
+  }) {
     _setViewState(() => _pendingAttachments.add(attachment));
     _startPendingPreparation(attachment);
-    _focusNode.requestFocus();
+    if (focusComposer) _focusComposerAfterStripChange();
+  }
+
+  /// 发送栏出现、增减会改动输入框上方的布局。网页版开着无障碍语义树时，这一变动会让浏览器焦点
+  /// 从输入框背后的 DOM 元素掉到 <body>；Flutter 这边却仍认为输入框有焦点，requestFocus 什么都不做，
+  /// 于是按 Enter 没反应，得再点一下输入框。网页上先让出焦点、下一帧再要回来，
+  /// 引擎就会重新聚焦输入框对应的 DOM 元素。
+  void _focusComposerAfterStripChange() {
+    if (!mounted) return;
+    final repairDomFocus = ChatScreen.debugRepairComposerDomFocus ?? kIsWeb;
+    if (_composerFocusRepairScheduled) return; // 同一帧里连着加了好几个
+    if (!repairDomFocus || !_focusNode.hasFocus) {
+      _focusNode.requestFocus();
+      return;
+    }
+    _composerFocusRepairScheduled = true;
+    _focusNode.unfocus();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _composerFocusRepairScheduled = false;
+      if (mounted) _focusNode.requestFocus();
+    });
   }
 
   void _startPendingPreparation(_PendingAttachment attachment) {
@@ -95,8 +118,8 @@ extension _ChatScreenPendingAttachmentParts on _ChatScreenState {
   void _removePendingAttachment(int index) {
     if (index < 0 || index >= _pendingAttachments.length) return;
     _setViewState(() => _pendingAttachments.removeAt(index));
-    // 移掉一张后焦点要留在输入框，不然接着打字打不进去。
-    _focusNode.requestFocus();
+    // 移掉一张后焦点要留在输入框，不然接着打字打不进去（手机上不主动弹键盘挡住发送栏）。
+    if (!_isNativeMobile) _focusComposerAfterStripChange();
   }
 
   /// 发送栏里排队的附件：立刻清空发送栏、每个都先放出自己的上传气泡（排队中），
@@ -238,7 +261,9 @@ extension _ChatScreenPendingAttachmentParts on _ChatScreenState {
     if (!attachment.compressible) return null;
     final size = attachment.uploadSize(original: _pendingSendOriginal);
     if (size != null) return _formatFileSize(size);
-    return _pendingSendOriginal ? _formatFileSize(attachment.file!.size) : '压缩中';
+    return _pendingSendOriginal
+        ? _formatFileSize(attachment.file!.size)
+        : '压缩中';
   }
 
   Widget _buildPendingAttachmentTile(int index) {

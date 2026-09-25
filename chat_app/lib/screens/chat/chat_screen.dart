@@ -120,6 +120,7 @@ class ChatScreen extends StatefulWidget {
     this.contactService,
     this.botService,
     this.imagePicker,
+    this.cameraPicker,
     this.filePicker,
     this.fileSaver,
     this.encryptionService,
@@ -134,12 +135,17 @@ class ChatScreen extends StatefulWidget {
   final ContactDataService? contactService;
   final BotService? botService;
   final ChatAttachmentPicker? imagePicker;
+  final ChatAttachmentPicker? cameraPicker;
   final ChatAttachmentPicker? filePicker;
   final file_save.FileSaver? fileSaver;
   final EncryptionService? encryptionService;
 
   /// 发图前的压缩/删元数据（测试注入假的，避免真的解码）。
   final ImageUploadPreparer? imageUploadPreparer;
+
+  /// 测试用：强制打开/关闭网页端"发送栏变动后重新聚焦输入框"的处理（默认只在网页上开）。
+  @visibleForTesting
+  static bool? debugRepairComposerDomFocus;
 
   @visibleForTesting
   static void clearMessageCacheForTesting() {
@@ -242,6 +248,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
 
   /// 发送栏里的图片这次按"原图"发（只删元数据、不压缩）。每次发送后恢复成压缩。
   bool _pendingSendOriginal = false;
+  bool _composerFocusRepairScheduled = false;
   late final ImageUploadPreparer _imagePreparer;
 
   /// 正在上传/上传失败的附件，按占位消息 id（= clientMessageId）索引。

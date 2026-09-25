@@ -9,7 +9,9 @@ import 'package:chat_app/services/chat_upload.dart';
 import 'package:chat_app/services/image_upload/image_upload_preparer.dart';
 import 'package:chat_app/services/websocket_service.dart';
 import 'package:chat_app/widgets/typing_indicator.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -104,7 +106,8 @@ class _ControlledPreparer extends ImageUploadPreparer {
   }
 }
 
-PreparedImageUpload _prepared(String name, int size, {int originalSize = 4000000}) =>
+PreparedImageUpload _prepared(String name, int size,
+        {int originalSize = 4000000}) =>
     PreparedImageUpload(
       file: PickedChatFile(
         name: name,
@@ -156,6 +159,7 @@ void main() {
   Future<(FakeWebSocketChannel, WebSocketService, _UploadChatService)> pump(
     WidgetTester tester, {
     ChatAttachmentPicker? imagePicker,
+    ChatAttachmentPicker? cameraPicker,
     ChatAttachmentPicker? filePicker,
     ImageUploadPreparer? preparer,
   }) async {
@@ -176,6 +180,7 @@ void main() {
             webSocketService: socket,
             filePicker: filePicker ?? () async => _doc,
             imagePicker: imagePicker,
+            cameraPicker: cameraPicker,
             imageUploadPreparer: preparer,
           ),
         ),
@@ -479,7 +484,13 @@ void main() {
     await finish(tester, socket);
   });
 
-  testWidgets('相册的图先显示"正在压缩…"，压好后按压缩后的大小上传', (tester) async {
+  Future<void> pressSend(WidgetTester tester) async {
+    await tester.tap(find.byTooltip('发送'));
+    await tester.pump();
+    await tester.pump();
+  }
+
+  testWidgets('相册选的图进发送栏、不自动发；按发送后先"正在压缩…"，再按压缩后的大小上传', (tester) async {
     final preparer = _ControlledPreparer();
     final (_, socket, service) = await pump(
       tester,
@@ -488,9 +499,21 @@ void main() {
     );
 
     await pickFile(tester, entry: '相册');
+    await tester.pump();
 
-    expect(preparer.calls.single.file.name, 'IMG_0001.jpg');
-    expect(preparer.calls.single.original, isFalse);
+    expect(
+        find.byKey(const ValueKey('chat-pending-attachment-0')), findsOneWidget,
+        reason: '选好的图放进发送栏');
+    expect(uploadBubbles(), findsNothing, reason: '按发送键之前什么都不发');
+    expect(service.uploads, isEmpty);
+    expect(preparer.calls.single.original, isFalse, reason: '后台先开始压缩');
+    expect(find.text('原图 (3.8 MB)'), findsOneWidget);
+    expect(find.byTooltip('发送'), findsOneWidget, reason: '只有图片没打字也能发');
+
+    await pressSend(tester);
+
+    expect(
+        find.byKey(const ValueKey('chat-pending-attachment-0')), findsNothing);
     expect(uploadBubbles(), findsOneWidget);
     expect(find.text('正在压缩…'), findsOneWidget);
     expect(service.uploads, isEmpty, reason: '压完才上传');
@@ -508,6 +531,79 @@ void main() {
     await finish(tester, socket);
   });
 
+  testWidgets('拍照的照片也先进发送栏；勾"原图"后按原图发', (tester) async {
+    // 拍照按钮只在手机/网页上有。
+    debugDefaultTargetPlatformOverride = TargetPlatform.android;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
+    final preparer = _ControlledPreparer();
+    final (_, socket, service) = await pump(
+      tester,
+      cameraPicker: () async => _photo,
+      preparer: preparer,
+    );
+
+    await pickFile(tester, entry: '拍照');
+    await tester.pump();
+
+    expect(find.byKey(const ValueKey('chat-pending-attachment-0')),
+        findsOneWidget);
+    expect(service.uploads, isEmpty);
+    await tester
+        .tap(find.byKey(const ValueKey('chat-pending-original-toggle')));
+    await tester.pump();
+    expect(preparer.calls.last.original, isTrue, reason: '原图开关对拍的照片同样生效');
+    preparer.results.last.complete(const PreparedImageUpload(
+      file: PickedChatFile(
+        name: 'IMG_0001.jpg',
+        size: 3999000,
+        mimeType: 'image/jpeg',
+        bytes: [7, 7, 7],
+      ),
+      originalSize: 4000000,
+      outcome: ImagePrepareOutcome.metadataStripped,
+    ));
+    await tester.pump();
+
+    await pressSend(tester);
+    await tester.pump();
+
+    expect(service.uploads.single.file.bytes, [7, 7, 7]);
+    debugDefaultTargetPlatformOverride = null;
+    await finish(tester, socket);
+  });
+
+  testWidgets('发送栏里的图可以先移除，移除的不会发出去', (tester) async {
+    final preparer = _ControlledPreparer();
+    var picks = 0;
+    final (_, socket, service) = await pump(
+      tester,
+      imagePicker: () async => PickedChatFile(
+        name: 'IMG_${picks++}.jpg',
+        size: 4000000,
+        mimeType: 'image/jpeg',
+        bytes: const [1, 2, 3],
+      ),
+      preparer: preparer,
+    );
+    await pickFile(tester, entry: '相册');
+    await pickFile(tester, entry: '相册');
+    await tester.pump();
+    expect(find.byKey(const ValueKey('chat-pending-attachment-1')),
+        findsOneWidget);
+
+    await tester
+        .tap(find.byKey(const ValueKey('chat-pending-attachment-remove-0')));
+    await tester.pump();
+    for (final result in preparer.results) {
+      result.complete(_prepared('IMG_1.jpg', 300000));
+    }
+    await pressSend(tester);
+    await tester.pump();
+
+    expect(service.uploads.single.file.name, 'IMG_1.jpg', reason: '只发没移除的那张');
+    await finish(tester, socket);
+  });
+
   testWidgets('压缩中也能取消：不会再上传', (tester) async {
     final preparer = _ControlledPreparer();
     final (_, socket, service) = await pump(
@@ -516,6 +612,7 @@ void main() {
       preparer: preparer,
     );
     await pickFile(tester, entry: '相册');
+    await pressSend(tester);
     expect(find.text('正在压缩…'), findsOneWidget);
 
     await tester.tap(find.textContaining('取消').last);
@@ -526,6 +623,81 @@ void main() {
 
     expect(uploadBubbles(), findsNothing);
     expect(service.uploads, isEmpty);
+    await finish(tester, socket);
+  });
+
+  testWidgets('排队中的上传气泡：读屏只读状态文字，不带进度条的"0"', (tester) async {
+    final semantics = tester.ensureSemantics();
+    final preparer = _ControlledPreparer();
+    final (_, socket, service) = await pump(tester, preparer: preparer);
+    final DragTarget<List<PickedChatFile>> target =
+        tester.widget(find.byKey(const Key('chat-drop-target')));
+    target.onAcceptWithDetails!(
+        DragTargetDetails(data: const [_doc, _doc], offset: Offset.zero));
+    await tester.pump();
+    await pressSend(tester);
+
+    expect(find.text('等待发送'), findsOneWidget);
+    final queued = tester.getSemantics(find.text('等待发送'));
+    expect(queued.label, contains('等待发送'));
+    final bubble = find.ancestor(
+      of: find.text('等待发送'),
+      matching: find.byWidgetPredicate((widget) =>
+          widget.key is ValueKey<String> &&
+          (widget.key as ValueKey<String>)
+              .value
+              .startsWith('chat-upload-local-')),
+    );
+    final values = <String>[];
+    void collect(SemanticsNode node) {
+      if (node.value.isNotEmpty) values.add(node.value);
+      node.visitChildren((child) {
+        collect(child);
+        return true;
+      });
+    }
+
+    collect(tester.getSemantics(bubble.first));
+    expect(values, isEmpty, reason: '进度条的语义值不该拼进标签');
+    expect(service.uploads, hasLength(1));
+    semantics.dispose();
+    await finish(tester, socket);
+  });
+
+  testWidgets('网页端：拖进来/粘贴后发送栏改变布局，输入框先让出焦点下一帧再拿回（重新聚焦 DOM），Enter 直接发送',
+      (tester) async {
+    ChatScreen.debugRepairComposerDomFocus = true;
+    addTearDown(() => ChatScreen.debugRepairComposerDomFocus = null);
+    final preparer = _ControlledPreparer();
+    final (_, socket, service) = await pump(tester, preparer: preparer);
+    await tester.tap(find.byType(TextField));
+    await tester.pump();
+    final field = tester.widget<TextField>(find.byType(TextField));
+    final focus = field.focusNode!;
+    expect(focus.hasFocus, isTrue);
+    final changes = <bool>[];
+    focus.addListener(() => changes.add(focus.hasFocus));
+
+    final DragTarget<List<PickedChatFile>> target =
+        tester.widget(find.byKey(const Key('chat-drop-target')));
+    target.onAcceptWithDetails!(
+        DragTargetDetails(data: const [_photo, _photo], offset: Offset.zero));
+    await tester.pump();
+    await tester.pump();
+
+    expect(changes, [false, true], reason: '两个文件也只重新聚焦一次');
+    expect(focus.hasFocus, isTrue);
+    for (final result in preparer.results) {
+      result.complete(_prepared('IMG_0001.jpg', 400000));
+    }
+    await tester.pump();
+    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+    await tester.pump();
+    await tester.pump();
+
+    expect(service.uploads, hasLength(1), reason: 'Enter 直接发出（第二张排队）');
+    expect(
+        find.byKey(const ValueKey('chat-pending-attachment-0')), findsNothing);
     await finish(tester, socket);
   });
 
@@ -544,8 +716,7 @@ void main() {
     await finish(tester, socket);
   });
 
-  testWidgets('发送栏：排进来就开始压缩并显示大小；勾"原图"按原图发，发完恢复默认',
-      (tester) async {
+  testWidgets('发送栏：排进来就开始压缩并显示大小；勾"原图"按原图发，发完恢复默认', (tester) async {
     final preparer = _ControlledPreparer();
     final (_, socket, service) = await pump(tester, preparer: preparer);
     final DragTarget<List<PickedChatFile>> target =
@@ -565,7 +736,8 @@ void main() {
     await tester.pump();
     expect(tester.widget<Text>(size).data, '390.6 KB');
 
-    await tester.tap(find.byKey(const ValueKey('chat-pending-original-toggle')));
+    await tester
+        .tap(find.byKey(const ValueKey('chat-pending-original-toggle')));
     await tester.pump();
     expect(preparer.calls.last.original, isTrue);
     expect(tester.widget<Text>(size).data, '3.8 MB', reason: '原图模式显示原图大小');
