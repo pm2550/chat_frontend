@@ -176,11 +176,17 @@ enum E2eeRecoveryResult {
 }
 
 /// 加密好的附件：上传 [ciphertext]（服务器只看到一个 .bin），[envelope] 作为消息密文。
+/// 图片还可能带一张加密的小预览图 [thumbnailCiphertext]（密钥同样在信封里）。
 class E2eeSealedFile {
-  const E2eeSealedFile({required this.ciphertext, required this.envelope});
+  const E2eeSealedFile({
+    required this.ciphertext,
+    required this.envelope,
+    this.thumbnailCiphertext,
+  });
 
   final Uint8List ciphertext;
   final String envelope;
+  final Uint8List? thumbnailCiphertext;
 }
 
 /// 私聊端到端加密的客户端会话：管本机私钥、对方公钥、会话状态，负责加密发送和解密显示。
@@ -351,12 +357,24 @@ class EncryptionService extends ChangeNotifier {
     if (fileUrl != null && fileUrl.isNotEmpty) {
       _attachmentKeysByUrl[fileUrl] = attachment;
     }
+    // 预览图：信封里有它的密钥才用，否则（老客户端发的、服务器乱填的）只看原图。
+    final thumbnailUrl = message.thumbnailUrl;
+    final thumbnail = payload.thumbnail;
+    final usableThumbnail = thumbnail != null &&
+        thumbnailUrl != null &&
+        thumbnailUrl.isNotEmpty &&
+        thumbnailUrl != fileUrl;
+    if (usableThumbnail) {
+      _attachmentKeysByUrl[thumbnailUrl] = thumbnail;
+    }
     return message.copyWith(
       content: payload.text.isNotEmpty ? payload.text : attachment.name,
       type: _messageTypeForKind(payload.kind),
       fileName: attachment.name,
       fileType: attachment.mimeType,
       fileSize: attachment.size,
+      thumbnailUrl: usableThumbnail ? thumbnailUrl : null,
+      clearThumbnailUrl: !usableThumbnail,
     );
   }
 
@@ -657,23 +675,32 @@ class EncryptionService extends ChangeNotifier {
     Chat chat, {
     required String kind,
     required E2eeAttachmentKey attachment,
+    E2eeAttachmentKey? thumbnail,
     String caption = '',
   }) {
     return _seal(
       chat,
-      E2eePayload(kind: kind, text: caption, attachment: attachment),
+      E2eePayload(
+        kind: kind,
+        text: caption,
+        attachment: attachment,
+        thumbnail: thumbnail,
+      ),
     );
   }
 
   /// 加密附件：会话该加密时，用随机文件密钥加密文件字节，再把文件密钥和真实文件名
   /// 放进消息密文。返回 null 表示这个会话照常明文发送。
   /// [readBytes] 只在需要加密时才调用（大文件不用白读一遍）。
+  /// [readThumbnail] 给图片的小预览图（服务器看不到图，只能由发送端做）：用另一把随机密钥加密，
+  /// 密钥放进同一个信封；做不出来（返回 null / 出错）就不带，对方退回加载原图。
   Future<E2eeSealedFile?> sealFile(
     Chat chat, {
     required String name,
     required String mimeType,
     required String kind,
     required Future<Uint8List> Function() readBytes,
+    Future<Uint8List?> Function()? readThumbnail,
   }) async {
     if (!await shouldEncrypt(chat)) return null;
     final encrypted = await E2eeCrypto.encryptAttachment(
@@ -681,16 +708,39 @@ class EncryptionService extends ChangeNotifier {
       name: name,
       mimeType: mimeType,
     );
+    Uint8List? thumbnailBytes;
+    try {
+      thumbnailBytes = await readThumbnail?.call();
+    } catch (_) {
+      thumbnailBytes = null;
+    }
+    final thumbnail = thumbnailBytes == null || thumbnailBytes.isEmpty
+        ? null
+        : await E2eeCrypto.encryptAttachment(
+            bytes: thumbnailBytes,
+            name: 'thumbnail',
+            mimeType: _thumbnailMimeType(thumbnailBytes),
+          );
     final envelope = await sealAttachment(
       chat,
       kind: kind,
       attachment: encrypted.key,
+      thumbnail: thumbnail?.key,
     );
     if (envelope == null) {
       throw const E2eeSendBlockedException('端到端加密状态刚刚变化，请重试');
     }
-    return E2eeSealedFile(ciphertext: encrypted.ciphertext, envelope: envelope);
+    return E2eeSealedFile(
+      ciphertext: encrypted.ciphertext,
+      envelope: envelope,
+      thumbnailCiphertext: thumbnail?.ciphertext,
+    );
   }
+
+  static String _thumbnailMimeType(Uint8List bytes) =>
+      bytes.length > 3 && bytes[0] == 0x89 && bytes[1] == 0x50
+          ? 'image/png'
+          : 'image/jpeg';
 
   /// 下载到的附件字节：是本机解开过的加密附件就解密，否则原样返回。
   /// 图片组件按地址取图时经过这里（地址 → 文件密钥由 [reveal] 登记）。

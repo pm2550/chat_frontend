@@ -132,11 +132,20 @@ extension _ChatScreenComposerParts on _ChatScreenState {
   }
 
   /// 发一个附件：列表里先出现发送端的上传气泡（进度、取消），传完换成正式消息。
+  /// [compressImage]：从相册/相机发的图先在本机压缩、删元数据（气泡显示"正在压缩…"）；
+  /// "文件"入口选的图按文件原样发（和微信一样，想发原图可以走这里）。
   Future<void> _sendPickedFile(
     PickedChatFile file, {
     MessageType? messageType,
+    bool compressImage = false,
   }) {
-    final upload = _createOutgoingUpload(file: file, messageType: messageType);
+    final upload = _createOutgoingUpload(
+      file: file,
+      messageType: messageType,
+      preparation: compressImage && ImageUploadPreparer.looksLikeImage(file)
+          ? _imagePreparer.prepare(file)
+          : null,
+    );
     return _runOutgoingUpload(upload);
   }
 
@@ -235,7 +244,7 @@ extension _ChatScreenComposerParts on _ChatScreenState {
       return;
     }
     if (file != null) {
-      await _sendPickedFile(file);
+      await _sendPickedFile(file, compressImage: true);
     }
   }
 
@@ -256,7 +265,11 @@ extension _ChatScreenComposerParts on _ChatScreenState {
       return;
     }
     if (file != null) {
-      await _sendPickedFile(file, messageType: MessageType.image);
+      await _sendPickedFile(
+        file,
+        messageType: MessageType.image,
+        compressImage: true,
+      );
     }
   }
 

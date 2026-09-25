@@ -50,6 +50,7 @@ class _FakeTransport {
     List<int>? bytes,
     String? path,
     MediaType? contentType,
+    List<MultipartExtraFile> extraFiles = const [],
     UploadProgressCallback? onSendProgress,
     UploadCancelToken? cancelToken,
   }) {

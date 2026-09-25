@@ -36,6 +36,21 @@ class UploadTimeoutException extends TimeoutException {
   String toString() => '网络超时';
 }
 
+/// 和主文件一起发的额外文件字段（例如加密图片的小预览图）。
+class MultipartExtraFile {
+  const MultipartExtraFile({
+    required this.field,
+    required this.fileName,
+    required this.bytes,
+    this.contentType,
+  });
+
+  final String field;
+  final String fileName;
+  final List<int> bytes;
+  final MediaType? contentType;
+}
+
 /// 一次带进度、可取消的 multipart 上传。只负责把一个请求发出去，
 /// 鉴权刷新、超时由调用方（ChatDataService）处理。
 typedef MultipartUploadTransport = Future<http.Response> Function(
@@ -47,6 +62,7 @@ typedef MultipartUploadTransport = Future<http.Response> Function(
   List<int>? bytes,
   String? path,
   MediaType? contentType,
+  List<MultipartExtraFile> extraFiles,
   UploadProgressCallback? onSendProgress,
   UploadCancelToken? cancelToken,
 });
@@ -73,6 +89,7 @@ Future<http.Response> dioMultipartUpload(
   List<int>? bytes,
   String? path,
   MediaType? contentType,
+  List<MultipartExtraFile> extraFiles = const [],
   UploadProgressCallback? onSendProgress,
   UploadCancelToken? cancelToken,
 }) async {
@@ -92,7 +109,16 @@ Future<http.Response> dioMultipartUpload(
   } else {
     throw ArgumentError('multipart upload needs bytes or path');
   }
-  final form = dio.FormData.fromMap({...fields, fileField: part});
+  final form = dio.FormData.fromMap({
+    ...fields,
+    fileField: part,
+    for (final extra in extraFiles)
+      extra.field: dio.MultipartFile.fromBytes(
+        extra.bytes,
+        filename: extra.fileName,
+        contentType: extra.contentType,
+      ),
+  });
 
   final dioCancel = dio.CancelToken();
   if (cancelToken != null) {

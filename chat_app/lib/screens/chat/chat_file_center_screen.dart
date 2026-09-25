@@ -8,6 +8,7 @@ import '../../design/design.dart';
 import '../../models/message.dart';
 import '../../services/chat_data_service.dart';
 import '../../services/file_save.dart' as file_save;
+import '../../widgets/authenticated_image.dart';
 import '../../widgets/chat_video_thumbnail.dart';
 import '../../widgets/chat_video_preview_dialog.dart';
 import '../../widgets/pm_brand.dart';
@@ -675,9 +676,12 @@ class _FileCenterTile extends StatelessWidget {
     final publicThumbnail = message.isImageMessage &&
         fileUrl != null &&
         !ApiConstants.requiresAuthHeaderForFile(fileUrl);
+    // 本站图片有小预览图就加载它（几十 KB，带鉴权），不下载原图。
+    final thumbnailUrl = message.isImageMessage ? message.thumbnailUrl : null;
     return PMAttachmentCard(
       type: _attachmentType(message),
-      thumbnail: publicThumbnail ? ApiConstants.resolveFileUrl(fileUrl) : null,
+      thumbnail: thumbnailUrl ??
+          (publicThumbnail ? ApiConstants.resolveFileUrl(fileUrl) : null),
       preview: message.isVideoMessage
           ? ChatVideoThumbnail(
               fileUrl: fileUrl,
@@ -732,6 +736,25 @@ class _FileIcon extends StatelessWidget {
                 ),
               ),
             ],
+          ),
+        ),
+      );
+    }
+    final thumbnailUrl = message.isImageMessage ? message.thumbnailUrl : null;
+    if (thumbnailUrl != null && thumbnailUrl.isNotEmpty) {
+      // 列表里只加载小预览图，点开才下载原图。
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(10),
+        child: SizedBox(
+          width: 56,
+          height: 56,
+          child: AuthenticatedImage(
+            url: thumbnailUrl,
+            fit: BoxFit.cover,
+            errorBuilder: (_) => const Icon(
+              Icons.image_outlined,
+              color: AppColors.secondary,
+            ),
           ),
         ),
       );

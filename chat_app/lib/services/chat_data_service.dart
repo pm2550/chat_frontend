@@ -17,6 +17,7 @@ import '../models/user.dart';
 import 'auth_service.dart';
 import 'chat_upload.dart';
 import 'encryption_service.dart';
+import 'image_upload/image_upload_preparer.dart';
 import 'persistent_data_cache.dart';
 import 'request_coordinator.dart';
 
@@ -46,6 +47,7 @@ class PickedChatFile {
     this.path,
     this.mimeType,
     this.bytes,
+    this.thumbnail,
   });
 
   final String name;
@@ -53,6 +55,10 @@ class PickedChatFile {
   final String? path;
   final String? mimeType;
   final List<int>? bytes;
+
+  /// 图片的小预览图（长边约 400px），发图前压缩时顺带做好。只有端到端加密的私聊才用得上：
+  /// 服务器看不到图，由发送端加密后一起上传；明文会话的预览图由服务器生成。
+  final Future<Uint8List?> Function()? thumbnail;
 }
 
 class DownloadedChatFile {
@@ -94,6 +100,9 @@ class ChatDataException implements Exception {
   String toString() => message;
 }
 
+/// 给一张图做小预览图（做不了返回 null）。
+typedef ImageThumbnailer = Future<Uint8List?> Function(Uint8List imageBytes);
+
 class ChatDataService {
   ChatDataService({
     AuthService? authService,
@@ -102,12 +111,14 @@ class ChatDataService {
     AuthenticatedMultipartFilesRequest? multipartFilesRequest,
     MultipartUploadTransport? uploadTransport,
     EncryptionService? encryptionService,
+    ImageThumbnailer? imageThumbnailer,
   })  : _authService = authService ?? AuthService(),
         _authenticatedRequest = authenticatedRequest,
         _multipartRequest = multipartRequest,
         _multipartFilesRequest = multipartFilesRequest,
         _uploadTransport = uploadTransport ?? dioMultipartUpload,
-        _encryptionService = encryptionService;
+        _encryptionService = encryptionService,
+        _imageThumbnailer = imageThumbnailer;
 
   final AuthService _authService;
   final EncryptionService? _encryptionService;
@@ -116,6 +127,7 @@ class ChatDataService {
   final AuthenticatedMultipartRequest? _multipartRequest;
   final AuthenticatedMultipartFilesRequest? _multipartFilesRequest;
   final MultipartUploadTransport _uploadTransport;
+  final ImageThumbnailer? _imageThumbnailer;
 
   static const Duration _chatRoomsCacheTtl = Duration(seconds: 30);
   static List<Chat>? _cachedChatRooms;
@@ -1088,6 +1100,7 @@ class ChatDataService {
     UploadCancelToken? cancelToken,
   }) async {
     final roomId = _parseRoomId(chatRoomId);
+    final kind = _attachmentKind(file, messageType);
     final sealed = chat == null
         ? null
         : await _e2ee.sealFile(
@@ -1096,8 +1109,17 @@ class ChatDataService {
             mimeType: file.mimeType ??
                 _mimeTypeFromFileName(file.name) ??
                 'application/octet-stream',
-            kind: _attachmentKind(file, messageType),
+            kind: kind,
             readBytes: () => _readPickedFileBytes(file),
+            // 服务器看不到加密的图，小预览图只能在这边做好、加密后一起传；
+            // 发图前压缩时已经顺带做好了，转发等没有现成的就现做一张。
+            readThumbnail: kind != 'image'
+                ? null
+                : file.thumbnail ??
+                    () async => (_imageThumbnailer ??
+                        ImageUploadPreparer.shared.thumbnailFor)(
+                      await _readPickedFileBytes(file),
+                    ),
           );
     if (cancelToken?.isCancelled == true) {
       throw const UploadCancelledException();
@@ -1120,13 +1142,24 @@ class ChatDataService {
             mimeType: 'application/octet-stream',
             bytes: sealed.ciphertext,
           );
+    final thumbnailCiphertext = sealed?.thumbnailCiphertext;
     final response = await _requestMultipart(
       ApiConstants.sendFileMessage,
       fields: fields,
       file: upload,
+      extraFiles: [
+        if (thumbnailCiphertext != null)
+          MultipartExtraFile(
+            field: 'thumbnail',
+            fileName: 'encrypted.bin',
+            bytes: thumbnailCiphertext,
+            contentType: MediaType('application', 'octet-stream'),
+          ),
+      ],
       onSendProgress: onProgress,
       cancelToken: cancelToken,
-      timeout: uploadTimeoutForBytes(upload.size),
+      timeout: uploadTimeoutForBytes(
+          upload.size + (thumbnailCiphertext?.length ?? 0)),
     );
     final data = _decodeResponse(response);
     final messageJson = data['data'];
@@ -1686,6 +1719,7 @@ class ChatDataService {
     String url, {
     required Map<String, String> fields,
     required PickedChatFile file,
+    List<MultipartExtraFile> extraFiles = const [],
     UploadProgressCallback? onSendProgress,
     UploadCancelToken? cancelToken,
     Duration timeout = ApiConstants.uploadTimeout,
@@ -1720,6 +1754,7 @@ class ChatDataService {
         bytes: bytes,
         path: path,
         contentType: _mediaTypeFor(file),
+        extraFiles: extraFiles,
         onSendProgress: onSendProgress,
         cancelToken: abort,
       );

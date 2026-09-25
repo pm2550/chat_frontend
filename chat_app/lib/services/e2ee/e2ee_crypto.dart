@@ -109,6 +109,7 @@ class E2eePayload {
     required this.kind,
     this.text = '',
     this.attachment,
+    this.thumbnail,
   });
 
   /// text / image / file / voice / video / audio
@@ -116,20 +117,35 @@ class E2eePayload {
   final String text;
   final E2eeAttachmentKey? attachment;
 
+  /// 图片的小预览图（单独的随机密钥，密文存在消息的 thumbnailUrl）。
+  /// 放在新键 `thumb` 里：老客户端只认 `file`，照旧解开原图显示。
+  final E2eeAttachmentKey? thumbnail;
+
   Map<String, dynamic> toJson() => {
         'kind': kind,
         'text': text,
         if (attachment != null) 'file': attachment!.toJson(),
+        if (thumbnail != null) 'thumb': thumbnail!.toJson(),
       };
 
   static E2eePayload fromJson(Map<String, dynamic> json) {
     final file = json['file'];
+    final thumb = json['thumb'];
+    E2eeAttachmentKey? thumbnail;
+    if (thumb is Map) {
+      try {
+        thumbnail = E2eeAttachmentKey.fromJson(Map<String, dynamic>.from(thumb));
+      } on E2eeCryptoException {
+        thumbnail = null; // 预览图密钥坏了不影响看原图
+      }
+    }
     return E2eePayload(
       kind: json['kind']?.toString() ?? 'text',
       text: json['text']?.toString() ?? '',
       attachment: file is Map
           ? E2eeAttachmentKey.fromJson(Map<String, dynamic>.from(file))
           : null,
+      thumbnail: thumbnail,
     );
   }
 }

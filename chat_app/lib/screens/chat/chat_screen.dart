@@ -33,6 +33,7 @@ import '../../services/encryption_service.dart';
 import '../../services/chat_drop_paste.dart'
     if (dart.library.js_interop) '../../services/chat_drop_paste_web.dart';
 import '../../services/file_save.dart' as file_save;
+import '../../services/image_upload/image_upload_preparer.dart';
 import '../../services/typing_indicator_sender.dart';
 import '../../services/os_dropped_files.dart';
 import '../../services/platform_chat_file_picker.dart'
@@ -122,6 +123,7 @@ class ChatScreen extends StatefulWidget {
     this.filePicker,
     this.fileSaver,
     this.encryptionService,
+    this.imageUploadPreparer,
   });
 
   final ChatDataService? chatService;
@@ -135,6 +137,9 @@ class ChatScreen extends StatefulWidget {
   final ChatAttachmentPicker? filePicker;
   final file_save.FileSaver? fileSaver;
   final EncryptionService? encryptionService;
+
+  /// 发图前的压缩/删元数据（测试注入假的，避免真的解码）。
+  final ImageUploadPreparer? imageUploadPreparer;
 
   @visibleForTesting
   static void clearMessageCacheForTesting() {
@@ -235,6 +240,10 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   ChatDropPasteController? _dropPasteController;
   final List<_PendingAttachment> _pendingAttachments = [];
 
+  /// 发送栏里的图片这次按"原图"发（只删元数据、不压缩）。每次发送后恢复成压缩。
+  bool _pendingSendOriginal = false;
+  late final ImageUploadPreparer _imagePreparer;
+
   /// 正在上传/上传失败的附件，按占位消息 id（= clientMessageId）索引。
   final Map<String, _OutgoingUpload> _outgoingUploads = {};
   final VoicePlayback _voicePlayback = VoicePlayback();
@@ -260,6 +269,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         widget.profileService ?? UserProfileService(authService: _authService);
     _contactService = widget.contactService ?? ContactDataService();
     _e2ee = widget.encryptionService ?? EncryptionService();
+    _imagePreparer = widget.imageUploadPreparer ?? ImageUploadPreparer.shared;
     _e2ee.addListener(_handleE2eeChanged);
     _ownsCallService = widget.callService == null;
     _callService = widget.callService ??

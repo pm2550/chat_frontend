@@ -142,6 +142,10 @@ class Message {
   final String? fileName;
   final int? fileSize;
   final String? fileType;
+
+  /// 图片的小预览图（长边约 400px）。聊天气泡、文件中心先加载它，点开再下载原图 [fileUrl]。
+  /// 老消息、小图、动图没有；端到端加密的图片只有信封里带了它的密钥才保留（见 EncryptionService.reveal）。
+  final String? thumbnailUrl;
   final int? stickerId;
   final int? pollId;
   final String? imageGenPrompt;
@@ -199,6 +203,7 @@ class Message {
     this.fileName,
     this.fileSize,
     this.fileType,
+    this.thumbnailUrl,
     this.stickerId,
     this.pollId,
     this.imageGenPrompt,
@@ -347,6 +352,7 @@ class Message {
       fileName: json['fileName'] ?? json['file_name'],
       fileSize: _parseInt(json['fileSize'] ?? json['file_size']),
       fileType: json['fileType'] ?? json['file_type'],
+      thumbnailUrl: _stringOrNull(json['thumbnailUrl'] ?? json['thumbnail_url']),
       stickerId: _parseInt(json['stickerId'] ?? json['sticker_id']),
       pollId: _parseInt(json['pollId'] ?? json['poll_id']),
       imageGenPrompt: json['imageGenPrompt']?.toString() ??
@@ -412,6 +418,7 @@ class Message {
       'fileName': encryptedAttachment ? kE2eeServerAttachmentName : fileName,
       'fileSize': fileSize,
       'fileType': encryptedAttachment ? 'application/octet-stream' : fileType,
+      'thumbnailUrl': thumbnailUrl,
       'stickerId': stickerId,
       'pollId': pollId,
       'imageGenPrompt': imageGenPrompt,
@@ -464,6 +471,8 @@ class Message {
     String? fileName,
     int? fileSize,
     String? fileType,
+    String? thumbnailUrl,
+    bool clearThumbnailUrl = false,
     int? stickerId,
     int? pollId,
     String? imageGenPrompt,
@@ -515,6 +524,8 @@ class Message {
       fileName: fileName ?? this.fileName,
       fileSize: fileSize ?? this.fileSize,
       fileType: fileType ?? this.fileType,
+      thumbnailUrl:
+          clearThumbnailUrl ? null : (thumbnailUrl ?? this.thumbnailUrl),
       stickerId: stickerId ?? this.stickerId,
       pollId: pollId ?? this.pollId,
       imageGenPrompt: imageGenPrompt ?? this.imageGenPrompt,
@@ -605,6 +616,13 @@ class Message {
   }
 
   bool get hasPreviewImage => previewImageUrl != null;
+
+  /// 聊天气泡里显示的图：有小预览图就用它（几十 KB），没有就退回原图。
+  String? get bubbleImageUrl {
+    if (previewImageUrl == null) return null;
+    final thumbnail = thumbnailUrl;
+    return thumbnail != null && thumbnail.isNotEmpty ? thumbnail : previewImageUrl;
+  }
 
   bool get isFileMessage =>
       (type == MessageType.file && !isVoiceMessage && !isVideoMessage) ||

@@ -656,7 +656,8 @@ class MessageBubble extends StatelessWidget {
   }
 
   Widget _buildImageAttachment(BuildContext context) {
-    final fileUrl = message.previewImageUrl;
+    // 气泡只加载小预览图（有的话），点开大图时再下载原图。
+    final fileUrl = message.bubbleImageUrl;
     if (fileUrl == null || fileUrl.isEmpty) {
       return _buildFileAttachment();
     }
@@ -664,7 +665,7 @@ class MessageBubble extends StatelessWidget {
   }
 
   Widget _buildImageGenerationMessage() {
-    final fileUrl = message.previewImageUrl;
+    final fileUrl = message.bubbleImageUrl;
     if (message.isImageGenerationDone &&
         fileUrl != null &&
         fileUrl.isNotEmpty) {

@@ -16,7 +16,7 @@ DateTime _nextLocalSendTime() {
   return now;
 }
 
-enum _UploadPhase { queued, uploading, failed }
+enum _UploadPhase { queued, compressing, uploading, failed }
 
 /// 发送端一条正在上传（或上传失败）的附件。列表里对应一条占位消息，
 /// id 同时作为 clientMessageId 交给服务器，正式消息回来时按它换掉占位气泡。
@@ -26,10 +26,17 @@ class _OutgoingUpload {
     this.file,
     this.remoteUrl,
     this.messageType,
+    this.preparation,
   });
 
   final Message placeholder;
   final PickedChatFile? file;
+
+  /// 图片先在本机压缩/删元数据（见 ImageUploadPreparer），完成后才开始上传。
+  final Future<PreparedImageUpload>? preparation;
+
+  /// 处理好的待上传文件；重试时直接用它，不再压缩一遍。
+  PickedChatFile? prepared;
 
   /// 粘贴网页图片时只有地址，由服务器代抓：没有字节进度可报。
   final String? remoteUrl;
@@ -57,9 +64,20 @@ class _OutgoingUpload {
 
   bool get allBytesSent => totalBytes > 0 && sentBytes >= totalBytes;
 
-  late final ImageProvider? thumbnail = _buildThumbnail();
+  ImageProvider? _thumbnail;
+  List<int>? _thumbnailSource;
 
-  ImageProvider? _buildThumbnail() {
+  /// 气泡里的小图：压缩好以后换成压缩后的字节（原生平台选的图一开始只有路径）。
+  ImageProvider? get thumbnail {
+    final source = prepared?.bytes ?? file?.bytes;
+    if (!identical(source, _thumbnailSource)) {
+      _thumbnailSource = source;
+      _thumbnail = _buildThumbnail(prepared ?? file);
+    }
+    return _thumbnail;
+  }
+
+  ImageProvider? _buildThumbnail(PickedChatFile? file) {
     final bytes = file?.bytes;
     if (bytes == null || bytes.isEmpty) return null;
     final mimeType = file?.mimeType?.toLowerCase();
@@ -97,6 +115,7 @@ extension _ChatScreenOutgoingUploadParts on _ChatScreenState {
     PickedChatFile? file,
     String? remoteUrl,
     MessageType? messageType,
+    Future<PreparedImageUpload>? preparation,
   }) {
     final id = WebSocketService.newClientMessageId();
     final currentUser = _authService.currentUser;
@@ -124,6 +143,7 @@ extension _ChatScreenOutgoingUploadParts on _ChatScreenState {
       file: file,
       remoteUrl: remoteUrl,
       messageType: messageType,
+      preparation: preparation,
     );
     _outgoingUploads[id] = upload;
     _upsertMessage(upload.placeholder);
@@ -138,6 +158,17 @@ extension _ChatScreenOutgoingUploadParts on _ChatScreenState {
   /// 取消或服务器已先推回正式消息时什么都不做——气泡那边已经处理过了。
   Future<void> _runOutgoingUpload(_OutgoingUpload upload) async {
     if (!_isLiveUpload(upload) || upload.cancelToken.isCancelled) return;
+    final preparation = upload.preparation;
+    if (preparation != null && upload.prepared == null) {
+      _setViewState(() => upload.phase = _UploadPhase.compressing);
+      // 压缩不会抛异常（出错时退回原图），这里只防万一。
+      final prepared = await preparation.then<PickedChatFile?>(
+        (result) => result.file,
+        onError: (Object _) => null,
+      );
+      if (!_isLiveUpload(upload) || upload.cancelToken.isCancelled) return;
+      upload.prepared = prepared ?? upload.file;
+    }
     _setViewState(() {
       upload.phase = _UploadPhase.uploading;
       upload.sentBytes = 0;
@@ -172,7 +203,7 @@ extension _ChatScreenOutgoingUploadParts on _ChatScreenState {
     void onProgress(int sent, int total) =>
         _handleUploadProgress(upload, sent, total);
 
-    final file = upload.file;
+    final file = upload.prepared ?? upload.file;
     if (file != null) {
       return _chatService.sendFileMessage(
         _chat.id,
@@ -260,7 +291,7 @@ extension _ChatScreenOutgoingUploadParts on _ChatScreenState {
   Future<void> _retryOutgoingUpload(_OutgoingUpload upload) async {
     _removeOutgoingUpload(upload);
     final retry = _createOutgoingUpload(
-      file: upload.file,
+      file: upload.prepared ?? upload.file,
       remoteUrl: upload.remoteUrl,
       messageType: upload.messageType,
     );
@@ -271,6 +302,8 @@ extension _ChatScreenOutgoingUploadParts on _ChatScreenState {
     switch (upload.phase) {
       case _UploadPhase.queued:
         return '等待发送';
+      case _UploadPhase.compressing:
+        return '正在压缩…';
       case _UploadPhase.failed:
         return '发送失败：${upload.failure ?? '未知错误'}';
       case _UploadPhase.uploading:
@@ -378,9 +411,12 @@ extension _ChatScreenOutgoingUploadParts on _ChatScreenState {
                   borderRadius: BorderRadius.circular(999),
                   child: LinearProgressIndicator(
                     minHeight: 4,
+                    // 压缩中不知道要多久：不定进度条。上传进度按压缩后的大小算。
                     value: upload.phase == _UploadPhase.queued
                         ? 0
-                        : upload.fraction,
+                        : upload.phase == _UploadPhase.compressing
+                            ? null
+                            : upload.fraction,
                     backgroundColor: AppColors.primary.withValues(alpha: 0.12),
                   ),
                 ),

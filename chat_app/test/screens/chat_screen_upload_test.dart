@@ -6,6 +6,7 @@ import 'package:chat_app/models/user.dart';
 import 'package:chat_app/screens/chat/chat_screen.dart';
 import 'package:chat_app/services/chat_data_service.dart';
 import 'package:chat_app/services/chat_upload.dart';
+import 'package:chat_app/services/image_upload/image_upload_preparer.dart';
 import 'package:chat_app/services/websocket_service.dart';
 import 'package:chat_app/widgets/typing_indicator.dart';
 import 'package:flutter/material.dart';
@@ -86,6 +87,42 @@ Message _serverFile(String id, String name, {String? clientMessageId}) =>
       fileType: 'application/pdf',
     );
 
+/// 发图前的处理由测试掌控：记录每次调用（是不是原图），测试决定何时处理完、结果是什么。
+class _ControlledPreparer extends ImageUploadPreparer {
+  final List<({PickedChatFile file, bool original})> calls = [];
+  final List<Completer<PreparedImageUpload>> results = [];
+
+  @override
+  Future<PreparedImageUpload> prepare(
+    PickedChatFile file, {
+    bool original = false,
+  }) {
+    calls.add((file: file, original: original));
+    final result = Completer<PreparedImageUpload>();
+    results.add(result);
+    return result.future;
+  }
+}
+
+PreparedImageUpload _prepared(String name, int size, {int originalSize = 4000000}) =>
+    PreparedImageUpload(
+      file: PickedChatFile(
+        name: name,
+        size: size,
+        mimeType: 'image/jpeg',
+        bytes: List<int>.filled(4, size % 251),
+      ),
+      originalSize: originalSize,
+      outcome: ImagePrepareOutcome.compressed,
+    );
+
+const _photo = PickedChatFile(
+  name: 'IMG_0001.jpg',
+  size: 4000000,
+  mimeType: 'image/jpeg',
+  bytes: [1, 2, 3],
+);
+
 const _doc = PickedChatFile(
   name: 'doc.pdf',
   size: 2048,
@@ -117,8 +154,11 @@ void main() {
       );
 
   Future<(FakeWebSocketChannel, WebSocketService, _UploadChatService)> pump(
-    WidgetTester tester,
-  ) async {
+    WidgetTester tester, {
+    ChatAttachmentPicker? imagePicker,
+    ChatAttachmentPicker? filePicker,
+    ImageUploadPreparer? preparer,
+  }) async {
     final channel = FakeWebSocketChannel();
     final socket = WebSocketService.forTesting(
       authService: SocketAuthService(),
@@ -134,7 +174,9 @@ void main() {
             chatService: service,
             authService: SocketAuthService(),
             webSocketService: socket,
-            filePicker: () async => _doc,
+            filePicker: filePicker ?? () async => _doc,
+            imagePicker: imagePicker,
+            imageUploadPreparer: preparer,
           ),
         ),
       ),
@@ -143,12 +185,12 @@ void main() {
     return (channel, socket, service);
   }
 
-  Future<void> pickFile(WidgetTester tester) async {
+  Future<void> pickFile(WidgetTester tester, {String entry = '文件'}) async {
     await tester.tap(find.byTooltip('附件'));
     // 进行中的上传气泡有不定进度条动画，pumpAndSettle 等不到静止。
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 500));
-    await tester.tap(find.text('文件'));
+    await tester.tap(find.text(entry));
     await tester.pump();
   }
 
@@ -434,6 +476,126 @@ void main() {
     final text = channel.sent.where((f) => f['type'] == 'message').toList();
     expect(text, hasLength(1));
     expect(text.single['content'], '看这两个');
+    await finish(tester, socket);
+  });
+
+  testWidgets('相册的图先显示"正在压缩…"，压好后按压缩后的大小上传', (tester) async {
+    final preparer = _ControlledPreparer();
+    final (_, socket, service) = await pump(
+      tester,
+      imagePicker: () async => _photo,
+      preparer: preparer,
+    );
+
+    await pickFile(tester, entry: '相册');
+
+    expect(preparer.calls.single.file.name, 'IMG_0001.jpg');
+    expect(preparer.calls.single.original, isFalse);
+    expect(uploadBubbles(), findsOneWidget);
+    expect(find.text('正在压缩…'), findsOneWidget);
+    expect(service.uploads, isEmpty, reason: '压完才上传');
+
+    preparer.results.single.complete(_prepared('IMG_0001.jpg', 400000));
+    await tester.pump();
+    await tester.pump();
+
+    final upload = service.uploads.single;
+    expect(upload.file.size, 400000, reason: '上传的是压缩后的文件');
+    expect(find.text('正在压缩…'), findsNothing);
+    upload.onProgress!(200000, 400000);
+    await tester.pump();
+    expect(find.text('正在发送 50%'), findsOneWidget);
+    await finish(tester, socket);
+  });
+
+  testWidgets('压缩中也能取消：不会再上传', (tester) async {
+    final preparer = _ControlledPreparer();
+    final (_, socket, service) = await pump(
+      tester,
+      imagePicker: () async => _photo,
+      preparer: preparer,
+    );
+    await pickFile(tester, entry: '相册');
+    expect(find.text('正在压缩…'), findsOneWidget);
+
+    await tester.tap(find.textContaining('取消').last);
+    await tester.pump();
+    preparer.results.single.complete(_prepared('IMG_0001.jpg', 400000));
+    await tester.pump();
+    await tester.pump();
+
+    expect(uploadBubbles(), findsNothing);
+    expect(service.uploads, isEmpty);
+    await finish(tester, socket);
+  });
+
+  testWidgets('"文件"入口选的图按文件原样发，不压缩', (tester) async {
+    final preparer = _ControlledPreparer();
+    final (_, socket, service) = await pump(
+      tester,
+      filePicker: () async => _photo,
+      preparer: preparer,
+    );
+
+    await pickFile(tester);
+
+    expect(preparer.calls, isEmpty);
+    expect(service.uploads.single.file.size, 4000000);
+    await finish(tester, socket);
+  });
+
+  testWidgets('发送栏：排进来就开始压缩并显示大小；勾"原图"按原图发，发完恢复默认',
+      (tester) async {
+    final preparer = _ControlledPreparer();
+    final (_, socket, service) = await pump(tester, preparer: preparer);
+    final DragTarget<List<PickedChatFile>> target =
+        tester.widget(find.byKey(const Key('chat-drop-target')));
+
+    target.onAcceptWithDetails!(
+        DragTargetDetails(data: const [_photo], offset: Offset.zero));
+    await tester.pump();
+
+    expect(preparer.calls.single.original, isFalse, reason: '排进来就开始压缩');
+    final size = find.byKey(const ValueKey('chat-pending-attachment-size-0'));
+    expect(tester.widget<Text>(size).data, '压缩中');
+    expect(find.text('原图 (3.8 MB)'), findsOneWidget);
+
+    preparer.results[0].complete(_prepared('IMG_0001.jpg', 400000));
+    await tester.pump();
+    await tester.pump();
+    expect(tester.widget<Text>(size).data, '390.6 KB');
+
+    await tester.tap(find.byKey(const ValueKey('chat-pending-original-toggle')));
+    await tester.pump();
+    expect(preparer.calls.last.original, isTrue);
+    expect(tester.widget<Text>(size).data, '3.8 MB', reason: '原图模式显示原图大小');
+    const original = PreparedImageUpload(
+      file: PickedChatFile(
+        name: 'IMG_0001.jpg',
+        size: 3999000,
+        mimeType: 'image/jpeg',
+        bytes: [7, 7, 7],
+      ),
+      originalSize: 4000000,
+      outcome: ImagePrepareOutcome.metadataStripped,
+    );
+    preparer.results[1].complete(original);
+    await tester.pump();
+    await tester.pump();
+
+    await tester.enterText(find.byType(TextField), '原图给你');
+    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+    await tester.pump();
+    await tester.pump();
+
+    expect(service.uploads.single.file.bytes, [7, 7, 7], reason: '按原图（只删元数据）发');
+    expect(preparer.calls, hasLength(2), reason: '已经处理好的不再重做');
+
+    // "原图"只管刚才那一批：再拖一张进来又是压缩。
+    target.onAcceptWithDetails!(
+        DragTargetDetails(data: const [_photo], offset: Offset.zero));
+    await tester.pump();
+    expect(preparer.calls.last.original, isFalse);
     await finish(tester, socket);
   });
 }

@@ -45,6 +45,9 @@ extension _ChatScreenFilesPanelParts on _ChatScreenState {
                           : _formatFileSize(message.fileSize!),
                       forcePreview:
                           message.isImageMessage || message.isVideoMessage,
+                      thumbnail: message.isImageMessage
+                          ? message.thumbnailUrl
+                          : null,
                       preview: message.isVideoMessage
                           ? ChatVideoThumbnail(
                               fileUrl: message.fileUrl,

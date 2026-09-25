@@ -2,16 +2,42 @@ part of '../chat_screen.dart';
 
 /// 等在发送栏里、还没发出去的附件（粘贴进来的图片）。
 class _PendingAttachment {
-  const _PendingAttachment.file(this.file, {this.messageType})
-      : remoteUrl = null;
+  _PendingAttachment.file(this.file, {this.messageType}) : remoteUrl = null;
 
-  const _PendingAttachment.remoteImage(this.remoteUrl)
+  _PendingAttachment.remoteImage(this.remoteUrl)
       : file = null,
         messageType = MessageType.image;
 
   final PickedChatFile? file;
   final String? remoteUrl;
   final MessageType? messageType;
+
+  /// 图片的本机处理结果，按"是否原图"各存一份：排进发送栏就开始压缩，
+  /// 用户还在打字时就压好了；切换"原图"也不用重来。
+  final Map<bool, Future<PreparedImageUpload>> _preparations = {};
+  final Map<bool, PreparedImageUpload> _prepared = {};
+
+  /// 本地图片才压缩；网页图片地址由服务器代抓、视频和文件原样发。
+  bool get compressible =>
+      file != null && isImage && ImageUploadPreparer.looksLikeImage(file!);
+
+  Future<PreparedImageUpload> preparation(
+    ImageUploadPreparer preparer, {
+    required bool original,
+    VoidCallback? onReady,
+  }) {
+    return _preparations.putIfAbsent(original, () {
+      final future = preparer.prepare(file!, original: original);
+      unawaited(future.then((result) {
+        _prepared[original] = result;
+        onReady?.call();
+      }));
+      return future;
+    });
+  }
+
+  /// 按当前模式实际要上传的大小；还没处理完时为 null。
+  int? uploadSize({required bool original}) => _prepared[original]?.uploadSize;
 
   String get label {
     if (file != null) return file!.name;
@@ -40,7 +66,30 @@ extension _ChatScreenPendingAttachmentParts on _ChatScreenState {
 
   void _queuePendingAttachment(_PendingAttachment attachment) {
     _setViewState(() => _pendingAttachments.add(attachment));
+    _startPendingPreparation(attachment);
     _focusNode.requestFocus();
+  }
+
+  void _startPendingPreparation(_PendingAttachment attachment) {
+    if (!attachment.compressible) return;
+    unawaited(attachment.preparation(
+      _imagePreparer,
+      original: _pendingSendOriginal,
+      // 处理完刷新一下，缩略图角上显示实际要发的大小。
+      onReady: () {
+        if (mounted && _pendingAttachments.contains(attachment)) {
+          _setViewState(() {});
+        }
+      },
+    ));
+  }
+
+  bool get _hasCompressiblePendingImages =>
+      _pendingAttachments.any((attachment) => attachment.compressible);
+
+  void _togglePendingSendOriginal() {
+    _setViewState(() => _pendingSendOriginal = !_pendingSendOriginal);
+    _pendingAttachments.forEach(_startPendingPreparation);
   }
 
   void _removePendingAttachment(int index) {
@@ -56,7 +105,12 @@ extension _ChatScreenPendingAttachmentParts on _ChatScreenState {
   Future<void> _sendPendingAttachments() {
     if (_pendingAttachments.isEmpty) return Future<void>.value();
     final queued = List<_PendingAttachment>.of(_pendingAttachments);
-    _setViewState(() => _pendingAttachments.clear());
+    final original = _pendingSendOriginal;
+    _setViewState(() {
+      _pendingAttachments.clear();
+      // "原图"只管这一批，下次发送栏里的图默认还是压缩。
+      _pendingSendOriginal = false;
+    });
 
     final uploads = [
       for (final attachment in queued)
@@ -65,6 +119,9 @@ extension _ChatScreenPendingAttachmentParts on _ChatScreenState {
             file: attachment.file,
             messageType: attachment.messageType ??
                 _messageTypeForPickedFile(attachment.file!),
+            preparation: attachment.compressible
+                ? attachment.preparation(_imagePreparer, original: original)
+                : null,
           )
         else if (attachment.remoteUrl != null)
           _createOutgoingUpload(remoteUrl: attachment.remoteUrl),
@@ -94,13 +151,23 @@ extension _ChatScreenPendingAttachmentParts on _ChatScreenState {
                 left: PMSpacing.xs,
                 bottom: PMSpacing.s,
               ),
-              child: Text(
-                _pendingAttachmentsSummary(),
-                style: const TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.textSecondary,
-                ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      _pendingAttachmentsSummary(),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                  ),
+                  if (_hasCompressiblePendingImages)
+                    _buildPendingOriginalToggle(),
+                ],
               ),
             ),
             SizedBox(
@@ -126,6 +193,54 @@ extension _ChatScreenPendingAttachmentParts on _ChatScreenState {
     return '$count$unit · 按发送键发出';
   }
 
+  /// "原图"开关：勾上后这一批图片按原图发（只删定位等元数据，不压缩），旁边写着原图总大小。
+  Widget _buildPendingOriginalToggle() {
+    final total = _pendingAttachments
+        .where((attachment) => attachment.compressible)
+        .fold<int>(0, (sum, attachment) => sum + attachment.file!.size);
+    final selected = _pendingSendOriginal;
+    return Tooltip(
+      message: selected ? '按原图发送（只去掉定位等信息）' : '勾选后按原图发送，不压缩',
+      child: InkWell(
+        key: const ValueKey('chat-pending-original-toggle'),
+        onTap: _togglePendingSendOriginal,
+        borderRadius: BorderRadius.circular(PMRadius.pill),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                selected
+                    ? Icons.check_circle_rounded
+                    : Icons.radio_button_unchecked_rounded,
+                size: 16,
+                color: selected ? AppColors.primary : AppColors.textSecondary,
+              ),
+              const SizedBox(width: 4),
+              Text(
+                total > 0 ? '原图 (${_formatFileSize(total)})' : '原图',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: selected ? AppColors.primary : AppColors.textSecondary,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// 图片角上的大小：压缩模式显示压缩后的大小（还在压就写"压缩中"），原图模式显示原图大小。
+  String? _pendingImageSizeLabel(_PendingAttachment attachment) {
+    if (!attachment.compressible) return null;
+    final size = attachment.uploadSize(original: _pendingSendOriginal);
+    if (size != null) return _formatFileSize(size);
+    return _pendingSendOriginal ? _formatFileSize(attachment.file!.size) : '压缩中';
+  }
+
   Widget _buildPendingAttachmentTile(int index) {
     final attachment = _pendingAttachments[index];
     return SizedBox(
@@ -143,6 +258,31 @@ extension _ChatScreenPendingAttachmentParts on _ChatScreenState {
               ),
             ),
           ),
+          if (_pendingImageSizeLabel(attachment) case final label?)
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: ClipRRect(
+                borderRadius: const BorderRadius.vertical(
+                  bottom: Radius.circular(PMRadius.s),
+                ),
+                child: ColoredBox(
+                  color: Colors.black.withValues(alpha: 0.5),
+                  child: Text(
+                    label,
+                    key: ValueKey('chat-pending-attachment-size-$index'),
+                    textAlign: TextAlign.center,
+                    maxLines: 1,
+                    style: const TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+              ),
+            ),
           Positioned(
             top: 0,
             right: 0,

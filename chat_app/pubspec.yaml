@@ -111,6 +111,9 @@ dependencies:
   qr_flutter: ^4.1.0
   mobile_scanner: ^7.4.2
 
+  # 发图前压缩：原生平台在后台 isolate 里编码 JPEG/PNG（网页版用浏览器 canvas，不打包进去）
+  image: ^4.10.1
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
