@@ -1,5 +1,8 @@
 part of '../chat_screen.dart';
 
+/// 下一条消息用什么身份发。三个选项互斥，菜单里直接选中生效。
+enum _AnonymousSendChoice { always, nextAnonymous, nextRealName }
+
 extension _ChatScreenAnonymousParts on _ChatScreenState {
   Widget _buildReplyPreviewStrip() {
     final message = _replyingToMessage;
@@ -125,13 +128,50 @@ extension _ChatScreenAnonymousParts on _ChatScreenState {
           ],
           if (active) ...[
             const SizedBox(width: 6),
-            Tooltip(
-              message: '点一下换：一直匿名 → 下一条匿名 → 下一条用真名',
-              child: TextButton(
-                onPressed: _toggleAnonymousSendMode,
-                child: Text(
-                  _anonymousSendModeLabel(),
-                  style: TextStyle(color: accent),
+            PopupMenuButton<_AnonymousSendChoice>(
+              tooltip: '选择下一条用什么身份发',
+              onSelected: _applyAnonymousSendChoice,
+              itemBuilder: (context) => [
+                _anonymousChoiceItem(
+                  _AnonymousSendChoice.always,
+                  '一直匿名',
+                  '每条都匿名，直到你退出匿名',
+                  accent,
+                ),
+                _anonymousChoiceItem(
+                  _AnonymousSendChoice.nextAnonymous,
+                  '下一条匿名',
+                  '只有下一条匿名，发完自动回真名',
+                  accent,
+                ),
+                _anonymousChoiceItem(
+                  _AnonymousSendChoice.nextRealName,
+                  '下一条用真名',
+                  '下一条用你自己的名字发',
+                  accent,
+                ),
+              ],
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.82),
+                  borderRadius: BorderRadius.circular(999),
+                  border: Border.all(color: accent.withValues(alpha: 0.35)),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      _anonymousSendModeLabel(),
+                      style: TextStyle(
+                        color: accent,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    Icon(Icons.arrow_drop_down, size: 18, color: accent),
+                  ],
                 ),
               ),
             ),
@@ -227,36 +267,86 @@ extension _ChatScreenAnonymousParts on _ChatScreenState {
     }
   }
 
-  String _anonymousSendModeLabel() {
-    if (!_anonymousPerMessageMode) return '一直匿名';
-    return _anonymousNextMessage ? '下一条匿名' : '下一条用真名';
+  _AnonymousSendChoice get _anonymousSendChoice {
+    if (!_anonymousPerMessageMode) return _AnonymousSendChoice.always;
+    return _anonymousNextMessage
+        ? _AnonymousSendChoice.nextAnonymous
+        : _AnonymousSendChoice.nextRealName;
   }
 
-  /// 三档循环：一直匿名 → 下一条匿名 → 下一条用真名 → 一直匿名。
-  void _toggleAnonymousSendMode() {
-    final bool nextPerMessage;
-    final bool nextAnonymous;
-    if (!_anonymousPerMessageMode) {
-      nextPerMessage = true;
-      nextAnonymous = true;
-    } else if (_anonymousNextMessage) {
-      nextPerMessage = true;
-      nextAnonymous = false;
-    } else {
-      nextPerMessage = false;
-      nextAnonymous = false;
+  String _anonymousSendModeLabel() {
+    switch (_anonymousSendChoice) {
+      case _AnonymousSendChoice.always:
+        return '一直匿名';
+      case _AnonymousSendChoice.nextAnonymous:
+        return '下一条匿名';
+      case _AnonymousSendChoice.nextRealName:
+        return '下一条用真名';
     }
+  }
+
+  PopupMenuItem<_AnonymousSendChoice> _anonymousChoiceItem(
+    _AnonymousSendChoice choice,
+    String title,
+    String subtitle,
+    Color accent,
+  ) {
+    final selected = _anonymousSendChoice == choice;
+    return PopupMenuItem<_AnonymousSendChoice>(
+      value: choice,
+      height: 58,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          SizedBox(
+            width: 22,
+            child: selected
+                ? Icon(Icons.check, size: 16, color: accent)
+                : const SizedBox.shrink(),
+          ),
+          Expanded(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w800,
+                    color: selected ? accent : AppColors.textPrimary,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  subtitle,
+                  style: const TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 菜单里选中即生效，不存在“点一下就被切走”。
+  void _applyAnonymousSendChoice(_AnonymousSendChoice choice) {
+    final perMessage = choice != _AnonymousSendChoice.always;
+    final nextAnonymous = choice == _AnonymousSendChoice.nextAnonymous;
     _setViewState(() {
-      _anonymousPerMessageMode = nextPerMessage;
+      _anonymousPerMessageMode = perMessage;
       _anonymousNextMessage = nextAnonymous;
     });
     final roomId = int.tryParse(_chat.id);
     if (roomId != null) {
       unawaited(_anonymousService.setMode(
         roomId,
-        nextPerMessage
-            ? ChatAnonymousMode.perMessage
-            : ChatAnonymousMode.sticky,
+        perMessage ? ChatAnonymousMode.perMessage : ChatAnonymousMode.sticky,
       ));
     }
   }
