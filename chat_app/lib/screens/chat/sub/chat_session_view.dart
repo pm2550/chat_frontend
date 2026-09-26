@@ -71,7 +71,7 @@ extension _ChatSessionView1Parts on _ChatScreenState {
           border: Border.all(color: AppColors.border),
         ),
         child: _buildMessageTextField(
-          hintText: '输入消息...',
+          hintText: '输入消息，/ 调用 AI',
         ),
       ),
     );

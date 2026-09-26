@@ -2,8 +2,11 @@ part of '../chat_screen.dart';
 
 extension _ChatScreenComposerParts on _ChatScreenState {
   Future<void> _sendMessage() async {
-    final content = _messageController.text.trim();
-    if (content.isEmpty && !_hasPendingAttachments) return;
+    final typed = _messageController.text.trim();
+    if (typed.isEmpty && !_hasPendingAttachments) return;
+    // "/画图 …"、"/问 …" 这类快捷命令在这里执行或改写成 @，见 slash_commands.dart。
+    final content = typed.isEmpty ? typed : _applySlashCommandOnSend(typed);
+    if (content == null) return;
     // 粘贴进来的图片先排在发送栏里，这一下才真正发出去：每张立刻有自己的上传气泡，
     // 文字排在它们后面发。输入框马上清空——慢网下传图要好几分钟，
     // 等传完再清的话用户再按一次发送，这句话就发了两遍。
@@ -143,7 +146,7 @@ extension _ChatScreenComposerParts on _ChatScreenState {
 
   Future<void> _generateImageMessage(String prompt) async {
     final normalized = prompt.trim();
-    if (normalized.isEmpty) return;
+    if (normalized.isEmpty || _refuseAiInE2eeChat()) return;
     try {
       final message = await _chatService.generateImageMessage(
         _chat.id,
@@ -447,6 +450,7 @@ extension _ChatScreenComposerParts on _ChatScreenState {
             _buildPendingAttachmentsStrip(),
             _buildReplyPreviewStrip(),
             _buildMentionPickerPanel(),
+            _buildSlashCommandPanel(),
             _buildAnonymousIdentityHint(),
             _buildVoiceRecordingStrip(),
             _buildComposerToolbar(desktop: true),
