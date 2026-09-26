@@ -26,6 +26,7 @@ import '../../services/bot_service.dart';
 import '../../services/chat_data_service.dart';
 import '../../services/chat_upload.dart';
 import '../../services/memory_service.dart';
+import '../../services/slash_command_parser.dart';
 import '../../services/pending_call_invite.dart';
 import '../../services/chat_call_service.dart';
 import '../../services/contact_data_service.dart';
@@ -91,6 +92,7 @@ part 'sub/pending_attachments_strip.dart';
 part 'sub/outgoing_uploads.dart';
 part 'sub/realtime_sync.dart';
 part 'sub/e2ee_chat.dart';
+part 'sub/slash_commands.dart';
 
 typedef ChatAttachmentPicker = Future<PickedChatFile?> Function();
 
@@ -235,6 +237,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   int _mentionSelectedIndex = 0;
   int? _mentionStartIndex;
   bool _isLoadingMentionMembers = false;
+  final _SlashPanelState _slashPanel = _SlashPanelState();
   AnonymousIdentity? _anonymousIdentity;
   AnonymousQuota? _anonymousQuota;
   bool _anonymousPerMessageMode = false;
@@ -555,6 +558,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                   _buildPendingAttachmentsStrip(),
                   _buildReplyPreviewStrip(),
                   _buildMentionPickerPanel(),
+                  _buildSlashCommandPanel(),
                   _buildAnonymousIdentityHint(),
                   _buildVoiceRecordingStrip(),
                   _buildMobileComposer(),

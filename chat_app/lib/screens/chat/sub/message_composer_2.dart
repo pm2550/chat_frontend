@@ -5,13 +5,21 @@ extension _ChatComposer2Parts on _ChatScreenState {
     return CallbackShortcuts(
       bindings: <ShortcutActivator, VoidCallback>{
         const SingleActivator(LogicalKeyboardKey.arrowDown): () =>
-            _moveMentionSelection(1),
+            _isSlashPanelVisible
+                ? _moveSlashSelection(1)
+                : _moveMentionSelection(1),
         const SingleActivator(LogicalKeyboardKey.arrowUp): () =>
-            _moveMentionSelection(-1),
-        const SingleActivator(LogicalKeyboardKey.escape):
-            _clearMentionSuggestions,
+            _isSlashPanelVisible
+                ? _moveSlashSelection(-1)
+                : _moveMentionSelection(-1),
+        const SingleActivator(LogicalKeyboardKey.escape): () {
+          _clearSlashSuggestions();
+          _clearMentionSuggestions();
+        },
         const SingleActivator(LogicalKeyboardKey.enter): () {
-          if (_isMentionPickerVisible) {
+          if (_isSlashPanelVisible) {
+            _chooseSlashCommand();
+          } else if (_isMentionPickerVisible) {
             _chooseMentionSuggestion();
           } else {
             _sendMessage();
@@ -20,7 +28,7 @@ extension _ChatComposer2Parts on _ChatScreenState {
         const SingleActivator(LogicalKeyboardKey.enter, shift: true):
             _insertMessageNewline,
       },
-      child: TextField(
+      child: _withSlashTabKey(TextField(
         controller: _messageController,
         focusNode: _focusNode,
         keyboardType: TextInputType.multiline,
@@ -38,17 +46,20 @@ extension _ChatComposer2Parts on _ChatScreenState {
           ),
         ),
         onChanged: _handleComposerChanged,
-      ),
+      )),
     );
   }
 
   bool get _isMentionPickerVisible =>
-      _mentionStartIndex != null && _mentionSuggestions.isNotEmpty;
+      _mentionStartIndex != null &&
+      _mentionSuggestions.isNotEmpty &&
+      !_isSlashPanelVisible;
 
   void _handleComposerChanged(String text) {
     final selection = _messageController.selection.baseOffset;
     _setViewState(() => _isTyping = text.isNotEmpty);
     _updateMentionSuggestions(text, selection);
+    _updateSlashSuggestions(text, selection);
   }
 
   void _updateMentionSuggestions(String text, int selectionOffset) {
@@ -420,9 +431,11 @@ extension _ChatComposer2Parts on _ChatScreenState {
         _buildComposerMenuRow(
           symbol: PMSymbol.image,
           label: 'AI 图片',
-          subtitle: '根据描述生成图片',
+          subtitle: _e2eeBlocksAi ? _kE2eeAiBlockedReason : '根据描述生成图片',
           onTap: () {
             Navigator.pop(sheetContext);
+            // 加密私聊里描述和生成的图都会以明文存在服务器上。
+            if (_refuseAiInE2eeChat()) return;
             _showImageGenerationSheet();
           },
         ),

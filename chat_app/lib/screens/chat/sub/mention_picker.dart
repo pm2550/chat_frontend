@@ -2,7 +2,7 @@ part of '../chat_screen.dart';
 
 extension _ChatScreenCommandParts on _ChatScreenState {
   void _insertSystemAgentMention() {
-    if (_e2eeRoom.encrypts) {
+    if (_e2eeBlocksAi) {
       // 加密消息服务器看不到，@ 了 AI 助手它也收不到。
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('端到端加密的私聊里，AI 助手读不到消息')),

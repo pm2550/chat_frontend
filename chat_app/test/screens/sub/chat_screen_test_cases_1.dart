@@ -517,7 +517,7 @@ void _chatScreenCases1() {
     await tester.pumpWidget(buildTestWidget(chat));
     await tester.pump();
 
-    expect(find.text('输入消息...'), findsOneWidget);
+    expect(find.text('输入消息，/ 调用 AI'), findsOneWidget);
   });
 
   testWidgets('renders a TextField for message input', (tester) async {
