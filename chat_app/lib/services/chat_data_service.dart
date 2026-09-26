@@ -100,7 +100,7 @@ class ChatDataException implements Exception {
   String toString() => message;
 }
 
-/// 给一张图做小预览图（做不了返回 null）。
+/// 给一张图做小预览图 / 中图（做不了返回 null）。
 typedef ImageThumbnailer = Future<Uint8List?> Function(Uint8List imageBytes);
 
 class ChatDataService {
@@ -112,13 +112,15 @@ class ChatDataService {
     MultipartUploadTransport? uploadTransport,
     EncryptionService? encryptionService,
     ImageThumbnailer? imageThumbnailer,
+    ImageThumbnailer? imagePreviewer,
   })  : _authService = authService ?? AuthService(),
         _authenticatedRequest = authenticatedRequest,
         _multipartRequest = multipartRequest,
         _multipartFilesRequest = multipartFilesRequest,
         _uploadTransport = uploadTransport ?? dioMultipartUpload,
         _encryptionService = encryptionService,
-        _imageThumbnailer = imageThumbnailer;
+        _imageThumbnailer = imageThumbnailer,
+        _imagePreviewer = imagePreviewer;
 
   final AuthService _authService;
   final EncryptionService? _encryptionService;
@@ -128,6 +130,9 @@ class ChatDataService {
   final AuthenticatedMultipartFilesRequest? _multipartFilesRequest;
   final MultipartUploadTransport _uploadTransport;
   final ImageThumbnailer? _imageThumbnailer;
+
+  /// 给端到端加密的大原图做中图（测试注入假的）；为空时用 [ImageUploadPreparer.previewFor]。
+  final ImageThumbnailer? _imagePreviewer;
 
   static const Duration _chatRoomsCacheTtl = Duration(seconds: 30);
   static List<Chat>? _cachedChatRooms;
@@ -1120,6 +1125,10 @@ class ChatDataService {
                         ImageUploadPreparer.shared.thumbnailFor)(
                       await _readPickedFileBytes(file),
                     ),
+            // 大原图（"原图"发送）另做一张中图：对方气泡上屏后换上它，不用自动下载几 MB。
+            makePreview: kind != 'image'
+                ? null
+                : (_imagePreviewer ?? ImageUploadPreparer.shared.previewFor),
           );
     if (cancelToken?.isCancelled == true) {
       throw const UploadCancelledException();
@@ -1143,6 +1152,7 @@ class ChatDataService {
             bytes: sealed.ciphertext,
           );
     final thumbnailCiphertext = sealed?.thumbnailCiphertext;
+    final previewCiphertext = sealed?.previewCiphertext;
     final response = await _requestMultipart(
       ApiConstants.sendFileMessage,
       fields: fields,
@@ -1155,11 +1165,19 @@ class ChatDataService {
             bytes: thumbnailCiphertext,
             contentType: MediaType('application', 'octet-stream'),
           ),
+        if (previewCiphertext != null)
+          MultipartExtraFile(
+            field: 'preview',
+            fileName: 'encrypted.bin',
+            bytes: previewCiphertext,
+            contentType: MediaType('application', 'octet-stream'),
+          ),
       ],
       onSendProgress: onProgress,
       cancelToken: cancelToken,
-      timeout: uploadTimeoutForBytes(
-          upload.size + (thumbnailCiphertext?.length ?? 0)),
+      timeout: uploadTimeoutForBytes(upload.size +
+          (thumbnailCiphertext?.length ?? 0) +
+          (previewCiphertext?.length ?? 0)),
     );
     final data = _decodeResponse(response);
     final messageJson = data['data'];

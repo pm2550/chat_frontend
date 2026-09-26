@@ -110,6 +110,7 @@ class E2eePayload {
     this.text = '',
     this.attachment,
     this.thumbnail,
+    this.preview,
   });
 
   /// text / image / file / voice / video / audio
@@ -121,32 +122,38 @@ class E2eePayload {
   /// 放在新键 `thumb` 里：老客户端只认 `file`，照旧解开原图显示。
   final E2eeAttachmentKey? thumbnail;
 
+  /// 大原图的中图（长边约 1280px，单独的随机密钥，密文存在消息的 previewUrl），新键 `prev`。
+  final E2eeAttachmentKey? preview;
+
   Map<String, dynamic> toJson() => {
         'kind': kind,
         'text': text,
         if (attachment != null) 'file': attachment!.toJson(),
         if (thumbnail != null) 'thumb': thumbnail!.toJson(),
+        if (preview != null) 'prev': preview!.toJson(),
       };
 
   static E2eePayload fromJson(Map<String, dynamic> json) {
     final file = json['file'];
-    final thumb = json['thumb'];
-    E2eeAttachmentKey? thumbnail;
-    if (thumb is Map) {
-      try {
-        thumbnail = E2eeAttachmentKey.fromJson(Map<String, dynamic>.from(thumb));
-      } on E2eeCryptoException {
-        thumbnail = null; // 预览图密钥坏了不影响看原图
-      }
-    }
     return E2eePayload(
       kind: json['kind']?.toString() ?? 'text',
       text: json['text']?.toString() ?? '',
       attachment: file is Map
           ? E2eeAttachmentKey.fromJson(Map<String, dynamic>.from(file))
           : null,
-      thumbnail: thumbnail,
+      thumbnail: _optionalKey(json['thumb']),
+      preview: _optionalKey(json['prev']),
     );
+  }
+
+  /// 预览图的密钥坏了不影响看原图：当作没有。
+  static E2eeAttachmentKey? _optionalKey(Object? value) {
+    if (value is! Map) return null;
+    try {
+      return E2eeAttachmentKey.fromJson(Map<String, dynamic>.from(value));
+    } on E2eeCryptoException {
+      return null;
+    }
   }
 }
 

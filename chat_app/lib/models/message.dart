@@ -143,9 +143,13 @@ class Message {
   final int? fileSize;
   final String? fileType;
 
-  /// 图片的小预览图（长边约 400px）。聊天气泡、文件中心先加载它，点开再下载原图 [fileUrl]。
+  /// 图片的小预览图（长边约 720px，1.1.51 发的是 400px）。聊天气泡、文件中心先加载它，点开再下载原图 [fileUrl]。
   /// 老消息、小图、动图没有；端到端加密的图片只有信封里带了它的密钥才保留（见 EncryptionService.reveal）。
   final String? thumbnailUrl;
+
+  /// 大原图（超过 [sharpOriginalMaxBytes]）的中图，长边约 1280px。气泡上屏后在后台换上它，
+  /// 不自动下载几 MB 的原图。端到端加密的同样要信封里有它的密钥才保留。
+  final String? previewUrl;
   final int? stickerId;
   final int? pollId;
   final String? imageGenPrompt;
@@ -204,6 +208,7 @@ class Message {
     this.fileSize,
     this.fileType,
     this.thumbnailUrl,
+    this.previewUrl,
     this.stickerId,
     this.pollId,
     this.imageGenPrompt,
@@ -353,6 +358,7 @@ class Message {
       fileSize: _parseInt(json['fileSize'] ?? json['file_size']),
       fileType: json['fileType'] ?? json['file_type'],
       thumbnailUrl: _stringOrNull(json['thumbnailUrl'] ?? json['thumbnail_url']),
+      previewUrl: _stringOrNull(json['previewUrl'] ?? json['preview_url']),
       stickerId: _parseInt(json['stickerId'] ?? json['sticker_id']),
       pollId: _parseInt(json['pollId'] ?? json['poll_id']),
       imageGenPrompt: json['imageGenPrompt']?.toString() ??
@@ -419,6 +425,7 @@ class Message {
       'fileSize': fileSize,
       'fileType': encryptedAttachment ? 'application/octet-stream' : fileType,
       'thumbnailUrl': thumbnailUrl,
+      'previewUrl': previewUrl,
       'stickerId': stickerId,
       'pollId': pollId,
       'imageGenPrompt': imageGenPrompt,
@@ -473,6 +480,8 @@ class Message {
     String? fileType,
     String? thumbnailUrl,
     bool clearThumbnailUrl = false,
+    String? previewUrl,
+    bool clearPreviewUrl = false,
     int? stickerId,
     int? pollId,
     String? imageGenPrompt,
@@ -526,6 +535,7 @@ class Message {
       fileType: fileType ?? this.fileType,
       thumbnailUrl:
           clearThumbnailUrl ? null : (thumbnailUrl ?? this.thumbnailUrl),
+      previewUrl: clearPreviewUrl ? null : (previewUrl ?? this.previewUrl),
       stickerId: stickerId ?? this.stickerId,
       pollId: pollId ?? this.pollId,
       imageGenPrompt: imageGenPrompt ?? this.imageGenPrompt,
@@ -622,6 +632,27 @@ class Message {
     if (previewImageUrl == null) return null;
     final thumbnail = thumbnailUrl;
     return thumbnail != null && thumbnail.isNotEmpty ? thumbnail : previewImageUrl;
+  }
+
+  /// 原图不超过这么大（正常压缩后发的图）就直接拿原图当清晰图；更大的用服务器/发送端做的中图
+  /// [previewUrl]，没有中图就停在缩略图、点开再下原图。和服务器 ImageThumbnailService.PREVIEW_MIN_SOURCE_BYTES 一致。
+  static const int sharpOriginalMaxBytes = 1536 * 1024;
+
+  /// 气泡在屏幕上停住以后，后台换上的清晰图；null 表示不用换（气泡本来就显示原图，
+  /// 或者原图太大又没有中图）。
+  String? get sharpImageUrl {
+    final original = previewImageUrl;
+    final bubble = bubbleImageUrl;
+    if (original == null || bubble == null || bubble == original) return null;
+    final size = fileSize;
+    if (size != null && size > 0 && size <= sharpOriginalMaxBytes) {
+      return original;
+    }
+    final preview = previewUrl;
+    if (preview != null && preview.isNotEmpty && preview != bubble) {
+      return preview;
+    }
+    return null;
   }
 
   bool get isFileMessage =>

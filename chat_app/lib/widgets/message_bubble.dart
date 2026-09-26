@@ -13,7 +13,9 @@ import '../design/design.dart';
 import '../models/message.dart';
 import '../models/poll.dart';
 import '../services/auth_service.dart';
+import '../services/image_upload/image_inspector.dart';
 import 'authenticated_image.dart';
+import 'progressive_chat_image.dart';
 import '../utils/link_utils.dart';
 import 'chat_video_thumbnail.dart';
 import 'qq_face_message.dart';
@@ -22,11 +24,11 @@ typedef ImageBytesLoader = Future<Uint8List> Function(String fileUrl);
 typedef LinkPreviewLoader = Future<LinkPreview?> Function(String url);
 
 class MessageBubble extends StatelessWidget {
-  static const int _maxCachedChatImages = 24;
-  static final Map<String, Future<_LoadedChatImage>> _chatImageCache = {};
-
   @visibleForTesting
-  static void clearImageCacheForTesting() => _chatImageCache.clear();
+  static void clearImageCacheForTesting() {
+    ChatImageCache.shared.clear();
+    ChatImageUpgradeQueue.resetShared();
+  }
 
   final Message message;
   final bool isMe;
@@ -775,46 +777,45 @@ class MessageBubble extends StatelessWidget {
     );
   }
 
+  /// 先显示 [fileUrl]（缩略图），气泡在屏幕上停稳后在后台换成 [Message.sharpImageUrl]（见 ProgressiveChatImage）。
   Widget _buildImagePreviewCard(BuildContext context, String fileUrl) {
     final maxWidth = _imagePreviewMaxWidth(context);
     final loadingHeight = math.min(320.0, maxWidth * 0.72);
     return ConstrainedBox(
       constraints: BoxConstraints(maxWidth: maxWidth),
-      child: FutureBuilder<_LoadedChatImage>(
-        future: _loadChatImage(fileUrl),
-        builder: (context, snapshot) {
-          if (snapshot.hasData) {
-            final image = snapshot.data!;
-            final size = _imagePreviewSize(context, image);
-            return _buildLoadedImagePreview(image, size);
-          }
-          if (snapshot.hasError) {
-            return SizedBox(
-              width: maxWidth,
-              height: loadingHeight,
-              child: _buildAttachmentFallback(Icons.broken_image_outlined),
-            );
-          }
-          return SizedBox(
-            width: maxWidth,
-            height: loadingHeight,
-            child: Center(
-              child: SizedBox(
-                width: 24,
-                height: 24,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  color: isMe ? Colors.white : AppColors.primary,
-                ),
+      child: ProgressiveChatImage(
+        url: fileUrl,
+        sharpUrl: message.sharpImageUrl,
+        load: _loadChatImage,
+        peek: (url) => ChatImageCache.shared.peek(_chatImageCacheKey(url)),
+        builder: (context, layout, image) => _buildLoadedImagePreview(
+          image,
+          _imagePreviewSize(context, layout),
+        ),
+        errorBuilder: (context) => SizedBox(
+          width: maxWidth,
+          height: loadingHeight,
+          child: _buildAttachmentFallback(Icons.broken_image_outlined),
+        ),
+        placeholder: (context) => SizedBox(
+          width: maxWidth,
+          height: loadingHeight,
+          child: Center(
+            child: SizedBox(
+              width: 24,
+              height: 24,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: isMe ? Colors.white : AppColors.primary,
               ),
             ),
-          );
-        },
+          ),
+        ),
       ),
     );
   }
 
-  Widget _buildLoadedImagePreview(_LoadedChatImage image, Size size) {
+  Widget _buildLoadedImagePreview(Widget image, Size size) {
     final preview = ClipRRect(
       borderRadius: BorderRadius.circular(10),
       child: DecoratedBox(
@@ -835,12 +836,7 @@ class MessageBubble extends StatelessWidget {
           child: Stack(
             fit: StackFit.expand,
             children: [
-              Image.memory(
-                image.bytes,
-                fit: BoxFit.contain,
-                errorBuilder: (_, __, ___) =>
-                    _buildAttachmentFallback(Icons.broken_image_outlined),
-              ),
+              image,
               if (onOpenAttachment != null)
                 Positioned(
                   right: 8,
@@ -882,7 +878,7 @@ class MessageBubble extends StatelessWidget {
     return target.clamp(230.0, 460.0).toDouble();
   }
 
-  Size _imagePreviewSize(BuildContext context, _LoadedChatImage image) {
+  Size _imagePreviewSize(BuildContext context, ChatImageData image) {
     final maxWidth = _imagePreviewMaxWidth(context);
     final maxHeight = MediaQuery.sizeOf(context).height >= 760 ? 520.0 : 420.0;
     final aspect = image.width <= 0 || image.height <= 0
@@ -1131,72 +1127,73 @@ class MessageBubble extends StatelessWidget {
   }
 
   Future<Uint8List> _loadImageBytes(String fileUrl) async {
-    if (imageLoader != null) {
-      return imageLoader!(fileUrl);
+    final Uint8List bytes;
+    final loader = imageLoader;
+    if (loader != null) {
+      bytes = await loader(fileUrl);
+    } else {
+      final resolvedUrl = ApiConstants.resolveFileUrl(fileUrl);
+      final response = ApiConstants.requiresAuthHeaderForFile(fileUrl)
+          ? await AuthService().authenticatedRequest(
+              'GET',
+              resolvedUrl,
+              timeout: const Duration(seconds: 120),
+            )
+          : await http
+              .get(Uri.parse(resolvedUrl))
+              .timeout(const Duration(seconds: 120));
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        throw Exception('Image load failed: ${response.statusCode}');
+      }
+      bytes = response.bodyBytes;
     }
-
-    final resolvedUrl = ApiConstants.resolveFileUrl(fileUrl);
-    final response = ApiConstants.requiresAuthHeaderForFile(fileUrl)
-        ? await AuthService().authenticatedRequest(
-            'GET',
-            resolvedUrl,
-            timeout: const Duration(seconds: 120),
-          )
-        : await http
-            .get(Uri.parse(resolvedUrl))
-            .timeout(const Duration(seconds: 120));
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw Exception('Image load failed: ${response.statusCode}');
-    }
-    // 端到端加密的图片在这里解密。
-    return AuthenticatedImage.transformFetchedBytes(fileUrl, response.bodyBytes);
+    // 端到端加密的图片（原图、缩略图、中图）在这里解密。
+    return AuthenticatedImage.transformFetchedBytes(fileUrl, bytes);
   }
 
-  Future<_LoadedChatImage> _loadChatImage(String fileUrl) async {
+  String _chatImageCacheKey(String fileUrl) {
     final userId = AuthService().currentUser?.id ?? 'anonymous';
     final loaderId =
         imageLoader == null ? 'network' : identityHashCode(imageLoader);
-    final cacheKey = '$userId:$loaderId:$fileUrl';
-    final cached = _chatImageCache[cacheKey];
-    if (cached != null) return cached;
-
-    late final Future<_LoadedChatImage> operation;
-    operation = _loadChatImageUncached(fileUrl).catchError((Object error) {
-      if (identical(_chatImageCache[cacheKey], operation)) {
-        _chatImageCache.remove(cacheKey);
-      }
-      throw error;
-    });
-    _chatImageCache[cacheKey] = operation;
-    while (_chatImageCache.length > _maxCachedChatImages) {
-      _chatImageCache.remove(_chatImageCache.keys.first);
-    }
-    return operation;
+    return '$userId:$loaderId:$fileUrl';
   }
 
-  Future<_LoadedChatImage> _loadChatImageUncached(String fileUrl) async {
-    if (imageLoader != null) {
-      return _LoadedChatImage(
-        bytes: await imageLoader!(fileUrl),
-        width: 16,
-        height: 9,
+  Future<ChatImageData> _loadChatImage(String fileUrl) =>
+      ChatImageCache.shared.load(
+        _chatImageCacheKey(fileUrl),
+        () => _loadChatImageUncached(fileUrl),
+      );
+
+  Future<ChatImageData> _loadChatImageUncached(String fileUrl) async {
+    final bytes = await _loadImageBytes(fileUrl);
+    // 尺寸先读文件头（清晰图一两千像素，为了量尺寸整张解一遍太浪费）；读不到再解码。
+    final header = inspectImage(bytes);
+    final width = header.width;
+    final height = header.height;
+    if (width != null && height != null && width > 0 && height > 0) {
+      final transposed = header.orientation >= 5 && header.orientation <= 8;
+      return ChatImageData(
+        bytes: bytes,
+        width: transposed ? height : width,
+        height: transposed ? width : height,
       );
     }
-    final bytes = await _loadImageBytes(fileUrl);
+    if (imageLoader != null) {
+      return ChatImageData(bytes: bytes, width: 16, height: 9);
+    }
     try {
       final codec = await ui.instantiateImageCodec(bytes);
       final frame = await codec.getNextFrame();
       final decoded = frame.image;
-      final width = decoded.width;
-      final height = decoded.height;
-      decoded.dispose();
-      return _LoadedChatImage(
+      final result = ChatImageData(
         bytes: bytes,
-        width: width,
-        height: height,
+        width: decoded.width,
+        height: decoded.height,
       );
+      decoded.dispose();
+      return result;
     } catch (_) {
-      return _LoadedChatImage(bytes: bytes, width: 1, height: 1);
+      return ChatImageData(bytes: bytes, width: 1, height: 1);
     }
   }
 
@@ -1508,18 +1505,6 @@ class MessageBubble extends StatelessWidget {
       return null;
     }
   }
-}
-
-class _LoadedChatImage {
-  const _LoadedChatImage({
-    required this.bytes,
-    required this.width,
-    required this.height,
-  });
-
-  final Uint8List bytes;
-  final int width;
-  final int height;
 }
 
 class _ReactionChip extends StatelessWidget {

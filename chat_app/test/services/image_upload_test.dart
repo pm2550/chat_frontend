@@ -271,7 +271,9 @@ void main() {
       expect(request.orientation, 6);
       expect(hasExifSegment(request.bytes), isFalse,
           reason: '解码器拿到的是去掉 EXIF 的原图');
-      expect(request.thumbnailLongEdge, 400);
+      expect(request.thumbnailLongEdge, 720,
+          reason: '加密私聊的缩略图和服务器一致：720px，不是 1.1.51 的 400px');
+      expect(request.thumbnailQuality, 82);
       expect(prepared.outcome, ImagePrepareOutcome.compressed);
       expect(prepared.file.name, 'IMG_0001.jpg');
       expect(prepared.file.size, 400 * 1024);
@@ -340,7 +342,7 @@ void main() {
       expect(prepared.file.name, 'IMG.jpg');
       // 预览图只在加密私聊需要时才做。
       await prepared.file.thumbnail!();
-      expect(transcoder.requests.single.maxLongEdge, 400);
+      expect(transcoder.requests.single.maxLongEdge, 720);
     });
 
     test('PNG 来源允许按内容选 PNG；HEIC 解不了就原样发', () async {
@@ -416,7 +418,7 @@ void main() {
 
       final thumbnail = (await prepared.file.thumbnail!())!;
       final thumb = img.decodeJpg(thumbnail)!;
-      expect(max(thumb.width, thumb.height), 400);
+      expect(max(thumb.width, thumb.height), 720);
       expect(thumb.height, greaterThan(thumb.width));
     });
 

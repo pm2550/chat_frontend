@@ -66,7 +66,10 @@ class _CapturingTransport {
         'fileUrl': '/api/files/chat/photo.bin',
         'fileName': kE2eeServerAttachmentName,
         'fileType': 'application/octet-stream',
-        if (extras.isNotEmpty) 'thumbnailUrl': '/api/files/chat/thumb.bin',
+        if (extras.any((e) => e.field == 'thumbnail'))
+          'thumbnailUrl': '/api/files/chat/thumb.bin',
+        if (extras.any((e) => e.field == 'preview'))
+          'previewUrl': '/api/files/chat/preview.bin',
         'encryptedContent': fields!['encryptedContent'],
         'encryptionVersion': kE2eeEncryptionVersion,
         'createdAt': '2026-09-25T10:00:00',
@@ -183,6 +186,94 @@ void main() {
 
     expect(made, [10]);
     expect(transport.extras, hasLength(1));
+  });
+
+  test(
+      'a big original (原图) in an encrypted DM also gets an encrypted 1280px '
+      'preview; a normal compressed photo does not', () async {
+    final big = Uint8List(Message.sharpOriginalMaxBytes + 1);
+    final preview = Uint8List.fromList(
+        [0xFF, 0xD8, 0xFF, ...List.generate(900, (i) => (i * 3) % 256)]);
+    final previewed = <int>[];
+    ChatDataService chatWith(_CapturingTransport transport) => ChatDataService(
+          authService: _NoAuth(),
+          authenticatedRequest: (method, url, {headers, body}) async =>
+              throw UnimplementedError(),
+          uploadTransport: transport.call,
+          encryptionService: alice,
+          imageThumbnailer: (bytes) async => Uint8List.fromList([1, 2, 3]),
+          imagePreviewer: (bytes) async {
+            previewed.add(bytes.length);
+            return preview;
+          },
+        );
+
+    final transport = _CapturingTransport();
+    await chatWith(transport).sendFileMessage(
+      '42',
+      PickedChatFile(
+          name: 'IMG_0001.jpg',
+          size: big.length,
+          mimeType: 'image/jpeg',
+          bytes: big),
+      messageType: MessageType.image,
+      chat: _dm(),
+    );
+
+    expect(previewed, [big.length]);
+    expect(transport.extras.map((e) => e.field), ['thumbnail', 'preview']);
+    final sealedPreview = transport.extras.last.bytes;
+    expect(sealedPreview, isNot(preview), reason: '服务器只拿到中图的密文');
+    final revealed = bob.reveal(Message.fromJson(transport.serverMessage()));
+    expect(revealed.previewUrl, '/api/files/chat/preview.bin');
+    expect(revealed.sharpImageUrl, '/api/files/chat/preview.bin',
+        reason: '原图太大：气泡换中图，不自动下原图');
+    expect(
+      await bob.openDownloadedFile(
+          '/api/files/chat/preview.bin', Uint8List.fromList(sealedPreview)),
+      preview,
+    );
+
+    // 正常压缩后的图（不到 1.5 MB）：不做中图，对方直接拿原图当清晰图。
+    final modestTransport = _CapturingTransport();
+    await chatWith(modestTransport).sendFileMessage(
+      '42',
+      PickedChatFile(
+          name: 'IMG_0002.jpg',
+          size: 400 * 1024,
+          mimeType: 'image/jpeg',
+          bytes: Uint8List(400 * 1024)),
+      messageType: MessageType.image,
+      chat: _dm(),
+    );
+    expect(previewed, [big.length]);
+    expect(modestTransport.extras.map((e) => e.field), ['thumbnail']);
+    final modest = bob.reveal(Message.fromJson(modestTransport.serverMessage()));
+    expect(modest.sharpImageUrl, '/api/files/chat/photo.bin');
+  });
+
+  test('a preview url without a key in the envelope is dropped', () async {
+    final sealed = await alice.sealFile(
+      _dm(),
+      name: 'old.jpg',
+      mimeType: 'image/jpeg',
+      kind: 'image',
+      readBytes: () async => Uint8List(100),
+    );
+    final revealed = bob.reveal(Message.fromJson({
+      'id': '601',
+      'content': kE2eeServerPlaceholder,
+      'senderId': '1',
+      'chatRoomId': '42',
+      'type': 'FILE',
+      'fileUrl': '/api/files/chat/old.bin',
+      'previewUrl': '/api/files/chat/injected.bin',
+      'encryptedContent': sealed!.envelope,
+      'encryptionVersion': kE2eeEncryptionVersion,
+      'createdAt': '2026-09-25T10:00:00',
+    }));
+    expect(revealed.previewUrl, isNull);
+    expect(sealed.previewCiphertext, isNull);
   });
 
   test(

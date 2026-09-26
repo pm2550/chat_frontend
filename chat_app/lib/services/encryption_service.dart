@@ -176,17 +176,20 @@ enum E2eeRecoveryResult {
 }
 
 /// 加密好的附件：上传 [ciphertext]（服务器只看到一个 .bin），[envelope] 作为消息密文。
-/// 图片还可能带一张加密的小预览图 [thumbnailCiphertext]（密钥同样在信封里）。
+/// 图片还可能带一张加密的小预览图 [thumbnailCiphertext]，大原图再带一张中图 [previewCiphertext]
+/// （密钥同样在信封里）。
 class E2eeSealedFile {
   const E2eeSealedFile({
     required this.ciphertext,
     required this.envelope,
     this.thumbnailCiphertext,
+    this.previewCiphertext,
   });
 
   final Uint8List ciphertext;
   final String envelope;
   final Uint8List? thumbnailCiphertext;
+  final Uint8List? previewCiphertext;
 }
 
 /// 私聊端到端加密的客户端会话：管本机私钥、对方公钥、会话状态，负责加密发送和解密显示。
@@ -367,6 +370,17 @@ class EncryptionService extends ChangeNotifier {
     if (usableThumbnail) {
       _attachmentKeysByUrl[thumbnailUrl] = thumbnail;
     }
+    // 中图同理。
+    final previewUrl = message.previewUrl;
+    final preview = payload.preview;
+    final usablePreview = preview != null &&
+        previewUrl != null &&
+        previewUrl.isNotEmpty &&
+        previewUrl != fileUrl &&
+        previewUrl != thumbnailUrl;
+    if (usablePreview) {
+      _attachmentKeysByUrl[previewUrl] = preview;
+    }
     return message.copyWith(
       content: payload.text.isNotEmpty ? payload.text : attachment.name,
       type: _messageTypeForKind(payload.kind),
@@ -375,6 +389,8 @@ class EncryptionService extends ChangeNotifier {
       fileSize: attachment.size,
       thumbnailUrl: usableThumbnail ? thumbnailUrl : null,
       clearThumbnailUrl: !usableThumbnail,
+      previewUrl: usablePreview ? previewUrl : null,
+      clearPreviewUrl: !usablePreview,
     );
   }
 
@@ -676,6 +692,7 @@ class EncryptionService extends ChangeNotifier {
     required String kind,
     required E2eeAttachmentKey attachment,
     E2eeAttachmentKey? thumbnail,
+    E2eeAttachmentKey? preview,
     String caption = '',
   }) {
     return _seal(
@@ -685,6 +702,7 @@ class EncryptionService extends ChangeNotifier {
         text: caption,
         attachment: attachment,
         thumbnail: thumbnail,
+        preview: preview,
       ),
     );
   }
@@ -694,6 +712,8 @@ class EncryptionService extends ChangeNotifier {
   /// [readBytes] 只在需要加密时才调用（大文件不用白读一遍）。
   /// [readThumbnail] 给图片的小预览图（服务器看不到图，只能由发送端做）：用另一把随机密钥加密，
   /// 密钥放进同一个信封；做不出来（返回 null / 出错）就不带，对方退回加载原图。
+  /// [makePreview] 给大原图（超过 [Message.sharpOriginalMaxBytes]）做中图，同样单独加密；
+  /// 原图不大就不调用（对方直接拿原图当清晰图），做不出来对方就停在缩略图、点开再下原图。
   Future<E2eeSealedFile?> sealFile(
     Chat chat, {
     required String name,
@@ -701,31 +721,26 @@ class EncryptionService extends ChangeNotifier {
     required String kind,
     required Future<Uint8List> Function() readBytes,
     Future<Uint8List?> Function()? readThumbnail,
+    Future<Uint8List?> Function(Uint8List original)? makePreview,
   }) async {
     if (!await shouldEncrypt(chat)) return null;
+    final bytes = await readBytes();
     final encrypted = await E2eeCrypto.encryptAttachment(
-      bytes: await readBytes(),
+      bytes: bytes,
       name: name,
       mimeType: mimeType,
     );
-    Uint8List? thumbnailBytes;
-    try {
-      thumbnailBytes = await readThumbnail?.call();
-    } catch (_) {
-      thumbnailBytes = null;
-    }
-    final thumbnail = thumbnailBytes == null || thumbnailBytes.isEmpty
+    final thumbnail = await _sealRendition(readThumbnail, 'thumbnail');
+    final preview = makePreview == null ||
+            bytes.length <= Message.sharpOriginalMaxBytes
         ? null
-        : await E2eeCrypto.encryptAttachment(
-            bytes: thumbnailBytes,
-            name: 'thumbnail',
-            mimeType: _thumbnailMimeType(thumbnailBytes),
-          );
+        : await _sealRendition(() => makePreview(bytes), 'preview');
     final envelope = await sealAttachment(
       chat,
       kind: kind,
       attachment: encrypted.key,
       thumbnail: thumbnail?.key,
+      preview: preview?.key,
     );
     if (envelope == null) {
       throw const E2eeSendBlockedException('端到端加密状态刚刚变化，请重试');
@@ -734,6 +749,26 @@ class EncryptionService extends ChangeNotifier {
       ciphertext: encrypted.ciphertext,
       envelope: envelope,
       thumbnailCiphertext: thumbnail?.ciphertext,
+      previewCiphertext: preview?.ciphertext,
+    );
+  }
+
+  /// 做一张预览图并用它自己的随机密钥加密；做不出来（null / 出错）返回 null。
+  Future<({Uint8List ciphertext, E2eeAttachmentKey key})?> _sealRendition(
+    Future<Uint8List?> Function()? make,
+    String name,
+  ) async {
+    Uint8List? bytes;
+    try {
+      bytes = await make?.call();
+    } catch (_) {
+      bytes = null;
+    }
+    if (bytes == null || bytes.isEmpty) return null;
+    return E2eeCrypto.encryptAttachment(
+      bytes: bytes,
+      name: name,
+      mimeType: _thumbnailMimeType(bytes),
     );
   }
 

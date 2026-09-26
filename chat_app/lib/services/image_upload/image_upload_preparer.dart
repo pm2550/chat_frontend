@@ -23,9 +23,14 @@ class ImageUploadPolicy {
   /// 压缩结果至少要比原图小这么多（比例）才用，不然发原图。
   static const double minSaving = 0.10;
 
-  /// 端到端加密时发送端自己做的小预览图（明文会话由服务器生成）。
-  static const int thumbnailLongEdge = 400;
-  static const int thumbnailQuality = 75;
+  /// 端到端加密时发送端自己做的小预览图（明文会话由服务器生成，尺寸质量一致）。
+  /// 720px：气泡里只轻微放大，首屏也够快（照片四五十 KB）。1.1.51 是 400px，糊。
+  static const int thumbnailLongEdge = 720;
+  static const int thumbnailQuality = 82;
+
+  /// 端到端加密的大原图（超过 Message.sharpOriginalMaxBytes）另做的中图，和服务器的一致。
+  static const int previewLongEdge = 1280;
+  static const int previewQuality = 82;
 
   /// 比这还小的图不另做预览图，对方直接加载原图（和服务器的规则一致）。
   static const int thumbnailMinBytes = 100 * 1024;
@@ -129,8 +134,30 @@ class ImageUploadPreparer {
     );
   }
 
-  /// 给一张图做长边 400 的小预览图（转发到加密私聊等没有现成预览图的场合）。做不了返回 null。
-  Future<Uint8List?> thumbnailFor(Uint8List bytes) async {
+  /// 给一张图做长边 720 的小预览图（转发到加密私聊等没有现成预览图的场合）。做不了返回 null。
+  Future<Uint8List?> thumbnailFor(Uint8List bytes) => _rendition(
+        bytes,
+        longEdge: ImageUploadPolicy.thumbnailLongEdge,
+        quality: ImageUploadPolicy.thumbnailQuality,
+      );
+
+  /// 给端到端加密的大原图做长边 1280 的中图。做不了、或者没比原图小一半，返回 null
+  /// （对方停在缩略图，点开再下原图）。
+  Future<Uint8List?> previewFor(Uint8List bytes) async {
+    final preview = await _rendition(
+      bytes,
+      longEdge: ImageUploadPolicy.previewLongEdge,
+      quality: ImageUploadPolicy.previewQuality,
+    );
+    if (preview == null || preview.length > bytes.length / 2) return null;
+    return preview;
+  }
+
+  Future<Uint8List?> _rendition(
+    Uint8List bytes, {
+    required int longEdge,
+    required int quality,
+  }) async {
     final info = inspectImage(bytes);
     if (!_decodable(info) || info.animated) return null;
     final bare = info.format == ImageFormat.jpeg
@@ -140,9 +167,9 @@ class ImageUploadPreparer {
       bytes: bare ?? bytes,
       sourceMimeType: info.mimeType,
       orientation: bare != null ? info.orientation : 1,
-      maxLongEdge: ImageUploadPolicy.thumbnailLongEdge,
+      maxLongEdge: longEdge,
       policy: TranscodeFormatPolicy.pngForTransparency,
-      quality: ImageUploadPolicy.thumbnailQuality,
+      quality: quality,
     ));
     return result?.bytes;
   }
