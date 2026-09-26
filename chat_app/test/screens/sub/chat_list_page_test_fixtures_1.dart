@@ -35,14 +35,20 @@ class FakeChatListService extends ChatDataService {
     bool includeHidden = false,
     bool includeBlocked = false,
     ChatType? type,
+    ChatType? excludeType,
     bool forceRefresh = false,
   }) async {
-    forceRefreshRequests.add(forceRefresh);
+    // 只记消息页那一路（群聊 + 频道）的请求；私聊列表由联系人目录单独拉。
+    if (type != ChatType.private) forceRefreshRequests.add(forceRefresh);
     final err = error;
     if (err != null) {
       throw err;
     }
-    return chats;
+    if (page > 0) return const [];
+    return chats
+        .where((chat) => type == null || chat.type == type)
+        .where((chat) => excludeType == null || chat.type != excludeType)
+        .toList();
   }
 
   @override

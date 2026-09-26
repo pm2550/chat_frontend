@@ -119,10 +119,10 @@ extension _AiHubActions1Parts on _AiHubPageState {
                           icon: room.type == ChatType.private
                               ? Icons.person
                               : Icons.groups,
-                          label: room.name,
+                          label: _aiRoomTitle(room),
                           active: room.id == _selectedImageRoom?.id,
                         ),
-                        title: Text(room.name.isEmpty ? '未命名会话' : room.name),
+                        title: Text(_aiRoomTitle(room)),
                         subtitle: Text(
                           '${room.type.description} · ${room.effectiveMemberCount} 人',
                         ),
@@ -162,7 +162,7 @@ extension _AiHubActions1Parts on _AiHubPageState {
       });
       _startImageJobPolling(room, message.id);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('已提交到 ${room.name.isEmpty ? '会话' : room.name}')),
+        SnackBar(content: Text('已提交到 ${_aiRoomTitle(room, empty: '会话')}')),
       );
     } catch (error) {
       if (!mounted) return;
@@ -267,7 +267,7 @@ extension _AiHubActions1Parts on _AiHubPageState {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  '配置 ${room.name} 的 Bot',
+                  '配置 ${_aiRoomTitle(room)} 的 Bot',
                   style: const TextStyle(
                     color: AppColors.textPrimary,
                     fontSize: 18,
@@ -317,7 +317,7 @@ extension _AiHubActions1Parts on _AiHubPageState {
       );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('${selectedBot.botName} 已加入 ${room.name}')),
+        SnackBar(content: Text('${selectedBot.botName} 已加入 ${_aiRoomTitle(room)}')),
       );
     } catch (error) {
       if (!mounted) return;

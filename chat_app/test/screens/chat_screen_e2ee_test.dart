@@ -337,6 +337,7 @@ class _RecordingChatService extends FakeChatDataService {
     bool includeHidden = false,
     bool includeBlocked = false,
     ChatType? type,
+    ChatType? excludeType,
     bool forceRefresh = false,
   }) async =>
       rooms;

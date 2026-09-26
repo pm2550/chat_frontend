@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'package:chat_app/constants/api_constants.dart';
-import 'package:chat_app/constants/app_colors.dart';
 import 'package:chat_app/models/chat.dart';
 import 'package:chat_app/models/message.dart';
 import 'package:chat_app/models/user.dart';

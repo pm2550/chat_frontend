@@ -74,6 +74,64 @@ void main() {
       expect(rooms.single.name, 'Hidden Group');
     });
 
+    test('message tab rooms exclude private chats on the server and locally',
+        () async {
+      final urls = <Uri>[];
+      final service = ChatDataService(
+        authenticatedRequest: (method, url, {headers, body}) async {
+          urls.add(Uri.parse(url));
+          // 老服务器不认 excludeRoomType，照样返回私聊。
+          return jsonResponse({
+            'chatRooms': [
+              {'id': 1, 'name': 'Group', 'roomType': 'GROUP'},
+              {'id': 2, 'name': 'Channel', 'roomType': 'CHANNEL'},
+              {'id': 3, 'name': 'A & B', 'roomType': 'PRIVATE'},
+            ],
+          });
+        },
+      );
+
+      final rooms = await service.getChatRooms(excludeType: ChatType.private);
+
+      expect(urls.single.queryParameters['excludeRoomType'], 'PRIVATE');
+      expect(rooms.map((room) => room.id), unorderedEquals(['1', '2']));
+    });
+
+    test('getAllChatRooms pages until a short page', () async {
+      final pages = <String?>[];
+      final service = ChatDataService(
+        authenticatedRequest: (method, url, {headers, body}) async {
+          final query = Uri.parse(url).queryParameters;
+          pages.add(query['page']);
+          expect(query['roomType'], 'PRIVATE');
+          expect(query['includeHidden'], 'true');
+          expect(query['includeBlocked'], 'true');
+          final page = int.parse(query['page']!);
+          final count = page == 0 ? 2 : 1;
+          return jsonResponse({
+            'chatRooms': [
+              for (var i = 0; i < count; i++)
+                {
+                  'id': page * 10 + i,
+                  'name': 'Room $page-$i',
+                  'roomType': 'PRIVATE',
+                },
+            ],
+          });
+        },
+      );
+
+      final rooms = await service.getAllChatRooms(
+        type: ChatType.private,
+        includeHidden: true,
+        includeBlocked: true,
+        pageSize: 2,
+      );
+
+      expect(pages, ['0', '1']);
+      expect(rooms.map((room) => room.id), unorderedEquals(['0', '1', '10']));
+    });
+
     test('getChatRooms gets 30 complete summaries with one HTTP request',
         () async {
       var calls = 0;

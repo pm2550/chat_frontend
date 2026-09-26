@@ -3,6 +3,8 @@ import 'dart:ui' show SemanticsAction;
 import 'package:chat_app/models/chat.dart';
 import 'package:chat_app/screens/chat/chat_screen.dart';
 import 'package:chat_app/screens/home/chat_list_page.dart';
+import 'package:chat_app/screens/home/contacts_page.dart';
+import 'package:chat_app/widgets/pm_navigation_rail.dart';
 import 'package:chat_app/screens/home/profile_page.dart';
 import 'package:chat_app/screens/settings/chat_preferences_screen.dart';
 import 'package:flutter/material.dart';
@@ -11,6 +13,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'chat_screen_test.dart' show buildTestWidget, createTestChat;
 import 'chat_list_page_test.dart' show FakeChatListService, FakeRealtimeService;
 import 'profile_page_test.dart' show FakeUserProfileService, testUser;
+import 'contacts_page_test.dart' as contacts show FakeContactService;
 
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
@@ -35,6 +38,48 @@ void main() {
       expect(tester.takeException(), isNull);
     });
   }
+
+  testWidgets('desktop private chat puts contacts in the middle column',
+      (tester) async {
+    tester.view.physicalSize = const Size(1440, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(buildTestWidget(
+      createTestChat(),
+      contactService: contacts.FakeContactService(),
+    ));
+    await tester.pumpAndSettle();
+    final middle = find.byKey(const ValueKey('desktop-conversation-list'));
+    expect(
+        find.descendant(of: middle, matching: find.byType(ContactsPage)),
+        findsOneWidget);
+    expect(find.byType(ChatListPage), findsNothing);
+    final contactsPage =
+        tester.widget<ContactsPage>(find.byType(ContactsPage));
+    expect(contactsPage.compact, isTrue);
+    expect(contactsPage.selectedChatId, 'chat1');
+    expect(
+        tester.widget<PMNavigationRail>(find.byType(PMNavigationRail))
+            .selectedIndex,
+        1);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pumpWidget(buildTestWidget(
+      createTestChat(id: 'group1', type: ChatType.group),
+      contactService: contacts.FakeContactService(),
+    ));
+    await tester.pumpAndSettle();
+    expect(
+        find.descendant(of: middle, matching: find.byType(ChatListPage)),
+        findsOneWidget);
+    expect(find.byType(ContactsPage), findsNothing);
+    expect(
+        tester.widget<PMNavigationRail>(find.byType(PMNavigationRail))
+            .selectedIndex,
+        0);
+    expect(tester.takeException(), isNull);
+  });
 
   for (final width in [320.0, 390.0, 1440.0]) {
     testWidgets('composer separates files from tools at $width',
@@ -106,10 +151,16 @@ void main() {
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
     final rooms = [
-      Chat(id: 'read', name: '已读会话', createdAt: DateTime(2026), unreadCount: 0),
+      Chat(
+          id: 'read',
+          name: '已读会话',
+          type: ChatType.group,
+          createdAt: DateTime(2026),
+          unreadCount: 0),
       Chat(
           id: 'unread',
           name: '未读会话',
+          type: ChatType.group,
           createdAt: DateTime(2026),
           unreadCount: 3),
     ];
@@ -134,7 +185,11 @@ void main() {
       'compact conversation list opens selected room through its callback',
       (tester) async {
     ChatScreenArguments? opened;
-    final room = Chat(id: 'next', name: '继续聊天', createdAt: DateTime(2026));
+    final room = Chat(
+        id: 'next',
+        name: '继续聊天',
+        type: ChatType.group,
+        createdAt: DateTime(2026));
     await tester.pumpWidget(MaterialApp(
         home: SizedBox(
             width: 340,

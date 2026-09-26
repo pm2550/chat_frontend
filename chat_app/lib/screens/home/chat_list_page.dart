@@ -11,6 +11,7 @@ import '../../models/message.dart';
 import '../../models/user.dart';
 import '../../services/auth_service.dart';
 import '../../services/chat_data_service.dart';
+import '../../services/chat_room_directory.dart';
 import '../../services/contact_data_service.dart';
 import '../../services/desktop_notification_service.dart';
 import '../../services/native_push_service.dart';
@@ -67,11 +68,11 @@ class _ChatListPageState extends State<ChatListPage>
   late final ChatDataService _chatService;
   late final ChatRealtimeService _realtimeService;
   late final DesktopNotificationService _notificationService;
-  StreamSubscription<Message>? _messageSubscription;
-  StreamSubscription<Message>? _messageUpdateSubscription;
-  StreamSubscription<Map<String, dynamic>>? _statusSubscription;
+
+  /// 会话数据和实时更新都在目录里（和联系人页共用）；这里只列群聊和频道。
+  late final ChatRoomDirectory _directory;
+  StreamSubscription<ChatRoomMessageActivity>? _activitySubscription;
   String _searchQuery = '';
-  List<Chat> _chats = [];
   List<_MentionHit> _mentionHits = [];
   bool _isLoading = true;
   bool _showMentionsOnly = false;
@@ -99,22 +100,35 @@ class _ChatListPageState extends State<ChatListPage>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     timeago.setLocaleMessages('zh', timeago.ZhCnMessages());
-    _chatService = widget.chatService ?? ChatDataService();
+    _directory = ChatRoomDirectory.of(
+      chatService: widget.chatService,
+      realtimeService: widget.realtimeService,
+      currentUserId: widget.currentUserId,
+    );
+    _chatService = _directory.chatService;
     _realtimeService = widget.realtimeService ?? WebSocketService();
     _notificationService =
         widget.notificationService ?? DesktopNotificationService();
-    final cachedChats = widget.chatService == null
-        ? ChatDataService.cachedChatRoomsSnapshot()
-        : null;
-    if (cachedChats != null) {
-      _chats = cachedChats;
-      _isLoading = false;
+    var hasSnapshot = _directory.conversations.hasLoaded;
+    if (!hasSnapshot && widget.chatService == null) {
+      final cachedChats = ChatDataService.cachedChatRoomsSnapshot();
+      if (cachedChats != null) {
+        _directory.conversations.replaceAll(cachedChats);
+        hasSnapshot = true;
+      }
     }
+    if (hasSnapshot) _isLoading = false;
+    _directory.changes.addListener(_onDirectoryChanged);
+    _activitySubscription =
+        _directory.messageActivity.listen(_handleMessageActivity);
     _requestMobileNotificationPermission();
     _loadNotificationPreference();
-    unawaited(_bootstrapChats(cachedChats != null));
+    unawaited(_bootstrapChats(hasSnapshot));
     _connectRealtime();
   }
+
+  /// 消息页那一份会话（群聊 + 频道）。
+  List<Chat> get _chats => _directory.conversations.rooms;
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
@@ -190,9 +204,8 @@ class _ChatListPageState extends State<ChatListPage>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    _messageSubscription?.cancel();
-    _messageUpdateSubscription?.cancel();
-    _statusSubscription?.cancel();
+    _directory.changes.removeListener(_onDirectoryChanged);
+    _activitySubscription?.cancel();
     _messageSearchTimer?.cancel();
     _searchController.dispose();
     _searchFocusNode.dispose();
@@ -202,6 +215,14 @@ class _ChatListPageState extends State<ChatListPage>
   void _setViewState(VoidCallback change) {
     if (mounted) setState(change);
   }
+}
+
+/// 搜索结果里的一个人：好友或私聊过的人；[chat] 是已有的私聊（没有时点开会新建）。
+class _PersonHit {
+  const _PersonHit({required this.user, this.chat});
+
+  final User user;
+  final Chat? chat;
 }
 
 class _MentionHit {

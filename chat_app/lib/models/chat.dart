@@ -187,6 +187,7 @@ class Chat {
     bool? isPinned,
     bool? isMuted,
     DateTime? hiddenAt,
+    bool clearHiddenAt = false,
     bool? isBlocked,
     String? clearedBeforeMessageId,
   }) {
@@ -218,7 +219,7 @@ class Chat {
       unreadCount: unreadCount ?? this.unreadCount,
       isPinned: isPinned ?? this.isPinned,
       isMuted: isMuted ?? this.isMuted,
-      hiddenAt: hiddenAt ?? this.hiddenAt,
+      hiddenAt: clearHiddenAt ? null : hiddenAt ?? this.hiddenAt,
       isBlocked: isBlocked ?? this.isBlocked,
       clearedBeforeMessageId:
           clearedBeforeMessageId ?? this.clearedBeforeMessageId,
@@ -264,6 +265,29 @@ class Chat {
       customBackgroundPreset: updated.customBackgroundPreset,
       customBackgroundUrl: updated.customBackgroundUrl,
     );
+  }
+
+  /// 私聊的对方（参与者里不是我的那一位）；群聊、频道或拿不到参与者时为 null。
+  User? peerFor(String? currentUserId) {
+    if (type != ChatType.private || participants.isEmpty) return null;
+    if (currentUserId == null || currentUserId.isEmpty) {
+      return participants.first;
+    }
+    return participants.firstWhere(
+      (user) => user.id != currentUserId,
+      orElse: () => participants.first,
+    );
+  }
+
+  /// 列表、通知、搜索结果里显示的会话名：私聊显示对方的名字，
+  /// 不用服务器建房时拼出来的 "A & B"。
+  String titleFor(String? currentUserId) {
+    final peer = peerFor(currentUserId);
+    final displayName = peer?.displayName.trim();
+    if (displayName != null && displayName.isNotEmpty) return displayName;
+    final username = peer?.username.trim();
+    if (username != null && username.isNotEmpty) return username;
+    return name;
   }
 
   // 获取聊天显示名称

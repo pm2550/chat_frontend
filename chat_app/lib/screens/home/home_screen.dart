@@ -8,6 +8,7 @@ import '../../widgets/pm_navigation_rail.dart';
 import '../../widgets/pm_responsive.dart';
 import '../../services/auth_service.dart';
 import '../../services/background_message_service.dart';
+import '../../services/chat_room_directory.dart';
 import '../../services/notification_launch.dart';
 import 'chat_list_page.dart';
 import 'contacts_page.dart';
@@ -23,6 +24,7 @@ class HomeScreen extends StatefulWidget {
     super.key,
     @visibleForTesting this.pageBuilder,
     @visibleForTesting this.cacheWarmer,
+    @visibleForTesting this.directory,
     this.cacheWarmupDelay = const Duration(milliseconds: 1200),
   });
 
@@ -32,6 +34,10 @@ class HomeScreen extends StatefulWidget {
 
   @visibleForTesting
   final HomeCacheWarmer? cacheWarmer;
+
+  /// 未读角标的数据来源；默认是当前用户的全局会话目录。
+  @visibleForTesting
+  final ChatRoomDirectory? directory;
   final Duration cacheWarmupDelay;
 
   @override
@@ -50,10 +56,17 @@ class _HomeScreenState extends State<HomeScreen> {
   late final List<Widget?> _pageCache =
       List<Widget?>.filled(_tabs.length, null);
   Timer? _cacheWarmupTimer;
+  late final ChatRoomDirectory _directory =
+      widget.directory ?? ChatRoomDirectory.shared;
+  int _conversationUnread = 0;
+  int _privateUnread = 0;
 
   @override
   void initState() {
     super.initState();
+    _conversationUnread = _directory.conversationUnread;
+    _privateUnread = _directory.privateUnread;
+    _directory.changes.addListener(_onUnreadChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       // Android：登录后启动后台常驻服务；补上"点通知冷启动"时还没来得及跳的聊天。
@@ -65,7 +78,33 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
+  /// 消息 tab 显示群聊 / 频道未读，联系人 tab 显示私聊未读。
+  void _onUnreadChanged() {
+    final conversations = _directory.conversationUnread;
+    final privateChats = _directory.privateUnread;
+    if (conversations == _conversationUnread &&
+        privateChats == _privateUnread) {
+      return;
+    }
+    runOutsideBuild(() {
+      if (!mounted) return;
+      setState(() {
+        _conversationUnread = _directory.conversationUnread;
+        _privateUnread = _directory.privateUnread;
+      });
+    });
+  }
+
+  int _unreadForTab(int index) => switch (index) {
+        0 => _conversationUnread,
+        1 => _privateUnread,
+        _ => 0,
+      };
+
   Future<void> _warmHiddenHomeCaches() async {
+    // 两个 tab 的角标不依赖用户是否点开过那一页。
+    await _warmSafely(_directory.conversations.ensureLoaded);
+    await _warmSafely(_directory.privateChats.ensureLoaded);
     await _warmSafely(ContactsPage.warmDirectoryCache);
     if (!mounted) return;
     await Future<void>.delayed(const Duration(milliseconds: 350));
@@ -83,6 +122,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   void dispose() {
+    _directory.changes.removeListener(_onUnreadChanged);
     _cacheWarmupTimer?.cancel();
     super.dispose();
   }
@@ -192,12 +232,15 @@ class _HomeScreenState extends State<HomeScreen> {
                         padding: const EdgeInsets.only(right: 8),
                         child: ChoiceChip(
                           selected: selected,
-                          avatar: PMSymbolIcon(
-                            selected ? tab.selectedIcon : tab.icon,
-                            size: 18,
-                            color: selected
-                                ? AppColors.primary
-                                : AppColors.textSecondary,
+                          avatar: PMNavigationRail.withUnreadBadge(
+                            PMSymbolIcon(
+                              selected ? tab.selectedIcon : tab.icon,
+                              size: 18,
+                              color: selected
+                                  ? AppColors.primary
+                                  : AppColors.textSecondary,
+                            ),
+                            _unreadForTab(index),
                           ),
                           label: Text(tab.desktopLabel),
                           onSelected: (_) => _selectTab(index),
@@ -224,18 +267,23 @@ class _HomeScreenState extends State<HomeScreen> {
         child: NavigationBar(
           selectedIndex: _currentIndex,
           onDestinationSelected: _selectTab,
-          destinations: _tabs
-              .map(
-                (tab) => NavigationDestination(
-                  icon: PMSymbolIcon(tab.icon),
-                  selectedIcon: PMSymbolIcon(
-                    tab.selectedIcon,
+          destinations: [
+            for (var index = 0; index < _tabs.length; index++)
+              NavigationDestination(
+                icon: PMNavigationRail.withUnreadBadge(
+                  PMSymbolIcon(_tabs[index].icon),
+                  _unreadForTab(index),
+                ),
+                selectedIcon: PMNavigationRail.withUnreadBadge(
+                  PMSymbolIcon(
+                    _tabs[index].selectedIcon,
                     color: AppColors.primary,
                   ),
-                  label: tab.label,
+                  _unreadForTab(index),
                 ),
-              )
-              .toList(),
+                label: _tabs[index].label,
+              ),
+          ],
         ),
       ),
     );
@@ -364,6 +412,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _buildDesktopSidebar(BuildContext context) => PMNavigationRail(
         selectedIndex: _currentIndex,
         onSelected: _selectTab,
+        badgeCounts: [_conversationUnread, _privateUnread],
       );
 
   _HomeRouteState _tabFromRoute(String routeName) {

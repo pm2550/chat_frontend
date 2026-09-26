@@ -54,7 +54,7 @@ extension _ChatScreenCallParts on _ChatScreenState {
       await _callService.startOutgoingCall(
         chatRoomId: roomId,
         mediaKind: mediaKind,
-        peerName: _chat.name,
+        peerName: _displayChatTitle(),
         peerUserId: _callTargetUserId(),
       );
       if (!mounted) return;
@@ -306,7 +306,7 @@ extension _ChatScreenCallParts on _ChatScreenState {
 
   String _callPanelTitle(ChatCallState state) {
     if (state.others.isEmpty) {
-      return _chat.name;
+      return _displayChatTitle();
     }
     if (state.others.length == 1) {
       return state.others.first.displayName;

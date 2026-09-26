@@ -69,7 +69,7 @@ extension _ChatScreenFilesPanelParts on _ChatScreenState {
               MaterialPageRoute(
                 builder: (_) => ChatFileCenterScreen(
                   chatRoomId: _chat.id,
-                  chatRoomName: _chat.name,
+                  chatRoomName: _displayChatTitle(),
                   chatService: _chatService,
                 ),
               ),

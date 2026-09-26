@@ -169,6 +169,7 @@ class _CountingChatDataService extends ChatDataService {
     bool includeHidden = false,
     bool includeBlocked = false,
     ChatType? type,
+    ChatType? excludeType,
     bool forceRefresh = false,
   }) async {
     getChatRoomsCalls += 1;

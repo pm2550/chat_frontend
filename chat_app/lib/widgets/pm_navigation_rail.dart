@@ -5,9 +5,31 @@ import 'pm_brand.dart';
 
 class PMNavigationRail extends StatelessWidget {
   const PMNavigationRail(
-      {super.key, required this.selectedIndex, required this.onSelected});
+      {super.key,
+      required this.selectedIndex,
+      required this.onSelected,
+      this.badgeCounts = const []});
   final int selectedIndex;
   final ValueChanged<int> onSelected;
+
+  /// 每个入口的未读数（按 [routes] 的顺序，缺省为 0）。
+  final List<int> badgeCounts;
+
+  /// 角标文字：超过 99 显示 99+。
+  static String badgeLabel(int count) => count > 99 ? '99+' : '$count';
+
+  /// 给导航图标加未读角标；没有未读时原样返回。
+  static Widget withUnreadBadge(Widget icon, int count) {
+    if (count <= 0) return icon;
+    return Badge(
+      label: Text(badgeLabel(count)),
+      backgroundColor: AppColors.error,
+      child: icon,
+    );
+  }
+
+  int _badgeAt(int index) =>
+      index < badgeCounts.length ? badgeCounts[index] : 0;
 
   static const routes = [
     '/home/chats',
@@ -67,11 +89,13 @@ class PMNavigationRail extends StatelessWidget {
                           borderRadius: BorderRadius.circular(PMRadius.m),
                         ),
                         child: Column(children: [
-                          PMSymbolIcon(symbols[index],
-                              size: 23,
-                              color: selectedIndex == index
-                                  ? AppColors.primary
-                                  : AppColors.textSecondary),
+                          withUnreadBadge(
+                              PMSymbolIcon(symbols[index],
+                                  size: 23,
+                                  color: selectedIndex == index
+                                      ? AppColors.primary
+                                      : AppColors.textSecondary),
+                              _badgeAt(index)),
                           const SizedBox(height: 6),
                           Text(labels[index],
                               style: TextStyle(

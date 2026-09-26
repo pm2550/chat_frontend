@@ -51,9 +51,12 @@ class _HiddenChatsScreenState extends State<HiddenChatsScreen> {
           size: _pageSize,
           includeHidden: true,
           includeBlocked: true,
+          excludeType: ChatType.private,
           forceRefresh: true,
         );
-        hidden.addAll(rooms.where((chat) => chat.isHidden || chat.isBlocked));
+        // 私聊不在消息页里，移出 / 屏蔽的私聊在联系人里照常显示，这里只管群聊和频道。
+        hidden.addAll(rooms.where((chat) =>
+            chat.type != ChatType.private && (chat.isHidden || chat.isBlocked)));
         if (rooms.length < _pageSize) break;
       }
       if (!mounted) return;

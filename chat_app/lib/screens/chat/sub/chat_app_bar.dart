@@ -10,34 +10,29 @@ extension _ChatScreenChromeParts on _ChatScreenState {
         _syncAgentClientToolState();
       },
       body: Row(children: [
-        PMNavigationRail(
-            selectedIndex: 0,
-            onSelected: (index) {
-              Navigator.of(context).pushNamedAndRemoveUntil(
-                  PMNavigationRail.routes[index], (_) => false);
-            }),
+        _buildDesktopRail(),
         SizedBox(
             key: const ValueKey('desktop-conversation-list'),
             width: PMDesktopLayout.conversationListWidth(context),
-            child: ChatListPage(
-              compact: true,
-              selectedChatId: _chat.id,
-              chatService: widget.chatService,
-              realtimeService: widget.webSocketService,
-              currentUserId: _authService.currentUser?.id,
-              onOpenChat: (arguments) async {
-                if (arguments.chat.id == _chat.id) {
-                  if (arguments.focusMessage != null) {
-                    _pendingFocusMessage = arguments.focusMessage;
-                    _focusPendingMessage();
-                  }
-                  return;
-                }
-                unawaited(Navigator.of(context).pushReplacementNamed(
-                    '/chat/${arguments.chat.id}',
-                    arguments: arguments));
-              },
-            )),
+            // 私聊属于联系人：中间栏换成联系人列表，群聊 / 频道仍是消息列表。
+            child: _chat.type == ChatType.private
+                ? ContactsPage(
+                    compact: true,
+                    selectedChatId: _chat.id,
+                    chatService: widget.chatService,
+                    contactService: widget.contactService,
+                    realtimeService: widget.webSocketService,
+                    currentUserId: _authService.currentUser?.id,
+                    onOpenChat: _openChatFromDesktopList,
+                  )
+                : ChatListPage(
+                    compact: true,
+                    selectedChatId: _chat.id,
+                    chatService: widget.chatService,
+                    realtimeService: widget.webSocketService,
+                    currentUserId: _authService.currentUser?.id,
+                    onOpenChat: _openChatFromDesktopList,
+                  )),
         const VerticalDivider(width: 1),
         Expanded(
             child: Column(children: [
@@ -52,6 +47,41 @@ extension _ChatScreenChromeParts on _ChatScreenState {
         ])),
       ]),
     ));
+  }
+
+  /// 导航栏高亮当前会话所属的 tab（私聊在联系人），角标跟着未读实时变化。
+  Widget _buildDesktopRail() {
+    final directory = ChatRoomDirectory.of(
+      chatService: widget.chatService,
+      realtimeService: widget.webSocketService,
+      currentUserId: _authService.currentUser?.id,
+    );
+    return ListenableBuilder(
+        listenable: directory.changes,
+        builder: (context, _) => PMNavigationRail(
+            selectedIndex: _chat.type == ChatType.private ? 1 : 0,
+            badgeCounts: [
+              directory.conversationUnread,
+              directory.privateUnread,
+            ],
+            onSelected: (index) {
+              Navigator.of(context).pushNamedAndRemoveUntil(
+                  PMNavigationRail.routes[index], (_) => false);
+            }));
+  }
+
+  Future<void> _openChatFromDesktopList(ChatScreenArguments arguments) async {
+    if (arguments.chat.id == _chat.id) {
+      if (arguments.focusMessage != null) {
+        _pendingFocusMessage = arguments.focusMessage;
+        _focusPendingMessage();
+      }
+      final startCall = arguments.startCall;
+      if (startCall != null) unawaited(_startCall(startCall));
+      return;
+    }
+    unawaited(Navigator.of(context)
+        .pushReplacementNamed('/chat/${arguments.chat.id}', arguments: arguments));
   }
 
   void _openDesktopDetails() {

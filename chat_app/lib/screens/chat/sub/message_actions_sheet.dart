@@ -835,7 +835,7 @@ extension _ChatScreenActionSheetParts on _ChatScreenState {
                           MaterialPageRoute(
                             builder: (_) => ChatRoomSettingsScreen(
                               chatRoomId: roomId,
-                              chatRoomName: _chat.name,
+                              chatRoomName: _displayChatTitle(),
                               isGroup: _chat.type == ChatType.group,
                               currentUserId: _authService.currentUser?.id,
                               chatService: _chatService,

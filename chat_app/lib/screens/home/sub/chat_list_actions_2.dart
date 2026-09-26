@@ -8,14 +8,10 @@ extension _ChatListActions2Parts on _ChatListPageState {
         pinned: !chat.isPinned,
       );
       if (!mounted) return;
-      _setViewState(() {
-        final index = _chats.indexWhere((item) => item.id == chat.id);
-        if (index != -1) {
-          _chats[index] = _chats[index].copyWith(isPinned: !chat.isPinned);
-          ChatDataService.patchCachedChatRoom(_chats[index]);
-          _sortChatsInPlace();
-        }
-      });
+      _directory.conversations.updateRoom(
+        chat.id,
+        (room) => room.copyWith(isPinned: !chat.isPinned),
+      );
       _showSnackBar(chat.isPinned ? '已取消置顶' : '已置顶');
     } catch (e) {
       _showSnackBar(e.toString());
@@ -33,11 +29,7 @@ extension _ChatListActions2Parts on _ChatListPageState {
       await action();
       if (!mounted) return;
       if (removeFromList) {
-        _setViewState(() {
-          _chats.removeWhere((item) => item.id == chat.id);
-          _mentionHits.removeWhere((hit) => hit.chat.id == chat.id);
-        });
-        _syncDesktopUnreadBadge();
+        _directory.conversations.removeRoom(chat.id);
       } else {
         unawaited(_loadChats(showLoading: false));
       }
@@ -67,13 +59,9 @@ extension _ChatListActions2Parts on _ChatListPageState {
       await undo();
       await _loadChats(showLoading: false, forceRefresh: true);
       if (!mounted) return;
-      if (!_chats.any((item) => item.id == chat.id)) {
+      if (!_directory.conversations.contains(chat.id)) {
         // 刷新失败时至少把本地这一项放回去。
-        _setViewState(() {
-          _chats.add(chat);
-          _sortChatsInPlace();
-        });
-        _syncDesktopUnreadBadge();
+        _directory.conversations.upsert(chat);
       }
     } catch (e) {
       _showSnackBar('撤销失败: $e');

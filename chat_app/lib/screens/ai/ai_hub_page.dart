@@ -7,6 +7,7 @@ import '../../constants/app_colors.dart';
 import '../../design/design.dart';
 import '../../models/chat.dart';
 import '../../models/message.dart';
+import '../../services/auth_service.dart';
 import '../../services/bot_service.dart';
 import '../../services/chat_data_service.dart';
 import '../../widgets/cost_preview_chip.dart';
@@ -53,6 +54,12 @@ class _AiHubSnapshot {
   final String? selectedImageRoomId;
 }
 
+/// 会话名：私聊显示对方的名字。
+String _aiRoomTitle(Chat room, {String empty = '未命名会话'}) {
+  final title = room.titleFor(AuthService().currentUser?.id).trim();
+  return title.isEmpty ? empty : title;
+}
+
 class _AiHubPageState extends State<AiHubPage>
     with AutomaticKeepAliveClientMixin<AiHubPage> {
   static const Duration _snapshotTtl = Duration(minutes: 2);
@@ -63,7 +70,8 @@ class _AiHubPageState extends State<AiHubPage>
     try {
       final results = await Future.wait([
         BotService().getMyBots(),
-        ChatDataService().getChatRooms(includeDetails: false),
+        // 摘要接口带私聊的对方，列表里才能显示对方的名字而不是 "A & B"。
+        ChatDataService().getChatRooms(),
       ]);
       final bots = results[0] as List<BotConfig>;
       final rooms = results[1] as List<Chat>;

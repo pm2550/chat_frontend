@@ -1,6 +1,10 @@
+import 'package:chat_app/constants/app_colors.dart';
+import 'package:chat_app/design/design.dart';
 import 'package:chat_app/models/chat.dart';
 import 'package:chat_app/models/contact_group.dart';
+import 'package:chat_app/models/message.dart';
 import 'package:chat_app/models/user.dart';
+import 'package:chat_app/screens/chat/chat_screen.dart' show ChatScreenArguments;
 import 'package:chat_app/screens/home/contacts_page.dart';
 import 'package:chat_app/services/chat_data_service.dart';
 import 'package:chat_app/services/contact_data_service.dart';
@@ -9,14 +13,20 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'chat_list_page_test.dart' show FakeRealtimeService;
+
 void main() {
+  RouteSettings? openedRoute;
+
   Widget buildTestWidget(
     ContactDataService service, {
     ChatDataService? chatService,
+    FakeRealtimeService? realtimeService,
   }) {
     return MaterialApp(
       onGenerateRoute: (settings) {
         if ((settings.name ?? '').startsWith('/chat')) {
+          openedRoute = settings;
           return MaterialPageRoute(
             settings: settings,
             builder: (context) => const Scaffold(body: Text('Chat Page')),
@@ -27,13 +37,24 @@ void main() {
       home: ContactsPage(
         contactService: service,
         chatService: chatService ?? FakeChatDirectoryService(),
+        realtimeService: realtimeService,
+        currentUserId: 'me',
       ),
     );
   }
 
+  double rowTop(WidgetTester tester, String userId) =>
+      tester.getTopLeft(find.byKey(ValueKey('contact-$userId'))).dy;
+
+  Finder inRow(String userId, Finder matching) => find.descendant(
+        of: find.byKey(ValueKey('contact-$userId')),
+        matching: matching,
+      );
+
   group('ContactsPage', () {
     setUp(() {
       SharedPreferences.setMockInitialValues({});
+      openedRoute = null;
     });
 
     testWidgets('renders friends and received requests from service',
@@ -58,8 +79,8 @@ void main() {
       expect(find.text('Requester'), findsOneWidget);
       expect(find.text('联系人'), findsWidgets);
       expect(find.text('Alice'), findsOneWidget);
-      // 邮箱只属于本人：好友列表展示用户名，不展示邮箱。
-      expect(find.text('@alice'), findsOneWidget);
+      // 还没聊过：副标题显示在线状态。邮箱只属于本人，不展示。
+      expect(inRow('1', find.text('离线')), findsOneWidget);
       expect(find.text('alice@example.com'), findsNothing);
     });
 
@@ -74,9 +95,16 @@ void main() {
     });
 
     testWidgets(
-        'renders joined group and private chats including blocked rooms',
+        'merges friends and all private chats into one ordered contact list',
         (tester) async {
-      final service = FakeContactService();
+      tester.view.physicalSize = const Size(600, 2000);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final alice = testUser('1', 'Alice');
+      final bob = testUser('2', 'Bob');
+      final carol = testUser('3', 'Carol');
+      final dave = testUser('4', 'Dave');
+      final service = FakeContactService(friends: [alice, bob]);
       final chatService = FakeChatDirectoryService(
         groupChats: [
           Chat(
@@ -88,13 +116,21 @@ void main() {
           ),
         ],
         privateChats: [
-          Chat(
-            id: '11',
-            name: 'Blocked DM',
-            type: ChatType.private,
-            isBlocked: true,
-            createdAt: DateTime.parse('2024-01-01T10:00:00'),
-          ),
+          // 好友，有聊天：最后一条消息、未读、免打扰。
+          privateChat('p1', alice,
+              lastMessage: '明天见',
+              at: DateTime.parse('2024-01-01T10:05:00'),
+              unreadCount: 3,
+              isMuted: true),
+          // 非好友，已屏蔽，没有消息。
+          privateChat('p3', carol,
+              isBlocked: true, hiddenAt: DateTime.parse('2024-01-01T10:00:00')),
+          // 非好友，被"移出列表"过、置顶：联系人里照样出现，排在最前。
+          privateChat('p4', dave,
+              lastMessage: '收到',
+              at: DateTime.parse('2024-01-01T10:01:00'),
+              isPinned: true,
+              hiddenAt: DateTime.parse('2024-01-01T10:02:00')),
         ],
       );
 
@@ -102,25 +138,61 @@ void main() {
         service,
         chatService: chatService,
       ));
-      await tester.pump();
+      await tester.pumpAndSettle();
 
       expect(find.text('我的群聊'), findsOneWidget);
       expect(find.text('Project Group'), findsOneWidget);
-      expect(find.text('私聊'), findsWidgets);
-      expect(find.text('Blocked DM'), findsOneWidget);
-      expect(find.text('已屏蔽'), findsOneWidget);
+      // 私聊不再单独成段，也不显示服务器拼的 "A & B"。
+      expect(find.text('私聊'), findsNothing);
+      expect(find.textContaining(' & '), findsNothing);
+      for (final id in ['1', '2', '3', '4']) {
+        expect(find.byKey(ValueKey('contact-$id')), findsOneWidget);
+      }
 
-      await tester.scrollUntilVisible(
-        find.text('解除屏蔽'),
-        80,
-        scrollable: find.byType(Scrollable).first,
-      );
-      await tester.drag(find.byType(Scrollable).first, const Offset(0, -140));
+      expect(inRow('1', find.text('明天见')), findsOneWidget);
+      expect(inRow('1', find.text('3')), findsOneWidget);
+      expect(inRow('1', find.byIcon(Icons.volume_off_outlined)), findsOneWidget);
+      expect(inRow('2', find.text('离线')), findsOneWidget);
+      expect(inRow('3', find.text('非好友')), findsOneWidget);
+      expect(inRow('3', find.text('已屏蔽')), findsOneWidget);
+      expect(inRow('4', find.text('非好友')), findsOneWidget);
+      expect(inRow('1', find.text('非好友')), findsNothing);
+
+      // 置顶在前，然后按最后消息时间，没聊过的按名字。
+      expect(rowTop(tester, '4'), lessThan(rowTop(tester, '1')));
+      expect(rowTop(tester, '1'), lessThan(rowTop(tester, '2')));
+      expect(rowTop(tester, '2'), lessThan(rowTop(tester, '3')));
+
+      // 屏蔽的人从菜单解除屏蔽。
+      await tester.longPress(find.text('Carol'));
       await tester.pumpAndSettle();
+      expect(find.text('移出列表'), findsNothing);
+      expect(find.text('加好友'), findsOneWidget);
       await tester.tap(find.text('解除屏蔽'));
       await tester.pumpAndSettle();
 
-      expect(chatService.unblockedRoomIds, ['11']);
+      expect(chatService.unblockedRoomIds, ['p3']);
+      expect(inRow('3', find.text('已屏蔽')), findsNothing);
+    });
+
+    testWidgets('loads every page of private chats', (tester) async {
+      final peers = [
+        for (var i = 0; i < 130; i++) testUser('u$i', 'Peer $i'),
+      ];
+      final chatService = FakeChatDirectoryService(privateChats: [
+        for (var i = 0; i < peers.length; i++) privateChat('p$i', peers[i]),
+      ]);
+
+      await tester.pumpWidget(buildTestWidget(
+        FakeContactService(),
+        chatService: chatService,
+      ));
+      await tester.pumpAndSettle();
+
+      expect(chatService.privatePagesRequested, [0, 1]);
+      await tester.enterText(find.byType(TextField).first, 'Peer 129');
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('contact-u129')), findsOneWidget);
     });
 
     testWidgets('collapses a top-level contact section and persists it',
@@ -219,6 +291,8 @@ void main() {
 
       await tester.longPress(find.text('Bob'));
       await tester.pumpAndSettle();
+      await tester.tap(find.text('移动到分组'));
+      await tester.pumpAndSettle();
       expect(find.text('移动到分组'), findsOneWidget);
 
       await tester.tap(find.text('核心').last);
@@ -226,6 +300,70 @@ void main() {
 
       expect(service.assignmentCalls, ['FRIEND:2:7']);
       expect(find.text('Bob'), findsOneWidget);
+    });
+
+    testWidgets(
+        'non-friends and old private-chat folders follow the room assignment',
+        (tester) async {
+      final alice = testUser('1', 'Alice');
+      final stranger = testUser('5', 'Stranger');
+      final service = FakeContactService(
+        friends: [alice],
+        groupBundle: const ContactGroupBundle(
+          groups: [
+            ContactGroup(id: '7', name: '核心', sortOrder: 0),
+            ContactGroup(id: '8', name: '工作', sortOrder: 1),
+          ],
+          assignments: [
+            // 旧版本里私聊单独分过组。
+            ContactGroupAssignment(
+              groupId: '7',
+              targetType: ContactGroupTargetType.room,
+              targetId: 'p1',
+            ),
+            ContactGroupAssignment(
+              groupId: '8',
+              targetType: ContactGroupTargetType.room,
+              targetId: 'p5',
+            ),
+          ],
+        ),
+      );
+      final chatService = FakeChatDirectoryService(privateChats: [
+        privateChat('p1', alice, lastMessage: 'hi'),
+        privateChat('p5', stranger, lastMessage: 'hello'),
+      ]);
+
+      await tester.pumpWidget(buildTestWidget(
+        service,
+        chatService: chatService,
+      ));
+      await tester.pumpAndSettle();
+
+      final coreTop = tester.getTopLeft(find.text('核心')).dy;
+      final workTop = tester.getTopLeft(find.text('工作')).dy;
+      expect(find.text('未分组'), findsNothing);
+      expect(rowTop(tester, '1'), inExclusiveRange(coreTop, workTop));
+      expect(rowTop(tester, '5'), greaterThan(workTop));
+
+      // 好友移到"未分组"：好友分组和旧的私聊分组都要清掉，否则还会留在旧组。
+      await tester.longPress(find.text('Alice'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('移动到分组'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('未分组').last);
+      await tester.pumpAndSettle();
+      expect(service.assignmentCalls, ['FRIEND:1:null', 'ROOM:p1:null']);
+      expect(find.text('未分组'), findsOneWidget);
+
+      // 非好友按私聊会话归组。
+      await tester.longPress(find.text('Stranger'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('移动到分组'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('核心').last);
+      await tester.pumpAndSettle();
+      expect(service.assignmentCalls.last, 'ROOM:p5:7');
     });
 
     testWidgets('opens group management and creates a group', (tester) async {
@@ -310,7 +448,8 @@ void main() {
       expect(find.text('已发送'), findsOneWidget);
     });
 
-    testWidgets('starts private chat from contact options', (tester) async {
+    testWidgets('tapping a contact without a chat creates and opens it',
+        (tester) async {
       final service = FakeContactService(
         friends: [testUser('4', 'Bob')],
         createdChat: Chat(
@@ -325,11 +464,263 @@ void main() {
       await tester.pump();
       await tester.tap(find.text('Bob'));
       await tester.pumpAndSettle();
-      await tester.tap(find.byIcon(Icons.chat));
-      await tester.pumpAndSettle();
 
       expect(service.privateChatUserIds, ['4']);
       expect(find.text('Chat Page'), findsOneWidget);
+      expect(openedRoute?.name, '/chat/42');
+    });
+
+    testWidgets('tapping a contact with a chat opens that chat directly',
+        (tester) async {
+      final alice = testUser('1', 'Alice');
+      final stranger = testUser('5', 'Stranger');
+      final service = FakeContactService(friends: [alice]);
+      final chatService = FakeChatDirectoryService(privateChats: [
+        privateChat('p1', alice, lastMessage: 'hi'),
+        privateChat('p5', stranger, lastMessage: 'hello'),
+      ]);
+
+      await tester.pumpWidget(buildTestWidget(
+        service,
+        chatService: chatService,
+      ));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Alice'));
+      await tester.pumpAndSettle();
+
+      expect(service.privateChatUserIds, isEmpty);
+      expect(openedRoute?.name, '/chat/p1');
+      expect((openedRoute?.arguments as Chat).id, 'p1');
+
+      Navigator.of(tester.element(find.text('Chat Page'))).pop();
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Stranger'));
+      await tester.pumpAndSettle();
+      expect(service.privateChatUserIds, isEmpty);
+      expect(openedRoute?.name, '/chat/p5');
+    });
+
+    testWidgets('menu starts calls, pins, mutes, clears and blocks the chat',
+        (tester) async {
+      final alice = testUser('1', 'Alice');
+      final service = FakeContactService(friends: [alice]);
+      final chatService = FakeChatDirectoryService(privateChats: [
+        privateChat('p1', alice, lastMessage: 'hi'),
+      ]);
+
+      await tester.pumpWidget(buildTestWidget(
+        service,
+        chatService: chatService,
+      ));
+      await tester.pumpAndSettle();
+
+      Future<void> pick(String label) async {
+        await tester.tap(find.byTooltip('联系人操作'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text(label));
+        await tester.pumpAndSettle();
+      }
+
+      await pick('置顶');
+      await pick('消息免打扰');
+      expect(chatService.settingsCalls,
+          ['p1:pinned=true:muted=null', 'p1:pinned=null:muted=true']);
+      expect(inRow('1', find.byIcon(Icons.push_pin_rounded)), findsOneWidget);
+      expect(inRow('1', find.byIcon(Icons.volume_off_outlined)), findsOneWidget);
+
+      await pick('清空聊天记录');
+      await tester.tap(find.widgetWithText(FilledButton, '清空'));
+      await tester.pumpAndSettle();
+      expect(chatService.clearedRoomIds, ['p1']);
+
+      await pick('屏蔽');
+      await tester.tap(find.widgetWithText(FilledButton, '屏蔽'));
+      await tester.pumpAndSettle();
+      expect(chatService.blockedRoomIds, ['p1']);
+      expect(inRow('1', find.text('已屏蔽')), findsOneWidget);
+
+      await pick('语音通话');
+      expect(openedRoute?.name, '/chat/p1');
+      final arguments = openedRoute?.arguments as ChatScreenArguments;
+      expect(arguments.chat.id, 'p1');
+      expect(arguments.startCall?.label, '语音');
+    });
+
+    testWidgets('non-friend menu offers 加好友 instead of 删除好友',
+        (tester) async {
+      final stranger = testUser('5', 'Stranger');
+      final service = FakeContactService(searchResults: [stranger]);
+      final chatService = FakeChatDirectoryService(privateChats: [
+        privateChat('p5', stranger, lastMessage: 'hello'),
+      ]);
+
+      await tester.pumpWidget(buildTestWidget(
+        service,
+        chatService: chatService,
+      ));
+      await tester.pumpAndSettle();
+      await tester.longPress(find.text('Stranger'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('删除好友'), findsNothing);
+      await tester.tap(find.text('加好友'));
+      await tester.pumpAndSettle();
+      expect(service.sentRequestUserIds, ['5']);
+    });
+
+    testWidgets('realtime updates move the contact row and its unread badge',
+        (tester) async {
+      tester.view.physicalSize = const Size(600, 1600);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final alice = testUser('1', 'Alice');
+      final bob = testUser('2', 'Bob');
+      final realtime = FakeRealtimeService();
+      final service = FakeContactService(friends: [alice, bob]);
+      final chatService = FakeChatDirectoryService(privateChats: [
+        privateChat('p1', alice,
+            lastMessage: '早', at: DateTime.parse('2024-01-01T10:05:00')),
+        privateChat('p2', bob,
+            lastMessage: '好', at: DateTime.parse('2024-01-01T10:00:00')),
+      ]);
+
+      await tester.pumpWidget(buildTestWidget(
+        service,
+        chatService: chatService,
+        realtimeService: realtime,
+      ));
+      await tester.pumpAndSettle();
+      expect(realtime.connectCalls, 1);
+      expect(rowTop(tester, '1'), lessThan(rowTop(tester, '2')));
+
+      realtime.emitMessage(Message(
+        id: 'm-new',
+        content: '在吗',
+        senderId: '2',
+        senderName: 'Bob',
+        chatRoomId: 'p2',
+        timestamp: DateTime.parse('2024-01-01T10:10:00'),
+      ));
+      await tester.pumpAndSettle();
+
+      expect(inRow('2', find.text('在吗')), findsOneWidget);
+      expect(inRow('2', find.text('1')), findsOneWidget);
+      expect(rowTop(tester, '2'), lessThan(rowTop(tester, '1')));
+
+      // 在另一台设备上读完了。
+      realtime.emitStatus({
+        'type': 'read_receipt',
+        'chatRoomId': 'p2',
+        'userId': 'me',
+        'lastReadMessageId': 'm-new',
+      });
+      await tester.pumpAndSettle();
+      expect(inRow('2', find.text('1')), findsNothing);
+
+      // 在另一台设备上置顶了 Alice。
+      realtime.emitStatus({
+        'type': 'room_display_state_changed',
+        'chatRoomId': 'p1',
+        'state': {'pinned': true, 'muted': false, 'unreadCount': 0},
+      });
+      await tester.pumpAndSettle();
+      expect(rowTop(tester, '1'), lessThan(rowTop(tester, '2')));
+      expect(inRow('1', find.byIcon(Icons.push_pin_rounded)), findsOneWidget);
+
+      // 在线状态实时变化（没有私聊的好友也一样）。
+      realtime.emitStatus({
+        'type': 'status',
+        'userId': '2',
+        'onlineStatus': 'ONLINE',
+      });
+      await tester.pumpAndSettle();
+      expect(
+        inRow(
+            '2',
+            find.byWidgetPredicate((widget) =>
+                widget is Container &&
+                widget.decoration is BoxDecoration &&
+                (widget.decoration as BoxDecoration).color ==
+                    AppColors.online)),
+        findsOneWidget,
+      );
+
+      // 新的私聊（别人第一次找我）：服务器发 room_membership_added，列表重新拉取。
+      final carol = testUser('3', 'Carol');
+      chatService.privateChats = [
+        ...chatService.privateChats,
+        privateChat('p3', carol,
+            lastMessage: '你好', at: DateTime.parse('2024-01-01T10:20:00')),
+      ];
+      realtime.emitStatus({
+        'type': 'room_membership_added',
+        'chatRoomId': 'p3',
+      });
+      await tester.pumpAndSettle();
+      expect(inRow('3', find.text('你好')), findsOneWidget);
+      expect(inRow('3', find.text('非好友')), findsOneWidget);
+    });
+
+    testWidgets('compact list highlights the open chat and switches contacts',
+        (tester) async {
+      final alice = testUser('1', 'Alice');
+      final bob = testUser('2', 'Bob');
+      final opened = <ChatScreenArguments>[];
+      final service = FakeContactService(
+        friends: [alice, bob],
+        receivedRequests: [
+          FriendshipRequest(
+            id: '10',
+            status: 'PENDING',
+            user: testUser('9', 'Requester'),
+            friend: _me,
+          ),
+        ],
+      );
+      final chatService = FakeChatDirectoryService(
+        groupChats: [
+          Chat(
+            id: '10',
+            name: 'Project Group',
+            type: ChatType.group,
+            createdAt: DateTime.parse('2024-01-01T10:00:00'),
+          ),
+        ],
+        privateChats: [
+          privateChat('p1', alice, lastMessage: 'hi'),
+          privateChat('p2', bob, lastMessage: 'yo'),
+        ],
+      );
+
+      await tester.pumpWidget(MaterialApp(
+        home: SizedBox(
+          width: 340,
+          child: ContactsPage(
+            compact: true,
+            selectedChatId: 'p1',
+            contactService: service,
+            chatService: chatService,
+            currentUserId: 'me',
+            onOpenChat: (arguments) async => opened.add(arguments),
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+
+      // 中间栏只有联系人。
+      expect(find.text('Project Group'), findsNothing);
+      expect(find.text('新的好友请求'), findsNothing);
+      final selectedCard = tester.widget<PMCard>(find
+          .ancestor(
+              of: find.byKey(const ValueKey('contact-1')),
+              matching: find.byType(PMCard))
+          .first);
+      expect(selectedCard.background, AppColors.pixelBlue);
+
+      await tester.tap(find.text('Bob'));
+      await tester.pumpAndSettle();
+      expect(opened.single.chat.id, 'p2');
+      expect(find.text('Chat Page'), findsNothing);
     });
 
     testWidgets('shows contact details and removes a friend', (tester) async {
@@ -347,7 +738,9 @@ void main() {
 
       await tester.pumpWidget(buildTestWidget(service));
       await tester.pump();
-      await tester.tap(find.text('Carol'));
+      await tester.longPress(find.text('Carol'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('查看资料'));
       await tester.pumpAndSettle();
 
       // 别人的邮箱、手机号不展示（服务器也不再下发）。
@@ -359,7 +752,7 @@ void main() {
       expect(find.text('简介'), findsOneWidget);
       expect(find.text('Design lead'), findsOneWidget);
 
-      await tester.tap(find.text('删除好友'));
+      await tester.tap(find.text('删除好友').last);
       await tester.pumpAndSettle();
       await tester.tap(find.widgetWithText(TextButton, '删除'));
       await tester.pumpAndSettle();
@@ -607,12 +1000,17 @@ class FakeContactService extends ContactDataService {
 class FakeChatDirectoryService extends ChatDataService {
   FakeChatDirectoryService({
     this.groupChats = const [],
-    this.privateChats = const [],
-  }) : super(authenticatedRequest: FakeContactService._unusedRequest);
+    List<Chat> privateChats = const [],
+  })  : privateChats = List<Chat>.from(privateChats),
+        super(authenticatedRequest: FakeContactService._unusedRequest);
 
   final List<Chat> groupChats;
-  final List<Chat> privateChats;
+  List<Chat> privateChats;
   final List<String> unblockedRoomIds = [];
+  final List<String> blockedRoomIds = [];
+  final List<String> clearedRoomIds = [];
+  final List<String> settingsCalls = [];
+  final List<int> privatePagesRequested = [];
 
   @override
   Future<List<Chat>> getChatRooms({
@@ -623,15 +1021,20 @@ class FakeChatDirectoryService extends ChatDataService {
     bool includeHidden = false,
     bool includeBlocked = false,
     ChatType? type,
+    ChatType? excludeType,
     bool forceRefresh = false,
   }) async {
-    expect(includeHidden, isTrue);
-    expect(includeBlocked, isTrue);
     if (type == ChatType.group) {
-      return groupChats;
+      expect(includeHidden, isTrue);
+      expect(includeBlocked, isTrue);
+      return page == 0 ? groupChats : const [];
     }
     if (type == ChatType.private) {
-      return privateChats;
+      // 联系人里要有全部私聊：包括已移出和已屏蔽的。
+      expect(includeHidden, isTrue);
+      expect(includeBlocked, isTrue);
+      privatePagesRequested.add(page);
+      return privateChats.skip(page * size).take(size).toList();
     }
     return const [];
   }
@@ -640,4 +1043,63 @@ class FakeChatDirectoryService extends ChatDataService {
   Future<void> unblockChatRoom(String chatRoomId) async {
     unblockedRoomIds.add(chatRoomId);
   }
+
+  @override
+  Future<void> blockChatRoom(String chatRoomId) async {
+    blockedRoomIds.add(chatRoomId);
+  }
+
+  @override
+  Future<void> clearChatHistory(String chatRoomId) async {
+    clearedRoomIds.add(chatRoomId);
+  }
+
+  @override
+  Future<Map<String, dynamic>> updateNotificationSettings(
+    String chatRoomId, {
+    bool? muted,
+    bool? pinned,
+  }) async {
+    settingsCalls.add('$chatRoomId:pinned=$pinned:muted=$muted');
+    return {'pinned': pinned ?? false, 'muted': muted ?? false};
+  }
+}
+
+final _me = testUser('me', 'Me');
+
+/// 和 [peer] 的私聊（参与者里有我和对方，和服务器摘要一致）。
+Chat privateChat(
+  String id,
+  User peer, {
+  String? lastMessage,
+  DateTime? at,
+  int unreadCount = 0,
+  bool isPinned = false,
+  bool isMuted = false,
+  bool isBlocked = false,
+  DateTime? hiddenAt,
+}) {
+  final created = DateTime.parse('2024-01-01T09:00:00');
+  return Chat(
+    id: id,
+    name: 'Me & ${peer.displayName}',
+    type: ChatType.private,
+    createdAt: created,
+    participants: [_me, peer],
+    unreadCount: unreadCount,
+    isPinned: isPinned,
+    isMuted: isMuted,
+    isBlocked: isBlocked,
+    hiddenAt: hiddenAt,
+    lastMessage: lastMessage == null
+        ? null
+        : Message(
+            id: 'last-$id',
+            content: lastMessage,
+            senderId: peer.id,
+            senderName: peer.displayName,
+            chatRoomId: id,
+            timestamp: at ?? created,
+          ),
+  );
 }

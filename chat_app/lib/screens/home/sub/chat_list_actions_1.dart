@@ -15,133 +15,6 @@ extension _ChatListActions1Parts on _ChatListPageState {
     unawaited(NativePushService().initialize());
   }
 
-  void _handleStatusChange(Map<String, dynamic> event) {
-    if (!mounted) return;
-    switch (event['type']) {
-      case 'room_display_state_changed':
-        _applyDisplayState(event);
-        return;
-      case 'read_receipt':
-        _applyOwnReadReceipt(event);
-        return;
-      case 'room_membership_added':
-        unawaited(_loadChats(showLoading: false, forceRefresh: true));
-        return;
-      case 'room_membership_removed':
-        final roomId = event['chatRoomId']?.toString();
-        if (roomId != null) _removeChatFromList(roomId);
-        return;
-    }
-    if (event['type'] == 'room_updated') {
-      final roomId = event['chatRoomId']?.toString();
-      final chatRoomJson = event['chatRoom'];
-      if (roomId == null || chatRoomJson is! Map) return;
-      final index = _chats.indexWhere((chat) => chat.id == roomId);
-      if (index == -1) return;
-      _setViewState(() {
-        _chats[index] = _chats[index]
-            .withRoomUpdate(Map<String, dynamic>.from(chatRoomJson));
-        ChatDataService.patchCachedChatRoom(_chats[index]);
-      });
-      return;
-    }
-
-    final userId = event['userId']?.toString();
-    final statusValue = event['onlineStatus'] ?? event['online_status'];
-    if (userId == null || statusValue == null) return;
-
-    final status = OnlineStatus.values.firstWhere(
-      (value) =>
-          value.name.toUpperCase() == statusValue.toString().toUpperCase(),
-      orElse: () => OnlineStatus.offline,
-    );
-
-    var changed = false;
-    final updatedChats = _chats.map((chat) {
-      var chatChanged = false;
-      final updatedParticipants = chat.participants.map((user) {
-        if (user.id != userId) return user;
-        chatChanged = true;
-        changed = true;
-        return user.copyWith(onlineStatus: status);
-      }).toList();
-      return chatChanged
-          ? chat.copyWith(participants: updatedParticipants)
-          : chat;
-    }).toList();
-
-    if (changed) {
-      _setViewState(() {
-        _chats = updatedChats;
-      });
-    }
-  }
-
-  /// 自己在另一台设备上置顶 / 免打扰 / 隐藏 / 屏蔽 / 清空 / 恢复了会话。
-  void _applyDisplayState(Map<String, dynamic> event) {
-    final roomId = event['chatRoomId']?.toString();
-    final state = event['state'];
-    if (roomId == null || state is! Map) {
-      unawaited(_loadChats(showLoading: false, forceRefresh: true));
-      return;
-    }
-    final hidden = state['isHidden'] == true || state['hiddenAt'] != null;
-    final blocked = state['isBlocked'] == true || state['blocked'] == true;
-    if (hidden || blocked) {
-      _removeChatFromList(roomId);
-      return;
-    }
-    final index = _chats.indexWhere((chat) => chat.id == roomId);
-    final clearedBefore = state['clearedBeforeMessageId']?.toString();
-    if (index == -1 || clearedBefore != _chats[index].clearedBeforeMessageId) {
-      // 恢复显示或清空了记录：列表项的最后一条消息要从服务器重新取。
-      unawaited(_loadChats(showLoading: false, forceRefresh: true));
-      return;
-    }
-    final unread = state['unreadCount'];
-    _setViewState(() {
-      _chats[index] = _chats[index].copyWith(
-        isPinned: state['pinned'] == true,
-        isMuted: state['muted'] == true,
-        unreadCount: unread is num ? unread.toInt() : null,
-      );
-      ChatDataService.patchCachedChatRoom(_chats[index]);
-      _sortChatsInPlace();
-    });
-    _syncDesktopUnreadBadge();
-  }
-
-  /// 自己在另一台设备上读完了会话：这里的未读数也要清掉。
-  void _applyOwnReadReceipt(Map<String, dynamic> event) {
-    final roomId = event['chatRoomId']?.toString();
-    final readerId = event['userId']?.toString();
-    if (roomId == null || readerId == null || readerId != _currentUserId) {
-      return;
-    }
-    final index = _chats.indexWhere((chat) => chat.id == roomId);
-    if (index == -1) return;
-    final unread = event['unreadCount'];
-    final nextUnread = unread is num
-        ? unread.toInt()
-        : (event['lastReadMessageId'] != null ? 0 : _chats[index].unreadCount);
-    if (nextUnread == _chats[index].unreadCount) return;
-    _setViewState(() {
-      _chats[index] = _chats[index].copyWith(unreadCount: nextUnread);
-      ChatDataService.patchCachedChatRoom(_chats[index]);
-    });
-    _syncDesktopUnreadBadge();
-  }
-
-  void _removeChatFromList(String roomId) {
-    ChatDataService.removeCachedChatRoom(roomId);
-    if (!_chats.any((chat) => chat.id == roomId)) return;
-    _setViewState(() {
-      _chats.removeWhere((chat) => chat.id == roomId);
-      _mentionHits.removeWhere((hit) => hit.chat.id == roomId);
-    });
-    _syncDesktopUnreadBadge();
-  }
-
   Future<void> _requestDesktopNotifications() async {
     final enabled = await _notificationService.requestPermission();
     if (!mounted) return;
@@ -166,8 +39,9 @@ extension _ChatListActions1Parts on _ChatListPageState {
     if (!onChatList && !_notificationService.notifiesWhileInsideChat) return;
 
     final text = chat.lastMessage?.resolvedFileLabel ?? '收到新消息';
+    final title = chat.titleFor(_currentUserId);
     _notificationService.notifyIncomingMessage(
-      chatName: chat.name,
+      chatName: title,
       body: text,
       chatRoomId: chat.id,
       muted: chat.isMuted && !mentionOverride,
@@ -175,7 +49,7 @@ extension _ChatListActions1Parts on _ChatListPageState {
     if (!onChatList) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('${chat.name}: $text'),
+        content: Text('$title: $text'),
         duration: const Duration(seconds: 2),
       ),
     );
@@ -218,7 +92,7 @@ extension _ChatListActions1Parts on _ChatListPageState {
       if (!mounted) return;
       _setViewState(() => _friends = friends);
     } catch (_) {
-      // 联系人只是搜索的附加结果；拿不到时只显示会话和消息。
+      // 好友只是搜索的附加结果；拿不到时仍能搜到有私聊的人、会话和消息。
     } finally {
       _isLoadingFriends = false;
     }
@@ -266,13 +140,9 @@ extension _ChatListActions1Parts on _ChatListPageState {
     if (_openingSearchTarget != null) return;
     _setViewState(() => _openingSearchTarget = 'message:${message.id}');
     try {
-      final chat = _chats.firstWhere(
-        (item) => item.id == message.chatRoomId,
-        orElse: () => Chat(id: '', name: '', createdAt: DateTime.now()),
-      );
-      final resolved = chat.id.isNotEmpty
-          ? chat
-          : await _chatService.getChatRoom(message.chatRoomId);
+      final resolved = _directory.conversations.roomById(message.chatRoomId) ??
+          _directory.privateChats.roomById(message.chatRoomId) ??
+          await _chatService.getChatRoom(message.chatRoomId);
       if (!mounted) return;
       await _openChatFromSearch(resolved, focus: message);
     } catch (e) {
@@ -282,13 +152,17 @@ extension _ChatListActions1Parts on _ChatListPageState {
     }
   }
 
-  Future<void> _openFriendChat(User friend) async {
+  /// 打开和这个人的私聊：已有会话直接进，没有就新建。
+  Future<void> _openPersonChat(_PersonHit person) async {
     if (_openingSearchTarget != null) return;
-    _setViewState(() => _openingSearchTarget = 'user:${friend.id}');
+    final user = person.user;
+    _setViewState(() => _openingSearchTarget = 'user:${user.id}');
     try {
-      final chat = await (widget.contactService ?? ContactDataService())
-          .createPrivateChat(friend.id);
+      final chat = person.chat ??
+          await (widget.contactService ?? ContactDataService())
+              .createPrivateChat(user.id);
       if (!mounted) return;
+      _directory.privateChats.upsert(chat);
       await _openChatFromSearch(chat);
     } catch (e) {
       _showSnackBar('打开私聊失败: $e');

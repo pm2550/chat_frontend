@@ -153,7 +153,7 @@ extension _ChatScreenBotsPanelParts on _ChatScreenState {
         MaterialPageRoute(
           builder: (_) => ChatRoomSettingsScreen(
             chatRoomId: int.tryParse(_chat.id) ?? 0,
-            chatRoomName: _chat.name,
+            chatRoomName: _displayChatTitle(),
             isAdmin: _chat.createdBy == _authService.currentUser?.id,
             isGroup: _chat.type == ChatType.group,
             currentUserId: _authService.currentUser?.id,

@@ -8,7 +8,6 @@ extension _ContactsActions1Parts on _ContactsPageState {
     _contacts = List<User>.from(snapshot.contacts);
     _receivedRequests = List<FriendshipRequest>.from(snapshot.receivedRequests);
     _groupChats = List<Chat>.from(snapshot.groupChats);
-    _privateChats = List<Chat>.from(snapshot.privateChats);
     _contactGroups = List<ContactGroup>.from(snapshot.contactGroups);
     _groupAssignmentsByTarget = Map<String, ContactGroupAssignment>.from(
       snapshot.groupAssignmentsByTarget,
@@ -43,7 +42,7 @@ extension _ContactsActions1Parts on _ContactsPageState {
   List<_ContactGroupBlock<T>> _groupItems<T>({
     required String section,
     required List<T> items,
-    required String Function(T item) targetKeyFor,
+    required String? Function(T item) groupIdFor,
   }) {
     final knownGroupIds = _contactGroups.map((group) => group.id).toSet();
     final grouped = <String, List<T>>{
@@ -52,8 +51,7 @@ extension _ContactsActions1Parts on _ContactsPageState {
     final ungrouped = <T>[];
 
     for (final item in items) {
-      final assignment = _groupAssignmentsByTarget[targetKeyFor(item)];
-      final groupId = assignment?.groupId;
+      final groupId = groupIdFor(item);
       if (groupId != null && knownGroupIds.contains(groupId)) {
         grouped[groupId]!.add(item);
       } else {
@@ -86,34 +84,29 @@ extension _ContactsActions1Parts on _ContactsPageState {
     }
   }
 
-  Future<void> _unblockRoomFromContacts(Chat chat) async {
-    if (_unblockingRoomId != null) return;
-    _setViewState(() {
-      _unblockingRoomId = chat.id;
-    });
-    try {
-      await _chatService.unblockChatRoom(chat.id);
-      if (!mounted) return;
-      _showSnackBar('已解除屏蔽 ${chat.name}');
-      await _loadContacts();
-    } catch (e) {
-      _showSnackBar(e.toString());
-    } finally {
-      if (mounted) {
-        _setViewState(() {
-          _unblockingRoomId = null;
-        });
-      }
-    }
+  String? _assignedGroupId(ContactGroupTargetType type, String id) =>
+      _groupAssignmentsByTarget[ContactGroupTargetKey.build(type, id)]?.groupId;
+
+  void _showRoomMoveToGroupSheet(Chat chat) {
+    _showMoveToGroupSheet(
+      title: chat.name,
+      busyKey: ContactGroupTargetKey.build(ContactGroupTargetType.room, chat.id),
+      currentGroupId: _assignedGroupId(ContactGroupTargetType.room, chat.id),
+      onSelected: (groupId) => _assignTargetToGroup(
+        targetType: ContactGroupTargetType.room,
+        targetId: chat.id,
+        groupId: groupId,
+      ),
+    );
   }
 
   void _showMoveToGroupSheet({
-    required ContactGroupTargetType targetType,
-    required String targetId,
     required String title,
+    required String busyKey,
+    required String? currentGroupId,
+    required Future<void> Function(String? groupId) onSelected,
   }) {
-    final targetKey = ContactGroupTargetKey.build(targetType, targetId);
-    final currentGroupId = _groupAssignmentsByTarget[targetKey]?.groupId;
+    final targetKey = busyKey;
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -191,11 +184,7 @@ extension _ContactsActions1Parts on _ContactsPageState {
                         loading: _movingTargetKey == targetKey,
                         onTap: () async {
                           Navigator.pop(sheetContext);
-                          await _assignTargetToGroup(
-                            targetType: targetType,
-                            targetId: targetId,
-                            groupId: null,
-                          );
+                          await onSelected(null);
                         },
                       ),
                       for (final group in _contactGroups)
@@ -205,11 +194,7 @@ extension _ContactsActions1Parts on _ContactsPageState {
                           loading: _movingTargetKey == targetKey,
                           onTap: () async {
                             Navigator.pop(sheetContext);
-                            await _assignTargetToGroup(
-                              targetType: targetType,
-                              targetId: targetId,
-                              groupId: group.id,
-                            );
+                            await onSelected(group.id);
                           },
                         ),
                     ],
@@ -227,6 +212,7 @@ extension _ContactsActions1Parts on _ContactsPageState {
     required ContactGroupTargetType targetType,
     required String targetId,
     required String? groupId,
+    List<({ContactGroupTargetType type, String id})> alsoClear = const [],
   }) async {
     final targetKey = ContactGroupTargetKey.build(targetType, targetId);
     if (_movingTargetKey != null) return;
@@ -239,6 +225,13 @@ extension _ContactsActions1Parts on _ContactsPageState {
         targetId: targetId,
         groupId: groupId,
       );
+      for (final stale in alsoClear) {
+        await _contactService.assignContactGroupItem(
+          targetType: stale.type,
+          targetId: stale.id,
+          groupId: null,
+        );
+      }
       _showSnackBar(groupId == null ? '已移到未分组' : '已移动到分组');
       await _loadContacts();
     } catch (e) {
@@ -528,32 +521,6 @@ extension _ContactsActions1Parts on _ContactsPageState {
       await _loadContacts();
     } catch (e) {
       _showSnackBar(e.toString());
-    }
-  }
-
-  Future<void> _startChat(User contact) async {
-    if (_openingChatUserId != null) {
-      return;
-    }
-
-    _setViewState(() {
-      _openingChatUserId = contact.id;
-    });
-
-    try {
-      final Chat chat = await _contactService.createPrivateChat(contact.id);
-      if (!mounted) return;
-      await Navigator.pushNamed(context, '/chat/${chat.id}', arguments: chat);
-    } catch (e) {
-      if (mounted) {
-        _showSnackBar(e.toString());
-      }
-    } finally {
-      if (mounted) {
-        _setViewState(() {
-          _openingChatUserId = null;
-        });
-      }
     }
   }
 }

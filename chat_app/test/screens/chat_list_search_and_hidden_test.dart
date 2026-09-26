@@ -136,15 +136,27 @@ void main() {
       expect(find.text('设计稿周五前给到'), findsOneWidget);
     });
 
-    testWidgets('private chats match the peer name', (tester) async {
+    testWidgets('private chat peers are found as contacts by their name',
+        (tester) async {
       await tester.pumpWidget(build());
       await tester.pumpAndSettle();
+      // 私聊不在消息页的会话列表里。
+      expect(find.text('老王'), findsNothing);
+      expect(find.text('王小明'), findsNothing);
 
       await tester.enterText(find.byType(TextField).first, '王小明');
       await tester.pump(const Duration(milliseconds: 400));
       await tester.pumpAndSettle();
 
-      expect(find.text('老王'), findsOneWidget);
+      // 非好友的私聊对方也出现在"联系人"里，显示对方的名字而不是会话名。
+      expect(find.byKey(const ValueKey('search-friend-30')), findsOneWidget);
+      expect(find.text('老王'), findsNothing);
+
+      await tester.tap(find.byKey(const ValueKey('search-friend-30')));
+      await tester.pumpAndSettle();
+      // 已有私聊直接打开，不再新建。
+      expect(contacts.openedPrivateChats, isEmpty);
+      expect(openedChat?.name, '/chat/2');
     });
 
     testWidgets('opening a message hit focuses that message in its chat',
@@ -225,7 +237,8 @@ void main() {
 
     expect(find.byType(HiddenChatsScreen), findsOneWidget);
     expect(find.text('被移出的群'), findsOneWidget);
-    expect(find.text('被屏蔽的人'), findsOneWidget);
+    // 屏蔽的私聊在联系人里（带"已屏蔽"标记）解除，不在消息页的已移出列表里。
+    expect(find.text('被屏蔽的人'), findsNothing);
     expect(find.text('设计评审群'), findsNothing);
 
     await tester.tap(find.descendant(
@@ -233,14 +246,9 @@ void main() {
       matching: find.text('恢复'),
     ));
     await tester.pumpAndSettle();
-    await tester.tap(find.descendant(
-      of: find.byKey(const ValueKey('hidden-chat-9')),
-      matching: find.text('取消屏蔽'),
-    ));
-    await tester.pumpAndSettle();
 
     expect(service.restoredIds, ['8']);
-    expect(service.unblockedIds, ['9']);
+    expect(service.unblockedIds, isEmpty);
     expect(find.text('没有被移出或屏蔽的聊天'), findsOneWidget);
 
     final refreshesBefore = service.forceRefreshCount;
@@ -249,7 +257,7 @@ void main() {
 
     expect(service.forceRefreshCount, greaterThan(refreshesBefore));
     expect(find.text('被移出的群'), findsOneWidget);
-    expect(find.text('被屏蔽的人'), findsOneWidget);
+    expect(find.text('被屏蔽的人'), findsNothing);
   });
 }
 
@@ -289,6 +297,7 @@ class _ListService extends ChatDataService {
     bool includeHidden = false,
     bool includeBlocked = false,
     ChatType? type,
+    ChatType? excludeType,
     bool forceRefresh = false,
   }) async {
     if (forceRefresh) forceRefreshCount++;

@@ -29,7 +29,7 @@ extension _AiHubData1Parts on _AiHubPageState {
     if (_canUseSnapshot && _loading) {
       final results = await Future.wait<dynamic>([
         _botService.loadPersistedMyBots(),
-        _chatDataService.loadPersistedChatRooms(includeDetails: false),
+        _chatDataService.loadPersistedChatRooms(),
       ]);
       if (mounted) {
         final cachedBots = results[0] as List<BotConfig>?;
@@ -62,7 +62,7 @@ extension _AiHubData1Parts on _AiHubPageState {
     try {
       final results = await Future.wait([
         _botService.getMyBots(),
-        _chatDataService.getChatRooms(includeDetails: false),
+        _chatDataService.getChatRooms(),
       ]);
       if (!mounted) return;
       final bots = results[0] as List<BotConfig>;

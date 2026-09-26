@@ -204,6 +204,43 @@ void main() {
 
       expect(chat.getDisplayName('user1'), 'Other User');
     });
+
+    test('titleFor shows the private peer instead of the "A & B" room name',
+        () {
+      User user(String id, String name, {String username = ''}) => User(
+            id: id,
+            username: username,
+            email: '$id@example.com',
+            displayName: name,
+            createdAt: DateTime(2024),
+          );
+      final chat = Chat(
+        id: '1',
+        name: 'Current & Other',
+        type: ChatType.private,
+        participants: [user('user1', 'Current'), user('user2', 'Other')],
+        createdAt: DateTime(2024),
+      );
+      expect(chat.titleFor('user1'), 'Other');
+      expect(chat.peerFor('user1')?.id, 'user2');
+
+      final nameless = chat.copyWith(
+        participants: [user('user1', 'Current'), user('user2', ' ', username: 'o2')],
+      );
+      expect(nameless.titleFor('user1'), 'o2');
+      expect(chat.copyWith(participants: const []).titleFor('user1'),
+          'Current & Other');
+
+      final group = Chat(
+        id: '2',
+        name: 'Group',
+        type: ChatType.group,
+        participants: [user('user2', 'Other')],
+        createdAt: DateTime(2024),
+      );
+      expect(group.titleFor('user1'), 'Group');
+      expect(group.peerFor('user1'), isNull);
+    });
   });
 
   group('ChatType', () {

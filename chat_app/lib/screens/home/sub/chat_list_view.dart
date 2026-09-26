@@ -200,7 +200,7 @@ extension _ChatListView1Parts on _ChatListPageState {
           const PMChatMark(size: 78),
           const SizedBox(height: 16),
           Text(
-            _searchQuery.isEmpty ? '暂无聊天记录' : '没有找到相关聊天',
+            _searchQuery.isEmpty ? '暂无群聊' : '没有找到相关聊天',
             style: const TextStyle(
               color: AppColors.textSecondary,
               fontSize: 16,
@@ -209,7 +209,8 @@ extension _ChatListView1Parts on _ChatListPageState {
           if (_searchQuery.isEmpty) ...[
             const SizedBox(height: 8),
             Text(
-              '点击右下角按钮开始新的聊天',
+              '和好友的私聊都在「联系人」里，点右上角的“发起聊天”找人聊聊',
+              textAlign: TextAlign.center,
               style: TextStyle(
                 color: AppColors.textSecondary.withValues(alpha: 0.7),
                 fontSize: 14,
@@ -237,9 +238,9 @@ extension _ChatListView1Parts on _ChatListPageState {
 
   Widget _buildSearchResults() {
     final chats = _filteredChats;
-    final friends = _filteredFriends;
+    final people = _filteredPeople;
     final query = _searchQuery.trim();
-    final noLocalHits = chats.isEmpty && friends.isEmpty;
+    final noLocalHits = chats.isEmpty && people.isEmpty;
     return ListView(
       key: const ValueKey('chat-list-search-results'),
       padding: const EdgeInsets.only(bottom: 14),
@@ -248,26 +249,26 @@ extension _ChatListView1Parts on _ChatListPageState {
           _buildSearchSectionTitle('聊天'),
           for (final chat in chats) _buildChatItem(chat),
         ],
-        if (friends.isNotEmpty) ...[
+        if (people.isNotEmpty) ...[
           _buildSearchSectionTitle('联系人'),
-          for (final friend in friends)
+          for (final person in people)
             PMListRow(
-              key: ValueKey('search-friend-${friend.id}'),
-              leading: PMUserAvatar(user: friend),
+              key: ValueKey('search-friend-${person.user.id}'),
+              leading: PMUserAvatar(user: person.user),
               title: Text(
-                friend.displayName.isNotEmpty
-                    ? friend.displayName
-                    : friend.username,
+                person.user.displayName.isNotEmpty
+                    ? person.user.displayName
+                    : person.user.username,
               ),
-              subtitle: Text('@${friend.username}'),
-              trailing: _openingSearchTarget == 'user:${friend.id}'
+              subtitle: Text('@${person.user.username}'),
+              trailing: _openingSearchTarget == 'user:${person.user.id}'
                   ? const SizedBox(
                       width: 18,
                       height: 18,
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
                   : null,
-              onTap: () => unawaited(_openFriendChat(friend)),
+              onTap: () => unawaited(_openPersonChat(person)),
             ),
         ],
         _buildSearchSectionTitle('消息'),
@@ -299,8 +300,9 @@ extension _ChatListView1Parts on _ChatListPageState {
   }
 
   Widget _buildMessageHit(Message message) {
-    final chat = _chats.where((item) => item.id == message.chatRoomId);
-    final chatName = chat.isEmpty ? '聊天' : chat.first.name;
+    final chat = _directory.conversations.roomById(message.chatRoomId) ??
+        _directory.privateChats.roomById(message.chatRoomId);
+    final chatName = chat?.titleFor(_currentUserId) ?? '聊天';
     return PMListRow(
       key: ValueKey('search-message-${message.id}'),
       leading: const Icon(Icons.chat_bubble_outline, color: AppColors.primary),

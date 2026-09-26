@@ -33,6 +33,43 @@ extension _ContactsView1Parts on _ContactsPageState {
             ])));
   }
 
+  /// 桌面聊天页中间栏：只有搜索和联系人，点一个人切换到和他的私聊。
+  Widget _buildCompactScaffold() {
+    return Scaffold(
+      backgroundColor: AppColors.surface,
+      body: SafeArea(
+        child: Column(children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 20, 12, 0),
+            child: Row(children: [
+              const Expanded(
+                child: Text('联系人',
+                    style:
+                        TextStyle(fontSize: 24, fontWeight: FontWeight.w700)),
+              ),
+              IconButton(
+                tooltip: '添加联系人',
+                icon: const Icon(Icons.person_add),
+                onPressed: _showAddContactSheet,
+              ),
+            ]),
+          ),
+          _buildSearchBox(),
+          Expanded(
+            child: _isLoading
+                ? const Center(child: CircularProgressIndicator())
+                : _errorMessage != null
+                    ? _buildErrorState()
+                    : RefreshIndicator(
+                        onRefresh: _loadContacts,
+                        child: _buildContactList(),
+                      ),
+          ),
+        ]),
+      ),
+    );
+  }
+
   Widget _buildCountPill(int count) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
@@ -75,14 +112,14 @@ extension _ContactsView1Parts on _ContactsPageState {
   }
 
   Widget _buildContactList() {
-    final contacts = _filteredContacts;
-    final groupChats = _filteredGroupChats;
-    final privateChats = _filteredPrivateChats;
-    final showQuickActions = _searchQuery.isEmpty;
-    final hasDirectoryItems =
-        contacts.isNotEmpty || groupChats.isNotEmpty || privateChats.isNotEmpty;
+    final compact = widget.compact;
+    final contacts = _filteredContactEntries;
+    final groupChats = compact ? const <Chat>[] : _filteredGroupChats;
+    final showQuickActions = _searchQuery.isEmpty && !compact;
+    final showRequests = showQuickActions && _receivedRequests.isNotEmpty;
+    final hasDirectoryItems = contacts.isNotEmpty || groupChats.isNotEmpty;
 
-    if (!hasDirectoryItems && _receivedRequests.isEmpty && !showQuickActions) {
+    if (!hasDirectoryItems && !showRequests && !showQuickActions) {
       return ListView(
         children: [
           SizedBox(
@@ -124,7 +161,7 @@ extension _ContactsView1Parts on _ContactsPageState {
           ),
           const SizedBox(height: 16),
         ],
-        if (_receivedRequests.isNotEmpty && showQuickActions) ...[
+        if (showRequests) ...[
           _buildSectionTitle('新的好友请求'),
           ..._receivedRequests.map(_buildRequestItem),
           const SizedBox(height: 8),
@@ -138,17 +175,6 @@ extension _ContactsView1Parts on _ContactsPageState {
           if (!_isSectionCollapsed(_ContactsPageState._sectionGroups))
             ..._buildGroupedRoomWidgets(
                 _ContactsPageState._sectionGroups, groupChats),
-          const SizedBox(height: 12),
-        ],
-        if (privateChats.isNotEmpty) ...[
-          _buildSectionTitle(
-            '私聊',
-            section: _ContactsPageState._sectionPrivate,
-            count: privateChats.length,
-          ),
-          if (!_isSectionCollapsed(_ContactsPageState._sectionPrivate))
-            ..._buildGroupedRoomWidgets(
-                _ContactsPageState._sectionPrivate, privateChats),
           const SizedBox(height: 12),
         ],
         if (contacts.isNotEmpty) ...[
@@ -319,10 +345,8 @@ extension _ContactsView1Parts on _ContactsPageState {
     final blocks = _groupItems<Chat>(
       section: section,
       items: chats,
-      targetKeyFor: (chat) => ContactGroupTargetKey.build(
-        ContactGroupTargetType.room,
-        chat.id,
-      ),
+      groupIdFor: (chat) =>
+          _assignedGroupId(ContactGroupTargetType.room, chat.id),
     );
     return [
       for (final block in blocks) ...[
@@ -334,20 +358,18 @@ extension _ContactsView1Parts on _ContactsPageState {
   }
 
   List<Widget> _buildGroupedContactWidgets(
-      String section, List<User> contacts) {
-    final blocks = _groupItems<User>(
+      String section, List<_ContactEntry> contacts) {
+    final blocks = _groupItems<_ContactEntry>(
       section: section,
       items: contacts,
-      targetKeyFor: (user) => ContactGroupTargetKey.build(
-        ContactGroupTargetType.friend,
-        user.id,
-      ),
+      groupIdFor: _assignedGroupIdForEntry,
     );
     return [
       for (final block in blocks) ...[
         _buildGroupBlockHeader(block),
         if (!_isGroupBlockCollapsed(block.collapseKey))
-          ...block.items.map(_buildContactItem),
+          ...([...block.items]..sort(_compareContactEntries))
+              .map(_buildContactEntryItem),
       ],
     ];
   }
@@ -421,51 +443,9 @@ extension _ContactsView1Parts on _ContactsPageState {
     );
   }
 
-  Widget _buildContactItem(User contact) {
-    final isOpening = _openingChatUserId == contact.id;
-    return _buildUserCard(
-      user: contact,
-      onTap: () => _showContactOptions(contact),
-      onLongPress: () => _showMoveToGroupSheet(
-        targetType: ContactGroupTargetType.friend,
-        targetId: contact.id,
-        title: _displayName(contact),
-      ),
-      onSecondaryTapDown: (_) => _showMoveToGroupSheet(
-        targetType: ContactGroupTargetType.friend,
-        targetId: contact.id,
-        title: _displayName(contact),
-      ),
-      subtitle: '@${contact.username}',
-      secondarySubtitle: null,
-      trailing: isOpening
-          ? const SizedBox(
-              width: 18,
-              height: 18,
-              child: CircularProgressIndicator(strokeWidth: 2),
-            )
-          : Text(
-              contact.onlineStatus == OnlineStatus.online
-                  ? '在线'
-                  : contact.lastSeen != null
-                      ? _formatLastSeen(contact.lastSeen!)
-                      : '离线',
-              style: TextStyle(
-                color: contact.onlineStatus == OnlineStatus.online
-                    ? AppColors.online
-                    : AppColors.textSecondary,
-                fontSize: 12,
-              ),
-            ),
-    );
-  }
-
   Widget _buildRoomItem(Chat chat) {
     final isUnblocking = _unblockingRoomId == chat.id;
-    void move() => _showMoveToGroupSheet(
-        targetType: ContactGroupTargetType.room,
-        targetId: chat.id,
-        title: chat.name);
+    void move() => _showRoomMoveToGroupSheet(chat);
     return Padding(
       padding: const EdgeInsets.symmetric(
           horizontal: PMSpacing.l, vertical: PMSpacing.xs),
@@ -490,7 +470,7 @@ extension _ContactsView1Parts on _ContactsPageState {
                     ? TextButton(
                         onPressed: isUnblocking
                             ? null
-                            : () => _unblockRoomFromContacts(chat),
+                            : () => _setRoomBlocked(chat, false),
                         child: isUnblocking
                             ? const SizedBox(
                                 width: 16,

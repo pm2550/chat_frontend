@@ -1,8 +1,15 @@
+import 'package:chat_app/models/chat.dart';
+import 'package:chat_app/models/message.dart';
+import 'package:chat_app/models/user.dart';
 import 'package:chat_app/screens/home/home_screen.dart';
+import 'package:chat_app/services/chat_room_directory.dart';
+import 'package:chat_app/widgets/pm_navigation_rail.dart';
 import 'package:chat_app/widgets/pm_section_route.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+import 'chat_list_page_test.dart' show FakeChatListService, FakeRealtimeService;
 
 void main() {
   for (final width in [390.0, 1440.0]) {
@@ -131,6 +138,124 @@ void main() {
     expect(tester.getRect(find.text('tab-0')), listBounds);
     expect(initCounts[0], 1);
     expect(disposeCounts[0], isNull);
+  });
+
+  group('HomeScreen unread badges', () {
+    Future<(ChatRoomDirectory, FakeRealtimeService)> loadedDirectory() async {
+      final realtime = FakeRealtimeService();
+      final created = DateTime.parse('2024-01-01T10:00:00');
+      final directory = ChatRoomDirectory(
+        chatService: FakeChatListService(chats: [
+          Chat(
+            id: 'g1',
+            name: '群',
+            type: ChatType.group,
+            createdAt: created,
+            unreadCount: 2,
+          ),
+          Chat(
+            id: 'p1',
+            name: 'Me & Alice',
+            type: ChatType.private,
+            createdAt: created,
+            unreadCount: 3,
+            participants: [
+              User(
+                id: 'alice',
+                username: 'alice',
+                email: 'alice@test.com',
+                displayName: 'Alice',
+                createdAt: created,
+              ),
+            ],
+          ),
+          // 屏蔽的私聊不计未读。
+          Chat(
+            id: 'p2',
+            name: 'Me & Spam',
+            type: ChatType.private,
+            createdAt: created,
+            unreadCount: 7,
+            isBlocked: true,
+          ),
+        ]),
+        realtimeService: realtime,
+        currentUserId: () => 'me',
+      );
+      await directory.conversations.load();
+      await directory.privateChats.load();
+      return (directory, realtime);
+    }
+
+    Finder badge(String label) =>
+        find.descendant(of: find.byType(Badge), matching: find.text(label));
+
+    testWidgets('mobile tabs split group and private unread and stay live',
+        (tester) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final (directory, realtime) = await loadedDirectory();
+
+      await tester.pumpWidget(MaterialApp(
+        home: HomeScreen(
+          directory: directory,
+          cacheWarmer: () async {},
+          pageBuilder: (_, index, __) => Text('tab-$index'),
+        ),
+      ));
+      await tester.pump();
+
+      expect(directory.totalUnread, 5);
+      expect(badge('2'), findsOneWidget);
+      expect(badge('3'), findsOneWidget);
+      final contactsTab = find.ancestor(
+          of: find.text('联系人'), matching: find.byType(NavigationDestination));
+      expect(
+          find.descendant(of: contactsTab, matching: badge('3')), findsOneWidget);
+
+      realtime.emitMessage(Message(
+        id: 'pm',
+        content: '私聊',
+        senderId: 'alice',
+        senderName: 'Alice',
+        chatRoomId: 'p1',
+        timestamp: DateTime.parse('2024-01-01T10:05:00'),
+      ));
+      await tester.pump();
+      await tester.pump();
+
+      expect(badge('4'), findsOneWidget);
+      expect(badge('2'), findsOneWidget);
+      expect(directory.totalUnread, 6);
+    });
+
+    testWidgets('desktop rail and tablet chips show the same badges',
+        (tester) async {
+      final (directory, _) = await loadedDirectory();
+      for (final width in [1440.0, 800.0]) {
+        tester.view.physicalSize = Size(width, 900);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.reset);
+        await tester.pumpWidget(MaterialApp(
+          home: HomeScreen(
+            key: ValueKey(width),
+            directory: directory,
+            cacheWarmer: () async {},
+            pageBuilder: (_, index, __) => Text('tab-$index'),
+          ),
+        ));
+        await tester.pump();
+        if (width == 1440) {
+          expect(
+              tester.widget<PMNavigationRail>(find.byType(PMNavigationRail))
+                  .badgeCounts,
+              [2, 3]);
+        }
+        expect(badge('2'), findsOneWidget);
+        expect(badge('3'), findsOneWidget);
+      }
+    });
   });
 
   group('HomeScreen tab cache', () {

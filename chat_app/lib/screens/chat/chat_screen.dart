@@ -55,6 +55,8 @@ import '../../widgets/e2ee_widgets.dart';
 import '../../widgets/pm_brand.dart';
 import '../../widgets/pm_navigation_rail.dart';
 import '../home/chat_list_page.dart';
+import '../home/contacts_page.dart';
+import '../../services/chat_room_directory.dart';
 import '../../widgets/pm_responsive.dart';
 import '../../widgets/sticker_tile.dart';
 import '../../widgets/typing_indicator.dart';

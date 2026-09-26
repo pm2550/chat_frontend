@@ -7,6 +7,7 @@ import '../../constants/app_colors.dart';
 import '../../design/design.dart';
 import '../../models/chat.dart';
 import '../../models/message.dart';
+import '../../services/auth_service.dart';
 import '../../services/chat_data_service.dart';
 import '../chat/chat_screen.dart';
 
@@ -154,8 +155,10 @@ class _StarredMessagesScreenState extends State<StarredMessagesScreen> {
 
   String _roomName(Message message) {
     final room = _roomsById[message.chatRoomId];
-    if (room == null || room.name.trim().isEmpty) return '聊天';
-    return room.name;
+    // 私聊显示对方的名字，不显示建房时拼出的 "A & B"。
+    final title = room?.titleFor(AuthService().currentUser?.id).trim();
+    if (title == null || title.isEmpty) return '聊天';
+    return title;
   }
 
   @override

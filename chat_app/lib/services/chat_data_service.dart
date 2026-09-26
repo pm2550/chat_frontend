@@ -192,6 +192,8 @@ class ChatDataService {
         cached.where((room) => room.id != chatRoomId).toList();
   }
 
+  /// [excludeType] 把某一类会话整个排除：消息页传 [ChatType.private]，
+  /// 私聊只在联系人里出现。老服务器不认这个参数时照样返回全部，调用方要自己再滤一遍。
   Future<List<Chat>> getChatRooms({
     int page = 0,
     int size = 30,
@@ -200,6 +202,7 @@ class ChatDataService {
     bool includeHidden = false,
     bool includeBlocked = false,
     ChatType? type,
+    ChatType? excludeType,
     bool forceRefresh = false,
   }) async {
     final useSharedCache = _canUseSharedChatRoomsCache(
@@ -209,6 +212,7 @@ class ChatDataService {
       includeHidden: includeHidden,
       includeBlocked: includeBlocked,
       type: type,
+      excludeType: excludeType,
     );
     if (useSharedCache && !forceRefresh) {
       final cached = cachedChatRoomsSnapshot(page: page, size: size);
@@ -224,6 +228,7 @@ class ChatDataService {
           includeHidden: includeHidden,
           includeBlocked: includeBlocked,
           type: type,
+          excludeType: excludeType,
           useSharedCache: useSharedCache,
         );
     if (forceRefresh ||
@@ -243,8 +248,42 @@ class ChatDataService {
       includeHidden,
       includeBlocked,
       type?.name,
+      excludeType?.name,
     ].join(':');
     return RequestCoordinator.run<List<Chat>>(requestKey, load);
+  }
+
+  /// 把某一类会话一页页全部取完（联系人要列出所有私聊，不能只有第一页）。
+  /// 某一页不满或者没有带来新会话就停；[maxPages] 兜底防止服务器分页异常时死循环。
+  Future<List<Chat>> getAllChatRooms({
+    ChatType? type,
+    bool includeHidden = false,
+    bool includeBlocked = false,
+    bool forceRefresh = false,
+    int pageSize = 100,
+    int maxPages = 50,
+  }) async {
+    final rooms = <Chat>[];
+    final seen = <String>{};
+    for (var page = 0; page < maxPages; page++) {
+      final batch = await getChatRooms(
+        page: page,
+        size: pageSize,
+        includeHidden: includeHidden,
+        includeBlocked: includeBlocked,
+        type: type,
+        forceRefresh: forceRefresh,
+      );
+      var added = 0;
+      for (final room in batch) {
+        if (seen.add(room.id)) {
+          rooms.add(room);
+          added++;
+        }
+      }
+      if (batch.length < pageSize || added == 0) break;
+    }
+    return _sortChats(rooms);
   }
 
   Future<List<Chat>> _loadChatRooms({
@@ -254,6 +293,7 @@ class ChatDataService {
     required bool includeHidden,
     required bool includeBlocked,
     required ChatType? type,
+    required ChatType? excludeType,
     required bool useSharedCache,
   }) async {
     final endpoint = includeDetails
@@ -268,6 +308,8 @@ class ChatDataService {
         if (includeHidden) 'includeHidden': 'true',
         if (includeBlocked) 'includeBlocked': 'true',
         if (type != null) 'roomType': type.name.toUpperCase(),
+        if (excludeType != null)
+          'excludeRoomType': excludeType.name.toUpperCase(),
       },
     );
     final response = await _request('GET', uri.toString());
@@ -276,6 +318,7 @@ class ChatDataService {
         _extractList(data, keys: const ['chatRooms', 'data', 'content'])
             .whereType<Map<String, dynamic>>()
             .map(Chat.fromJson)
+            .where((chat) => excludeType == null || chat.type != excludeType)
             .map(_mergeCachedLastMessage)
             .toList();
 
@@ -295,6 +338,7 @@ class ChatDataService {
           includeHidden: includeHidden,
           includeBlocked: includeBlocked,
           type: type,
+          excludeType: excludeType,
         ),
         payload: {
           'rooms': sortedRooms.map((room) => room.toJson()).toList(),
@@ -311,6 +355,7 @@ class ChatDataService {
     bool includeHidden = false,
     bool includeBlocked = false,
     ChatType? type,
+    ChatType? excludeType,
   }) async {
     final userId = _authService.currentUser?.id;
     if (_authenticatedRequest != null || userId == null) return null;
@@ -323,6 +368,7 @@ class ChatDataService {
         includeHidden: includeHidden,
         includeBlocked: includeBlocked,
         type: type,
+        excludeType: excludeType,
       ),
     );
     final rawRooms = record?['payload']?['rooms'];
@@ -330,12 +376,14 @@ class ChatDataService {
     final rooms = rawRooms
         .whereType<Map<String, dynamic>>()
         .map(Chat.fromJson)
-        .toList(growable: false);
+        .where((chat) => excludeType == null || chat.type != excludeType)
+        .toList();
     if (includeDetails &&
         page == 0 &&
         !includeHidden &&
         !includeBlocked &&
-        type == null) {
+        type == null &&
+        excludeType == ChatType.private) {
       _cacheChatRooms(rooms, page: page, size: size);
     }
     return _sortChats(rooms);
@@ -348,8 +396,10 @@ class ChatDataService {
     required bool includeHidden,
     required bool includeBlocked,
     required ChatType? type,
+    ChatType? excludeType,
   }) =>
-      'rooms:$page:$size:$includeDetails:$includeHidden:$includeBlocked:${type?.name ?? 'all'}';
+      'rooms:$page:$size:$includeDetails:$includeHidden:$includeBlocked:${type?.name ?? 'all'}'
+      '${excludeType == null ? '' : ':no-${excludeType.name}'}';
 
   bool _canUseSharedChatRoomsCache({
     required bool includeDetails,
@@ -358,13 +408,16 @@ class ChatDataService {
     required bool includeHidden,
     required bool includeBlocked,
     required ChatType? type,
+    required ChatType? excludeType,
   }) {
+    // 内存快照只给消息页（群聊 + 频道）用。
     return includeDetails &&
         page >= 0 &&
         size > 0 &&
         !includeHidden &&
         !includeBlocked &&
         type == null &&
+        excludeType == ChatType.private &&
         _authenticatedRequest == null &&
         _multipartRequest == null &&
         _multipartFilesRequest == null;

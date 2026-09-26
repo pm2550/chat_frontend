@@ -63,52 +63,81 @@ void _chatListCases2() {
     expect(find.text('@Me 需要你看'), findsOneWidget);
   });
 
-  testWidgets('updates participant online status from realtime status event',
+  testWidgets(
+      'lists only group chats; private unread and notices still count',
       (tester) async {
     final realtime = FakeRealtimeService();
+    final backend = StubDesktopNotificationBackend(
+      supported: true,
+      permissionGranted: true,
+      visible: false,
+    );
+    final alice = User(
+      id: 'alice',
+      username: 'alice',
+      email: 'alice@test.com',
+      displayName: 'Alice',
+      createdAt: DateTime.parse('2024-01-01T10:00:00'),
+    );
     final service = FakeChatListService(chats: [
       Chat(
-        id: '1',
-        name: '私聊',
+        id: 'g1',
+        name: '项目群',
+        type: ChatType.group,
+        createdAt: DateTime.parse('2024-01-01T10:00:00'),
+        unreadCount: 2,
+      ),
+      Chat(
+        id: 'c1',
+        name: '公告频道',
+        type: ChatType.channel,
+        createdAt: DateTime.parse('2024-01-01T10:00:00'),
+      ),
+      Chat(
+        id: 'p1',
+        name: 'Me & Alice',
         type: ChatType.private,
         createdAt: DateTime.parse('2024-01-01T10:00:00'),
-        participants: [
-          User(
-            id: 'alice',
-            username: 'alice',
-            email: 'alice@test.com',
-            displayName: 'Alice',
-            onlineStatus: OnlineStatus.offline,
-            createdAt: DateTime.parse('2024-01-01T10:00:00'),
-          ),
-        ],
+        participants: [alice],
+        unreadCount: 3,
       ),
     ]);
 
     await tester.pumpWidget(buildTestWidget(
       service,
       realtimeService: realtime,
+      notificationService: DesktopNotificationService(backend: backend),
+    ));
+    await tester.pumpAndSettle();
+
+    expect(find.text('项目群'), findsOneWidget);
+    expect(find.text('公告频道'), findsOneWidget);
+    expect(find.text('Me & Alice'), findsNothing);
+    expect(find.text('Alice'), findsNothing);
+    // "未读"只数消息页里的群聊 / 频道。
+    expect(find.text('未读 2'), findsOneWidget);
+    // 系统 / 桌面角标两边都算。
+    expect(backend.lastUnreadCount, 5);
+
+    realtime.emitMessage(Message(
+      id: 'pm-1',
+      content: '私聊新消息',
+      senderId: 'alice',
+      senderName: 'Alice',
+      chatRoomId: 'p1',
+      timestamp: DateTime.parse('2024-01-01T10:05:00'),
     ));
     await tester.pump();
 
-    expect(find.byWidgetPredicate((widget) {
-      return widget is Container &&
-          widget.decoration is BoxDecoration &&
-          (widget.decoration as BoxDecoration).color == AppColors.online;
-    }), findsNothing);
-
-    realtime.emitStatus({
-      'type': 'status',
-      'userId': 'alice',
-      'onlineStatus': 'ONLINE',
-    });
-    await tester.pump();
-
-    expect(find.byWidgetPredicate((widget) {
-      return widget is Container &&
-          widget.decoration is BoxDecoration &&
-          (widget.decoration as BoxDecoration).color == AppColors.online;
-    }), findsOneWidget);
+    expect(backend.lastUnreadCount, 6);
+    expect(find.text('未读 2'), findsOneWidget);
+    expect(find.text('私聊新消息'), findsNothing);
+    // 私聊的提醒标题是对方的名字，不是 "A & B"。
+    expect(backend.shownNotifications.single.title, 'Alice');
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(find.text('Alice: 私聊新消息'), findsOneWidget);
+    // 认识的私聊来消息不会让消息页整页重拉。
+    expect(service.forceRefreshRequests, [false]);
   });
 
   testWidgets('room_updated event refreshes group avatar in list',

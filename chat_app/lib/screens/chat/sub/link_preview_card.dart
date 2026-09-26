@@ -184,7 +184,8 @@ extension _ChatScreenAttachmentParts on _ChatScreenState {
           width: 420,
           height: 420,
           child: FutureBuilder<List<Chat>>(
-            future: _chatService.getChatRooms(includeDetails: false),
+            // 摘要接口带私聊的对方：列表显示对方的名字，不显示 "A & B"。
+            future: _chatService.getChatRooms(),
             builder: (context, snapshot) {
               if (snapshot.connectionState != ConnectionState.done) {
                 return const Center(child: CircularProgressIndicator());
@@ -244,7 +245,7 @@ extension _ChatScreenAttachmentParts on _ChatScreenState {
                       ),
                     ),
                     title: Text(
-                      chat.name,
+                      chat.titleFor(_authService.currentUser?.id),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),

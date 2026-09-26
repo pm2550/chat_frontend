@@ -169,13 +169,13 @@ extension _AiHubView1Parts on _AiHubPageState {
               leading: _AiAvatar(
                 icon:
                     room.type == ChatType.private ? Icons.person : Icons.groups,
-                label: room.name,
+                label: _aiRoomTitle(room),
                 color: room.anonymousEnabled
                     ? const Color(0xFF7C3AED)
                     : AppColors.secondary,
                 active: true,
               ),
-              title: Text(room.name.isEmpty ? '未命名会话' : room.name),
+              title: Text(_aiRoomTitle(room)),
               subtitle: Text(
                 '${room.type.description} · ${room.effectiveMemberCount} 人 · ${room.anonymousEnabled ? '匿名已启用' : '匿名未启用'}',
               ),
@@ -418,7 +418,7 @@ extension _AiHubView1Parts on _AiHubPageState {
               const SizedBox(width: PMSpacing.s),
               Expanded(
                 child: Text(
-                  job.room.name.isEmpty ? '未命名会话' : job.room.name,
+                  _aiRoomTitle(job.room),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
