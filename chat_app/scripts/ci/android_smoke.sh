@@ -55,7 +55,7 @@ python3 scripts/ci/android_smoke_ui.py dump $OUT/ui-chatlist.txt
 check "聊天列表能加载" "! grep -q '加载失败' $OUT/ui-chatlist.txt"
 PEER=$(python3 -c "import json;print(json.load(open('$OUT/smoke.json'))['peer_name'])")
 # 私聊不在"消息"里，从"联系人"标签进（标签上可能带未读数角标）
-python3 scripts/ci/android_smoke_ui.py tap-text '^([0-9]+\+?\s+)?联系人(\s+[0-9]+\+?)?$'
+python3 scripts/ci/android_smoke_ui.py tap-text '^([0-9]+\+?\s+)?联系人(\s|$)'
 sleep 4
 python3 scripts/ci/android_smoke_ui.py dump $OUT/ui-contacts.txt
 python3 scripts/ci/android_smoke_ui.py tap-text "$PEER"
