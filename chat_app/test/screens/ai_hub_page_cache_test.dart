@@ -6,6 +6,26 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  testWidgets('assistant card joins the selected room before opening chat',
+      (tester) async {
+    final bots = _CountingBotService(
+        bots: [BotConfig(id: 7, botName: '写作伙伴', llmProvider: 'HERMES')]);
+    await tester.pumpWidget(MaterialApp(
+      home: AiHubPage(
+          botService: bots, chatDataService: _CountingChatDataService()),
+      routes: {'/chat/1': (_) => const Scaffold(body: Text('已打开群聊'))},
+    ));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('加入群聊'));
+    await tester.pumpAndSettle();
+    expect(bots.addedRoomIds, isEmpty);
+    await tester.tap(find.text('测试会话'));
+    await tester.pumpAndSettle();
+    expect(bots.addedRoomIds, [1]);
+    expect(bots.addedBotIds, [7]);
+    expect(find.text('已打开群聊'), findsOneWidget);
+  });
+
   testWidgets('switching AI Hub sections does not reload service data',
       (tester) async {
     final botService = _CountingBotService();
@@ -24,13 +44,13 @@ void main() {
     expect(botService.getMyBotsCalls, 1);
     expect(chatService.getChatRoomsCalls, 1);
 
-    await tester.tap(find.textContaining('接入群聊'));
+    await tester.tap(find.text('群聊'));
     await tester.pumpAndSettle();
 
     expect(botService.getMyBotsCalls, 1);
     expect(chatService.getChatRoomsCalls, 1);
 
-    await tester.tap(find.textContaining('积分生成图片'));
+    await tester.tap(find.text('画图'));
     await tester.pumpAndSettle();
 
     expect(botService.getMyBotsCalls, 1);

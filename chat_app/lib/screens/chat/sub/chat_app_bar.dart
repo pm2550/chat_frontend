@@ -3,116 +3,60 @@ part of '../chat_screen.dart';
 extension _ChatScreenChromeParts on _ChatScreenState {
   Widget _buildDesktopChatScaffold() {
     return _buildDropPasteTarget(Scaffold(
-      body: Row(
-        children: [
-          _buildDesktopRoomPanel(),
-          Expanded(
-            child: Column(
-              children: [
-                _buildDesktopConversationHeader(),
-                _buildCallPanel(),
-                _buildE2eeNotice(),
-                _buildAnonymousBanner(),
-                _buildPinnedMessagesBar(),
-                Expanded(
-                  child: _buildMessageArea(),
-                ),
-                _buildDesktopInputBar(),
-              ],
-            ),
-          ),
-          _buildDesktopInfoPanel(),
-        ],
-      ),
+      key: _desktopScaffoldKey,
+      endDrawer: Drawer(width: 340, child: _buildDesktopInfoPanel()),
+      onEndDrawerChanged: (open) {
+        _setViewState(() => _desktopInfoPanelCollapsed = !open);
+        _syncAgentClientToolState();
+      },
+      body: Row(children: [
+        PMNavigationRail(
+            selectedIndex: 0,
+            onSelected: (index) {
+              Navigator.of(context).pushNamedAndRemoveUntil(
+                  PMNavigationRail.routes[index], (_) => false);
+            }),
+        SizedBox(
+            key: const ValueKey('desktop-conversation-list'),
+            width: PMDesktopLayout.conversationListWidth(context),
+            child: ChatListPage(
+              compact: true,
+              selectedChatId: _chat.id,
+              chatService: widget.chatService,
+              realtimeService: widget.webSocketService,
+              currentUserId: _authService.currentUser?.id,
+              onOpenChat: (arguments) async {
+                if (arguments.chat.id == _chat.id) {
+                  if (arguments.focusMessage != null) {
+                    _pendingFocusMessage = arguments.focusMessage;
+                    _focusPendingMessage();
+                  }
+                  return;
+                }
+                unawaited(Navigator.of(context).pushReplacementNamed(
+                    '/chat/${arguments.chat.id}',
+                    arguments: arguments));
+              },
+            )),
+        const VerticalDivider(width: 1),
+        Expanded(
+            child: Column(children: [
+          _buildDesktopConversationHeader(),
+          _buildCallPanel(),
+          _buildE2eeNotice(),
+          _buildAnonymousBanner(),
+          _buildAnnouncementBanner(),
+          _buildPinnedMessagesBar(),
+          Expanded(child: _buildMessageArea()),
+          _buildDesktopInputBar(),
+        ])),
+      ]),
     ));
   }
 
-  Widget _buildDesktopRoomPanel() {
-    return Container(
-      width: 300,
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        border: Border(right: BorderSide(color: AppColors.borderLight)),
-        boxShadow: [AppColors.appBarShadow],
-      ),
-      child: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(18),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Row(
-                children: [
-                  IconButton(
-                    tooltip: '返回',
-                    onPressed: () => Navigator.of(context).maybePop(),
-                    icon: const PMSymbolIcon(PMSymbol.back),
-                  ),
-                  const SizedBox(width: 6),
-                  const Expanded(
-                    child: FittedBox(
-                      fit: BoxFit.scaleDown,
-                      alignment: Alignment.centerLeft,
-                      child: PMChatLogo(size: 34, showWordmark: true),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 24),
-              Center(
-                child: SizedBox(
-                  width: 78,
-                  height: 78,
-                  child: FittedBox(child: _buildChatAvatar()),
-                ),
-              ),
-              const SizedBox(height: 14),
-              Text(
-                _displayChatTitle(),
-                textAlign: TextAlign.center,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  color: AppColors.textPrimary,
-                  fontSize: 20,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                _chatSubtitle(),
-                textAlign: TextAlign.center,
-                style: const TextStyle(color: AppColors.textSecondary),
-              ),
-              const SizedBox(height: 24),
-              _buildDesktopActionTile(
-                symbol: PMSymbol.call,
-                title: '语音通话',
-                onTap: () => _startCall(CallMediaKind.audio),
-              ),
-              _buildDesktopActionTile(
-                symbol: PMSymbol.video,
-                title: '视频通话',
-                onTap: () => _startCall(CallMediaKind.video),
-              ),
-              _buildDesktopActionTile(
-                symbol: PMSymbol.search,
-                title: '搜索记录',
-                onTap: _showSearchSheet,
-              ),
-              const Spacer(),
-              _buildInfoTile(
-                Icons.schedule,
-                '最近消息',
-                _messages.isEmpty
-                    ? '暂无消息'
-                    : timeago.format(_messages.last.timestamp, locale: 'zh'),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
+  void _openDesktopDetails() {
+    _setViewState(() => _desktopInfoPanelCollapsed = false);
+    _desktopScaffoldKey.currentState?.openEndDrawer();
   }
 
   Widget _buildDesktopConversationHeader() {
@@ -186,11 +130,10 @@ extension _ChatScreenChromeParts on _ChatScreenState {
             _startCall(CallMediaKind.video);
           }),
           const SizedBox(width: 8),
+          _buildDesktopHeaderIcon(PMSymbol.search, '搜索记录', _showSearchSheet),
+          const SizedBox(width: 8),
           _buildDesktopHeaderIcon(
-            PMSymbol.settings,
-            _chat.type == ChatType.group ? '群设置' : '聊天信息',
-            _openRoomSettings,
-          ),
+              PMSymbol.profile, '房间资料', _openDesktopDetails),
           const SizedBox(width: 8),
           _buildDesktopHeaderIcon(PMSymbol.more, '更多', _showChatOptions),
         ],
@@ -199,111 +142,11 @@ extension _ChatScreenChromeParts on _ChatScreenState {
   }
 
   Widget _buildDesktopHeaderIcon(
-    PMSymbol symbol,
-    String tooltip,
-    VoidCallback onTap,
-  ) {
-    return Tooltip(
-      message: tooltip,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(8),
-        child: Container(
-          width: 40,
-          height: 40,
-          decoration: BoxDecoration(
-            color: AppColors.pixelBlue,
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: PMSymbolIcon(
-            symbol,
-            color: AppColors.primary,
-            size: 20,
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildDesktopActionTile({
-    required PMSymbol symbol,
-    required String title,
-    required VoidCallback onTap,
-  }) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(8),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-          decoration: BoxDecoration(
-            color: AppColors.cloud,
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: AppColors.borderLight),
-          ),
-          child: Row(
-            children: [
-              PMSymbolIcon(symbol, color: AppColors.primary, size: 20),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  title,
-                  style: const TextStyle(
-                    color: AppColors.textPrimary,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ),
-              const PMSymbolIcon(
-                PMSymbol.chevronRight,
-                color: AppColors.textSecondary,
-                size: 18,
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildInfoTile(IconData icon, String title, String value) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: AppColors.pixelMint,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: AppColors.borderLight),
-      ),
-      child: Row(
-        children: [
-          Icon(icon, color: AppColors.secondaryDark),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: const TextStyle(
-                    color: AppColors.textPrimary,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                Text(
-                  value,
-                  style: const TextStyle(
-                    color: AppColors.textSecondary,
-                    fontSize: 12,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
+      PMSymbol symbol, String tooltip, VoidCallback onTap) {
+    return IconButton(
+        tooltip: tooltip,
+        onPressed: onTap,
+        icon: PMSymbolIcon(symbol, size: 21, color: AppColors.textSecondary));
   }
 
   String _chatSubtitle() {
@@ -365,8 +208,7 @@ extension _ChatScreenChromeParts on _ChatScreenState {
             : '?';
     return CircleAvatar(
       radius: 20,
-      backgroundColor:
-          _chat.type == ChatType.group ? AppColors.primary : AppColors.accent,
+      backgroundColor: AppColors.pixelBlue,
       backgroundImage: avatarUrl != null
           ? NetworkImage(
               ApiConstants.resolveFileUrl(avatarUrl),
@@ -376,7 +218,7 @@ extension _ChatScreenChromeParts on _ChatScreenState {
           ? Text(
               fallback,
               style: const TextStyle(
-                color: Colors.white,
+                color: AppColors.primary,
                 fontWeight: FontWeight.w800,
               ),
             )

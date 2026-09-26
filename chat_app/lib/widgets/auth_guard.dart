@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../constants/app_colors.dart';
@@ -30,8 +31,14 @@ class _AuthGuardState extends State<AuthGuard> {
     super.initState();
     _authService = widget.authService ?? AuthService();
     _authService.addListener(_handleAuthChanged);
-    _authFuture =
-        widget.authCheck?.call() ?? _authService.ensureAuthenticated();
+    // ensureAuthenticated already accepts a restored in-memory session. Keep
+    // that synchronous result synchronous: FutureBuilder would otherwise paint
+    // a full-screen spinner for one frame on every section/chat navigation.
+    // A supplied check still takes precedence, including pending/failed checks.
+    _authFuture = widget.authCheck?.call() ??
+        (_authService.isAuthenticated
+            ? SynchronousFuture<bool>(true)
+            : _authService.ensureAuthenticated());
   }
 
   @override

@@ -3,10 +3,11 @@ import 'package:flutter/material.dart';
 
 import '../constants/app_colors.dart';
 import 'pm_brand.dart';
+import '../design/design.dart';
 
 class PMBreakpoints {
   static const double desktop = 1024;
-  static const double webDesktop = 720;
+  static const double webDesktop = 1024;
   static const double wide = 1360;
 
   static bool isDesktop(BuildContext context) {
@@ -18,6 +19,11 @@ class PMBreakpoints {
     final width = MediaQuery.sizeOf(context).width;
     return width >= 600 && !isDesktop(context);
   }
+}
+
+class PMDesktopLayout {
+  static double conversationListWidth(BuildContext context) =>
+      MediaQuery.sizeOf(context).width < 1200 ? 300 : 340;
 }
 
 class PMDesktopPage extends StatelessWidget {
@@ -65,47 +71,16 @@ class PMDesktopHeader extends StatelessWidget {
   final List<Widget> actions;
 
   @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Container(
-          width: 48,
-          height: 48,
-          decoration: BoxDecoration(
-            gradient: AppColors.primaryGradient,
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Icon(icon, color: Colors.white),
-        ),
-        const SizedBox(width: 14),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                title,
-                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                      color: AppColors.textPrimary,
-                      fontWeight: FontWeight.w800,
-                      letterSpacing: 0,
-                    ),
-              ),
-              if (subtitle != null) ...[
-                const SizedBox(height: 3),
-                Text(
-                  subtitle!,
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: AppColors.textSecondary,
-                      ),
-                ),
-              ],
-            ],
-          ),
-        ),
-        ...actions,
-      ],
-    );
-  }
+  Widget build(BuildContext context) => PMPageHeader(
+        title: title,
+        subtitle: subtitle,
+        actions: actions,
+        leading: PMCard(
+            elevated: false,
+            padding: const EdgeInsets.all(PMSpacing.m),
+            background: AppColors.pixelBlue,
+            child: Icon(icon, color: AppColors.primary, size: 24)),
+      );
 }
 
 class PMDesktopCard extends StatelessWidget {
@@ -122,16 +97,9 @@ class PMDesktopCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      margin: margin,
-      padding: padding,
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.94),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: AppColors.borderLight),
-        boxShadow: const [AppColors.cardShadow],
-      ),
-      child: child,
+    return Padding(
+      padding: margin ?? EdgeInsets.zero,
+      child: PMCard(padding: padding, radius: PMRadius.l, child: child),
     );
   }
 }

@@ -106,7 +106,8 @@ void main() {
       );
       final socket = WebSocketService.forTesting(authService: auth);
 
-      await tester.pumpWidget(buildScreen(privateChat(), service, socket: socket));
+      await tester
+          .pumpWidget(buildScreen(privateChat(), service, socket: socket));
       await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('pinned-messages-bar')), findsNothing);
 
@@ -395,6 +396,9 @@ void main() {
     ));
     await tester.pumpAndSettle();
 
+    expect(find.byTooltip('视频'), findsNothing);
+    await tester.tap(find.byTooltip('房间资料'));
+    await tester.pumpAndSettle();
     final videoButtons = find.byTooltip('视频');
     // Me, 好友, 同事 → no button for myself.
     expect(videoButtons, findsNWidgets(2));
@@ -423,6 +427,8 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('要被清掉的消息'), findsOneWidget);
 
+    await tester.tap(find.byTooltip('房间资料'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('清空聊天记录'));
     await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(TextButton, '清空'));
@@ -446,8 +452,7 @@ void main() {
   });
 }
 
-ChatRoomMember _member(String userId, {required String role}) =>
-    ChatRoomMember(
+ChatRoomMember _member(String userId, {required String role}) => ChatRoomMember(
       id: 'm$userId',
       userId: userId,
       user: _user(userId, '成员$userId'),

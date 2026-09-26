@@ -4,6 +4,7 @@ import '../../constants/app_colors.dart';
 import '../../services/auth_service.dart';
 import '../../services/download_catalog_service.dart';
 import '../../widgets/pm_brand.dart';
+import '../../widgets/pm_welcome_art.dart';
 import '../../widgets/pm_responsive.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -102,7 +103,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      const PMChatLogo(centered: true, size: 86),
+                      const PMChatLogo(centered: true, size: 64),
                       const SizedBox(height: 12),
                       Text(
                         AppBrand.description,
@@ -133,7 +134,7 @@ class _LoginScreenState extends State<LoginScreen> {
                             ),
                             const SizedBox(height: 6),
                             const Text(
-                              '登录后继续群聊、Bot 和工作区任务',
+                              '和朋友聊日常，与 AI 找灵感',
                               style: TextStyle(
                                 fontSize: 13,
                                 color: AppColors.textSecondary,
@@ -234,7 +235,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                   SizedBox(width: 10),
                                   Expanded(
                                     child: Text(
-                                      '正式服务已连接，请使用已创建账号登录。',
+                                      '使用你的账号，继续上次的对话。',
                                       style: TextStyle(
                                         fontSize: 12,
                                         color: AppColors.textSecondary,
@@ -300,6 +301,10 @@ class _LoginScreenState extends State<LoginScreen> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
+                            if (MediaQuery.sizeOf(context).height >= 760) ...[
+                              const PMWelcomeArt(size: 216),
+                              const SizedBox(height: 20),
+                            ],
                             Text(
                               AppBrand.tagline,
                               style: Theme.of(context)
@@ -329,15 +334,15 @@ class _LoginScreenState extends State<LoginScreen> {
                               children: [
                                 _DesktopLoginPill(
                                   icon: Icons.forum,
-                                  label: '团队会话',
+                                  label: '分享日常',
                                 ),
                                 _DesktopLoginPill(
                                   icon: Icons.folder_open,
-                                  label: '文件协作',
+                                  label: '收藏灵感',
                                 ),
                                 _DesktopLoginPill(
                                   icon: Icons.smart_toy,
-                                  label: 'AI 工作区',
+                                  label: 'AI 伙伴',
                                 ),
                               ],
                             ),
@@ -353,7 +358,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
                       const Spacer(),
                       const Text(
-                        'PM chat workspace',
+                        'A little closer, every day.',
                         style: TextStyle(
                           color: AppColors.textSecondary,
                           fontWeight: FontWeight.w700,
@@ -392,7 +397,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           ),
                           const SizedBox(height: 8),
                           const Text(
-                            '登录工作区，进入消息、联系人、Bot 和文件协作控制台',
+                            '登录你的账号，继续和朋友聊天、与 AI 找灵感',
                             style: TextStyle(color: AppColors.textSecondary),
                           ),
                           const SizedBox(height: 30),
@@ -513,7 +518,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                 SizedBox(width: 10),
                                 Expanded(
                                   child: Text(
-                                    '正式服务已连接，请使用已创建账号登录。',
+                                    '使用你的账号，继续上次的对话。',
                                     style: TextStyle(
                                       fontSize: 12,
                                       color: AppColors.textSecondary,

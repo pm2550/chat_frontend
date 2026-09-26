@@ -68,10 +68,10 @@ void main() {
       expect(find.byType(TextButton), findsOneWidget);
     });
 
-    testWidgets('renders formal service info', (tester) async {
+    testWidgets('renders the welcome guidance', (tester) async {
       usePhoneSize(tester);
       await tester.pumpWidget(buildTestWidget());
-      expect(find.text('正式服务已连接，请使用已创建账号登录。'), findsOneWidget);
+      expect(find.text('使用你的账号，继续上次的对话。'), findsOneWidget);
     });
 
     testWidgets('renders client download entry', (tester) async {

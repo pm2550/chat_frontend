@@ -13,6 +13,7 @@ class PMEmptyState extends StatelessWidget {
     required this.title,
     this.subtitle,
     this.action,
+    this.illustration,
     this.variant = EmptyStateVariant.normal,
   });
 
@@ -20,6 +21,7 @@ class PMEmptyState extends StatelessWidget {
   final String title;
   final String? subtitle;
   final Widget? action;
+  final Widget? illustration;
   final EmptyStateVariant variant;
 
   @override
@@ -46,15 +48,18 @@ class PMEmptyState extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Container(
-                width: 72,
-                height: 72,
-                decoration: BoxDecoration(
-                  color: background,
-                  borderRadius: BorderRadius.circular(PMRadius.l),
+              if (illustration != null)
+                illustration!
+              else
+                Container(
+                  width: 72,
+                  height: 72,
+                  decoration: BoxDecoration(
+                    color: background,
+                    borderRadius: BorderRadius.circular(PMRadius.l),
+                  ),
+                  child: Icon(icon, color: iconColor, size: 36),
                 ),
-                child: Icon(icon, color: iconColor, size: 36),
-              ),
               const SizedBox(height: PMSpacing.l),
               Text(
                 title,

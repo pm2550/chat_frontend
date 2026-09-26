@@ -1,5 +1,3 @@
-import 'dart:math' as math;
-
 import 'package:flutter/material.dart';
 
 import '../constants/app_brand.dart';
@@ -116,9 +114,6 @@ class PMChatPattern extends StatelessWidget {
             gradient:
                 dark ? AppColors.primaryGradient : AppColors.backgroundGradient,
           ),
-        ),
-        CustomPaint(
-          painter: _PMChatPatternPainter(dense: dense, dark: dark),
         ),
         child,
       ],
@@ -238,57 +233,4 @@ class _PMChatMarkPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
-}
-
-class _PMChatPatternPainter extends CustomPainter {
-  _PMChatPatternPainter({required this.dense, required this.dark});
-
-  final bool dense;
-  final bool dark;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final grid = dense ? 22.0 : 34.0;
-    final linePaint = Paint()
-      ..color = (dark ? Colors.white : AppColors.primary)
-          .withValues(alpha: dark ? 0.08 : 0.045)
-      ..strokeWidth = 1;
-    final pixelPaint = Paint()
-      ..color = (dark ? Colors.white : AppColors.secondary)
-          .withValues(alpha: dark ? 0.16 : 0.10);
-    final accentPaint = Paint()
-      ..color = (dark ? AppColors.accentGold : AppColors.accent)
-          .withValues(alpha: dark ? 0.16 : 0.08);
-
-    for (double x = -size.height; x < size.width; x += grid) {
-      canvas.drawLine(
-        Offset(x, 0),
-        Offset(x + size.height, size.height),
-        linePaint,
-      );
-    }
-
-    final step = dense ? 48.0 : 72.0;
-    for (double y = 18; y < size.height; y += step) {
-      for (double x = 14; x < size.width; x += step) {
-        final wave = math.sin((x + y) / 90.0);
-        if (wave > 0.28) {
-          canvas.drawRect(
-            Rect.fromLTWH(x, y, dense ? 4 : 5, dense ? 4 : 5),
-            pixelPaint,
-          );
-        } else if (wave < -0.42) {
-          canvas.drawRect(
-            Rect.fromLTWH(x + 12, y + 10, dense ? 5 : 6, dense ? 5 : 6),
-            accentPaint,
-          );
-        }
-      }
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant _PMChatPatternPainter oldDelegate) {
-    return oldDelegate.dense != dense || oldDelegate.dark != dark;
-  }
 }

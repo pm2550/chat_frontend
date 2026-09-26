@@ -2,10 +2,9 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import '../../constants/app_brand.dart';
 import '../../constants/app_colors.dart';
 import '../../design/pm_symbol_icon.dart';
-import '../../widgets/pm_brand.dart';
+import '../../widgets/pm_navigation_rail.dart';
 import '../../widgets/pm_responsive.dart';
 import '../../services/auth_service.dart';
 import '../../services/background_message_service.dart';
@@ -42,6 +41,9 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   int _currentIndex = 0;
   String _aiSection = 'bots';
+  ModalRoute<dynamic>? _homeRoute;
+  bool _didReadInitialRoute = false;
+  bool _homeRouteWasCurrent = false;
   bool _aiPageVisited = false;
   final AuthService _authService = AuthService();
   final PageStorageBucket _pageStorageBucket = PageStorageBucket();
@@ -126,13 +128,26 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    final routeName =
-        ModalRoute.of(context)?.settings.name ?? Uri.base.fragment;
-    final parsed = _tabFromRoute(routeName);
-    if (parsed.index != _currentIndex || parsed.aiSection != _aiSection) {
-      setState(() {
-        _currentIndex = parsed.index;
-        _aiSection = parsed.aiSection;
+    final route = ModalRoute.of(context);
+    final firstRead = !_didReadInitialRoute || !identical(route, _homeRoute);
+    if (firstRead) {
+      _homeRoute = route;
+      _didReadInitialRoute = true;
+      final parsed = _tabFromRoute(route?.settings.name ?? Uri.base.fragment);
+      _currentIndex = parsed.index;
+      _aiSection = parsed.aiSection;
+    }
+    final isCurrent = route?.isCurrent ?? true;
+    final returnedToHome = !firstRead && !_homeRouteWasCurrent && isCurrent;
+    _homeRouteWasCurrent = isCurrent;
+    if (returnedToHome) {
+      // Tab changes update browser history, not this route's original settings.
+      // Returning from a child must keep the selected tab and restore its URL.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || !(_homeRoute?.isCurrent ?? true)) return;
+        _syncRoute(_currentIndex == 3
+            ? '/home/ai/$_aiSection'
+            : _tabs[_currentIndex].route);
       });
     }
   }
@@ -346,124 +361,10 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildDesktopSidebar(BuildContext context) {
-    return Container(
-      width: 260,
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        border: Border(right: BorderSide(color: AppColors.borderLight)),
-        boxShadow: [AppColors.appBarShadow],
-      ),
-      child: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(18, 20, 18, 18),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const PMChatLogo(size: 44, showWordmark: true),
-              const SizedBox(height: 28),
-              for (var index = 0; index < _tabs.length; index++)
-                _buildDesktopNavItem(index: index, tab: _tabs[index]),
-              const SizedBox(height: 20),
-              Container(
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  gradient: AppColors.primaryGradient,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: const Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Icon(Icons.auto_awesome, color: Colors.white),
-                    SizedBox(height: 10),
-                    Text(
-                      AppBrand.tagline,
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                    SizedBox(height: 4),
-                    Text(
-                      '聊天、文件、Bot 和 Agent 都在一个工作台里。',
-                      style: TextStyle(color: Colors.white70, fontSize: 12),
-                    ),
-                  ],
-                ),
-              ),
-              const Spacer(),
-              const Divider(color: AppColors.borderLight),
-              const SizedBox(height: 10),
-              Text(
-                AppBrand.name,
-                style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                      color: AppColors.textSecondary,
-                      fontWeight: FontWeight.w700,
-                    ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildDesktopNavItem({
-    required int index,
-    required _HomeTabSpec tab,
-  }) {
-    final selected = _currentIndex == index;
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: InkWell(
-        onTap: () => _selectTab(index),
-        borderRadius: BorderRadius.circular(8),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 180),
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
-          decoration: BoxDecoration(
-            color: selected ? AppColors.pixelBlue : Colors.transparent,
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(
-              color: selected ? AppColors.primaryLight : Colors.transparent,
-            ),
-          ),
-          child: Row(
-            children: [
-              Container(
-                width: 34,
-                height: 34,
-                decoration: BoxDecoration(
-                  color: selected ? Colors.white : AppColors.cloud,
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(
-                    color: selected ? AppColors.primaryLight : AppColors.border,
-                  ),
-                ),
-                child: PMSymbolIcon(
-                  selected ? tab.selectedIcon : tab.icon,
-                  size: 20,
-                  color: selected ? AppColors.primary : AppColors.textSecondary,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  tab.desktopLabel,
-                  style: TextStyle(
-                    color: selected
-                        ? AppColors.textPrimary
-                        : AppColors.textSecondary,
-                    fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
+  Widget _buildDesktopSidebar(BuildContext context) => PMNavigationRail(
+        selectedIndex: _currentIndex,
+        onSelected: _selectTab,
+      );
 
   _HomeRouteState _tabFromRoute(String routeName) {
     final normalized = routeName.startsWith('/') ? routeName : '/$routeName';

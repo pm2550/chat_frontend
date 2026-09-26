@@ -13,6 +13,62 @@ void main() {
     await AuthService().clearLocalSession();
   });
 
+  Future<AuthService> restoreSession() async {
+    SharedPreferences.setMockInitialValues({
+      'access_token': 'cached-access',
+      'user_data': jsonEncode({
+        'id': 9,
+        'username': 'cached',
+        'email': 'cached@example.com',
+        'displayName': 'Cached User',
+        'createdAt': '2026-05-28T00:00:00Z',
+      }),
+    });
+    final service = AuthService();
+    await service.initialize(validateInBackground: false);
+    return service;
+  }
+
+  testWidgets('restored session paints content on the very first frame',
+      (tester) async {
+    final service = await restoreSession();
+    await tester.pumpWidget(MaterialApp(
+        home: AuthGuard(
+            authService: service, child: const Text('protected content'))));
+    expect(find.text('protected content'), findsOneWidget);
+    expect(find.byType(CircularProgressIndicator), findsNothing);
+  });
+
+  testWidgets('synchronous session still redirects after logout',
+      (tester) async {
+    final service = await restoreSession();
+    await tester.pumpWidget(MaterialApp(
+        routes: {'/login': (_) => const Text('login route')},
+        home: AuthGuard(
+            authService: service, child: const Text('protected content'))));
+    await service.clearLocalSession();
+    await tester.pumpAndSettle();
+    expect(find.text('login route'), findsOneWidget);
+    expect(find.text('protected content'), findsNothing);
+  });
+
+  testWidgets('explicit pending check takes precedence over restored session',
+      (tester) async {
+    final service = await restoreSession();
+    final pending = Completer<bool>();
+    await tester.pumpWidget(MaterialApp(
+        routes: {'/login': (_) => const Text('login route')},
+        home: AuthGuard(
+            authService: service,
+            authCheck: () => pending.future,
+            child: const Text('protected content'))));
+    expect(find.text('protected content'), findsNothing);
+    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+    pending.complete(false);
+    await tester.pumpAndSettle();
+    expect(find.text('login route'), findsOneWidget);
+  });
+
   testWidgets('loading auth state keeps splash instead of navigating to login',
       (tester) async {
     final completer = Completer<bool>();

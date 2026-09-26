@@ -2,10 +2,11 @@ import 'package:flutter/material.dart';
 
 import '../../constants/api_constants.dart';
 import '../../constants/app_colors.dart';
+import '../../design/design.dart';
+import '../settings/chat_preferences_screen.dart';
 import '../../models/user.dart';
 import '../../services/auth_service.dart';
 import '../../services/user_profile_service.dart';
-import '../../widgets/pm_brand.dart';
 import '../../widgets/pm_responsive.dart';
 import '../profile/about_app_dialog.dart';
 import 'add_friend_screen.dart';
@@ -218,319 +219,175 @@ class _ProfilePageState extends State<ProfilePage>
 
   Widget _buildDesktopScaffold() {
     return Scaffold(
-      body: PMChatPattern(
-        dense: true,
-        child: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.all(28),
-            child: Column(
-              children: [
-                PMDesktopHeader(
-                  title: '个人中心',
-                  subtitle: '管理账号资料、在线状态、通知和隐私偏好',
-                  icon: Icons.account_circle,
-                  actions: [
-                    OutlinedButton.icon(
-                      onPressed: () => _loadProfile(),
-                      icon: const Icon(Icons.refresh, size: 18),
-                      label: const Text('刷新'),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: AppColors.primary,
-                        side: const BorderSide(color: AppColors.border),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 14,
-                          vertical: 13,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    FilledButton.icon(
-                      onPressed: () {
-                        Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (_) => const SettingsScreen(),
-                          ),
-                        );
-                      },
-                      icon: const Icon(Icons.settings, size: 18),
-                      label: const Text('设置'),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 22),
-                Expanded(
-                  child: _buildDesktopBody(),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildDesktopBody() {
-    if (_isLoading) {
-      return const Center(child: CircularProgressIndicator());
-    }
-
-    if (_errorMessage != null && _currentUser == null) {
-      return PMDesktopCard(child: _buildErrorState());
-    }
-
-    final user = _currentUser;
-    if (user == null) {
-      return const Center(child: Text('未找到用户信息'));
-    }
-
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Expanded(
-          flex: 3,
-          child: ListView(
-            children: [
-              _buildProfileHeader(user),
-              const SizedBox(height: 16),
-              if (_errorMessage != null) _buildInlineWarning(_errorMessage!),
-              _buildOnlineStatus(user),
-              const SizedBox(height: 16),
-              _buildContactInfo(user),
-              const SizedBox(height: 16),
-              _buildAccountInfo(user),
-            ],
-          ),
-        ),
-        const SizedBox(width: 18),
-        SizedBox(
-          width: 360,
-          child: ListView(
-            children: [
-              PMDesktopCard(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const PMSectionHeader(
-                      title: '账号操作',
-                      subtitle: '通知、隐私和账号信息',
-                    ),
-                    const SizedBox(height: 14),
-                    _buildMenuItem(
-                      icon: Icons.star_rounded,
-                      title: '我的收藏',
-                      onTap: _openStarredMessages,
-                    ),
-                    _buildMenuItem(
-                      icon: Icons.qr_code_2,
-                      title: '我的二维码',
-                      onTap: _showMyFriendCode,
-                    ),
-                    _buildMenuItem(
-                      icon: Icons.notifications,
-                      title: '通知设置',
-                      onTap: _openNotificationSettings,
-                    ),
-                    _buildMenuItem(
-                      icon: Icons.privacy_tip,
-                      title: '隐私设置',
-                      onTap: _openPrivacySettings,
-                    ),
-                    _buildMenuItem(
-                      icon: Icons.info_outline,
-                      title: '关于',
-                      onTap: () => showAboutAppDialog(context),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 18),
-              PMDesktopCard(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    const PMSectionHeader(
-                      title: '会话身份',
-                      subtitle: '当前账号会用于聊天、文件和工作区任务',
-                    ),
-                    const SizedBox(height: 14),
-                    FilledButton.icon(
-                      onPressed: _editProfile,
-                      icon: const Icon(Icons.edit),
-                      label: const Text('编辑资料'),
-                    ),
-                    const SizedBox(height: 10),
-                    OutlinedButton.icon(
-                      onPressed: _logout,
-                      icon: const Icon(Icons.logout),
-                      label: const Text('退出登录'),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: AppColors.error,
-                        side: const BorderSide(color: AppColors.error),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
+        body: PMDesktopPage(
+            maxWidth: 1040,
+            child: Column(children: [
+              PMPageHeader(title: '我的', subtitle: '让聊天更像你，也照顾好自己的节奏', actions: [
+                IconButton(
+                    tooltip: '刷新',
+                    onPressed: () => _loadProfile(),
+                    icon: const Icon(Icons.refresh)),
+                PMButton(
+                    label: '设置',
+                    icon: Icons.settings_outlined,
+                    variant: PMButtonVariant.secondary,
+                    onPressed: () => Navigator.of(context).push(
+                        MaterialPageRoute(
+                            builder: (_) => const SettingsScreen()))),
+              ]),
+              const SizedBox(height: PMSpacing.xl),
+              Expanded(
+                  child: RefreshIndicator(
+                      onRefresh: () => _loadProfile(showLoading: false),
+                      child: _buildBody())),
+            ])));
   }
 
   Widget _buildBody() {
-    if (_isLoading) {
-      return const Center(child: CircularProgressIndicator());
-    }
-
+    if (_isLoading) return const Center(child: CircularProgressIndicator());
     if (_errorMessage != null && _currentUser == null) {
       return ListView(
-        physics: const AlwaysScrollableScrollPhysics(),
-        children: [
-          SizedBox(
-            height: MediaQuery.of(context).size.height * 0.7,
-            child: _buildErrorState(),
-          ),
-        ],
-      );
+          physics: const AlwaysScrollableScrollPhysics(),
+          children: [SizedBox(height: 420, child: _buildErrorState())]);
     }
-
     final user = _currentUser;
-    if (user == null) {
-      return const Center(child: Text('未找到用户信息'));
-    }
-
+    if (user == null) return const Center(child: Text('未找到用户信息'));
     return ListView(
-      physics: const AlwaysScrollableScrollPhysics(),
-      padding: const EdgeInsets.all(16),
-      children: [
-        _buildProfileHeader(user),
-        const SizedBox(height: 16),
-        if (_errorMessage != null) _buildInlineWarning(_errorMessage!),
-        _buildOnlineStatus(user),
-        const SizedBox(height: 16),
-        _buildContactInfo(user),
-        const SizedBox(height: 16),
-        _buildAccountInfo(user),
-        const SizedBox(height: 16),
-        _buildMenuItem(
-          icon: Icons.star_rounded,
-          title: '我的收藏',
-          onTap: _openStarredMessages,
-        ),
-        _buildMenuItem(
-          icon: Icons.qr_code_2,
-          title: '我的二维码',
-          onTap: _showMyFriendCode,
-        ),
-        _buildMenuItem(
-          icon: Icons.notifications,
-          title: '通知设置',
-          onTap: _openNotificationSettings,
-        ),
-        _buildMenuItem(
-          icon: Icons.privacy_tip,
-          title: '隐私设置',
-          onTap: _openPrivacySettings,
-        ),
-        _buildMenuItem(
-          icon: Icons.info_outline,
-          title: '关于',
-          onTap: () => showAboutAppDialog(context),
-        ),
-        const SizedBox(height: 16),
-        SizedBox(
-          width: double.infinity,
-          child: ElevatedButton.icon(
-            onPressed: _logout,
-            icon: const Icon(Icons.logout),
-            label: const Text('退出登录'),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.error,
-              foregroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(vertical: 14),
-            ),
-          ),
-        ),
-      ],
-    );
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.all(PMSpacing.l),
+        children: [
+          _buildProfileHeader(user),
+          const SizedBox(height: PMSpacing.l),
+          if (_errorMessage != null) _buildInlineWarning(_errorMessage!),
+          Row(children: [
+            Expanded(
+                child: _buildQuickEntry(
+                    Icons.star_border_rounded, '我的收藏', _openStarredMessages)),
+            const SizedBox(width: PMSpacing.s),
+            Expanded(
+                child: _buildQuickEntry(
+                    Icons.palette_outlined,
+                    '聊天装扮',
+                    () => Navigator.of(context).push(MaterialPageRoute(
+                        builder: (_) => ChatPreferencesScreen(
+                            profileService: _profileService))))),
+            const SizedBox(width: PMSpacing.s),
+            Expanded(
+                child: _buildQuickEntry(
+                    Icons.qr_code_2, '我的二维码', _showMyFriendCode)),
+          ]),
+          const SizedBox(height: PMSpacing.xl),
+          PMSectionCard(title: '偏好与设置', children: [
+            _buildMenuItem(
+                icon: Icons.notifications_none_rounded,
+                title: '通知设置',
+                onTap: _openNotificationSettings),
+            _buildMenuItem(
+                icon: Icons.shield_outlined,
+                title: '隐私设置',
+                onTap: _openPrivacySettings),
+            _buildMenuItem(
+                icon: Icons.tune_rounded,
+                title: '更多设置',
+                onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const SettingsScreen()))),
+          ]),
+          const SizedBox(height: PMSpacing.l),
+          PMCard(
+              elevated: false,
+              padding: EdgeInsets.zero,
+              child: ExpansionTile(
+                shape: const Border(),
+                collapsedShape: const Border(),
+                leading: const Icon(Icons.badge_outlined),
+                title: const Text('账号资料'),
+                subtitle: const Text('联系信息与账户详情',
+                    style: TextStyle(
+                        fontSize: 12, color: AppColors.textSecondary)),
+                children: [_buildContactInfo(user), _buildAccountInfo(user)],
+              )),
+          const SizedBox(height: PMSpacing.l),
+          _buildMenuItem(
+              icon: Icons.info_outline,
+              title: '关于',
+              onTap: () => showAboutAppDialog(context)),
+          const SizedBox(height: PMSpacing.l),
+          Align(
+              alignment: Alignment.center,
+              child: TextButton.icon(
+                  onPressed: _logout,
+                  icon: const Icon(Icons.logout, size: 18),
+                  label: const Text('退出登录'),
+                  style: TextButton.styleFrom(
+                      foregroundColor: AppColors.textSecondary))),
+        ]);
   }
 
+  Widget _buildQuickEntry(IconData icon, String title, VoidCallback onTap) =>
+      PMCard(
+        padding: const EdgeInsets.symmetric(
+            vertical: PMSpacing.l, horizontal: PMSpacing.xs),
+        onTap: onTap,
+        child: Column(children: [
+          Icon(icon, color: AppColors.primary, size: 24),
+          const SizedBox(height: PMSpacing.s),
+          Text(title,
+              textAlign: TextAlign.center,
+              style:
+                  const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+        ]),
+      );
+
   Widget _buildProfileHeader(User user) {
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: const [AppColors.cardShadow],
-      ),
-      child: Row(
-        children: [
-          CircleAvatar(
-            radius: 34,
-            backgroundColor: AppColors.primary.withValues(alpha: 0.1),
-            backgroundImage: _avatarProvider(user),
-            child: _avatarProvider(user) == null
-                ? Text(
-                    _avatarText(user),
-                    style: const TextStyle(
-                      color: AppColors.primary,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 24,
-                    ),
-                  )
-                : null,
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  _displayName(user),
-                  style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  user.email,
-                  style: const TextStyle(color: AppColors.textSecondary),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                if (user.bio != null && user.bio!.isNotEmpty) ...[
-                  const SizedBox(height: 8),
-                  Text(
-                    user.bio!,
-                    style: const TextStyle(
-                      color: AppColors.textSecondary,
-                      fontSize: 13,
-                    ),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ],
-              ],
-            ),
-          ),
-          IconButton(
-            tooltip: '编辑资料',
-            icon: const Icon(Icons.edit),
-            onPressed: _editProfile,
-          ),
-        ],
-      ),
-    );
+    return PMCard(
+        radius: PMRadius.l,
+        padding: const EdgeInsets.all(PMSpacing.xl),
+        child: Column(children: [
+          Row(children: [
+            CircleAvatar(
+                radius: 30,
+                backgroundColor: AppColors.pixelBlue,
+                backgroundImage: _avatarProvider(user),
+                child: _avatarProvider(user) == null
+                    ? Text(_avatarText(user),
+                        style: const TextStyle(
+                            color: AppColors.primary,
+                            fontSize: 24,
+                            fontWeight: FontWeight.w700))
+                    : null),
+            const SizedBox(width: PMSpacing.l),
+            Expanded(
+                child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                  Text(_displayName(user),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                          fontSize: 21, fontWeight: FontWeight.w700)),
+                  const SizedBox(height: PMSpacing.xs),
+                  Text('@${user.username}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                          color: AppColors.textSecondary, fontSize: 13)),
+                  if (user.bio?.isNotEmpty == true)
+                    Text(user.bio!,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                            color: AppColors.textSecondary, fontSize: 13)),
+                ])),
+            IconButton(
+                tooltip: '编辑资料',
+                icon: const Icon(Icons.edit_outlined, size: 20),
+                onPressed: _editProfile),
+          ]),
+          const SizedBox(height: PMSpacing.l),
+          const Divider(),
+          const SizedBox(height: PMSpacing.m),
+          _buildOnlineStatus(user),
+        ]));
   }
 
   Widget _buildInlineWarning(String message) {
@@ -559,28 +416,25 @@ class _ProfilePageState extends State<ProfilePage>
   }
 
   Widget _buildOnlineStatus(User user) {
-    return _buildSection(
-      title: '在线状态',
-      child: Wrap(
-        spacing: 8,
-        runSpacing: 8,
-        children: OnlineStatus.values.map((status) {
-          final selected = status == user.onlineStatus;
-          return ChoiceChip(
-            selected: selected,
-            label: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                _buildStatusDot(status),
-                const SizedBox(width: 6),
-                Text(status.description),
-              ],
-            ),
-            onSelected: (_) => _updateOnlineStatus(status),
-          );
-        }).toList(),
-      ),
-    );
+    return Wrap(
+        spacing: PMSpacing.xs,
+        runSpacing: PMSpacing.xs,
+        children: OnlineStatus.values
+            .map((status) => ChoiceChip(
+                  selected: status == user.onlineStatus,
+                  showCheckmark: false,
+                  visualDensity: VisualDensity.compact,
+                  labelPadding:
+                      const EdgeInsets.symmetric(horizontal: PMSpacing.xs),
+                  label: Row(mainAxisSize: MainAxisSize.min, children: [
+                    _buildStatusDot(status),
+                    const SizedBox(width: PMSpacing.xs),
+                    Text(status.description,
+                        style: const TextStyle(fontSize: 12))
+                  ]),
+                  onSelected: (_) => _updateOnlineStatus(status),
+                ))
+            .toList());
   }
 
   Widget _buildContactInfo(User user) {
@@ -618,33 +472,8 @@ class _ProfilePageState extends State<ProfilePage>
     );
   }
 
-  Widget _buildSection({
-    required String title,
-    required Widget child,
-  }) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: const [AppColors.cardShadow],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            title,
-            style: const TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          const SizedBox(height: 12),
-          child,
-        ],
-      ),
-    );
-  }
+  Widget _buildSection({required String title, required Widget child}) =>
+      PMSectionCard(title: title, children: [child]);
 
   Widget _buildInfoRow(IconData icon, String label, String value) {
     return Padding(
@@ -672,20 +501,14 @@ class _ProfilePageState extends State<ProfilePage>
     );
   }
 
-  Widget _buildMenuItem({
-    required IconData icon,
-    required String title,
-    required VoidCallback onTap,
-  }) {
-    return Card(
-      margin: const EdgeInsets.only(bottom: 8),
-      child: ListTile(
-        leading: Icon(icon, color: AppColors.primary),
+  Widget _buildMenuItem(
+      {required IconData icon,
+      required String title,
+      required VoidCallback onTap}) {
+    return PMListRow(
+        leading: Icon(icon, color: AppColors.primary, size: 22),
         title: Text(title),
-        trailing: const Icon(Icons.arrow_forward_ios, size: 16),
-        onTap: onTap,
-      ),
-    );
+        onTap: onTap);
   }
 
   Widget _buildErrorState() {

@@ -162,7 +162,7 @@ class _ChatPreferencesScreenState extends State<ChatPreferencesScreen> {
                           children: [
                             PMPageHeader(
                               title: '聊天偏好',
-                              subtitle: '背景、头像框和自己发送的消息气泡',
+                              subtitle: '背景、头像框与消息气泡，搭配出你的聊天风格',
                               leading: Container(
                                 width: 54,
                                 height: 54,
@@ -197,7 +197,7 @@ class _ChatPreferencesScreenState extends State<ChatPreferencesScreen> {
     final customUrl = _settings.chatBackgroundCustomUrl;
     return PMSectionCard(
       title: '聊天背景',
-      subtitle: '上传背景会优先于预设；聊天区始终叠加 30% 白色蒙版保证可读性',
+      subtitle: '使用自己的图片或选择预设，背景会自动柔化，让文字清晰易读',
       trailing: Wrap(
         spacing: PMSpacing.s,
         children: [
@@ -438,7 +438,7 @@ class _ChatPreferencesScreenState extends State<ChatPreferencesScreen> {
                   children: [
                     const PMDialogHeader(
                       title: '自定义纯色背景',
-                      subtitle: '保存为 solid:#RRGGBB，可在聊天区叠加可读性蒙版',
+                      subtitle: '选择喜欢的背景色，预览聊天中的实际效果',
                     ),
                     const SizedBox(height: PMSpacing.m),
                     TextField(

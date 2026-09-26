@@ -35,9 +35,14 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Alice'), findsOneWidget);
+      expect(find.text('聊天装扮'), findsOneWidget);
+      expect(find.byType(ChoiceChip), findsNWidgets(4));
+      await tester.scrollUntilVisible(find.text('账号资料'), 200,
+          scrollable: find.byType(Scrollable).first);
+      await tester.tap(find.text('账号资料'));
+      await tester.pumpAndSettle();
       expect(find.text('alice@example.com'), findsWidgets);
       expect(find.text('Product builder'), findsWidgets);
-      expect(find.text('在线状态'), findsOneWidget);
     });
 
     testWidgets('updates online status from the status chips', (tester) async {

@@ -143,7 +143,7 @@ extension _ChatScreenMessageListParts on _ChatScreenState {
                         isMe: isMe,
                         showAvatar: message.isAnonymous ||
                             message.isBotMessage ||
-                            (_chat.type == ChatType.group && startsNewGroup),
+                            startsNewGroup,
                         onOpenAttachment: _openAttachment,
                         onRetrySend: _retryFailedMessage,
                         onOpenReply: () => _scrollToQuotedMessage(message),

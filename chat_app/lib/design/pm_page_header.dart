@@ -100,19 +100,19 @@ class _PageHeading extends StatelessWidget {
           overflow: TextOverflow.ellipsis,
           style: TextStyle(
             color: AppColors.textPrimary,
-            fontSize: compact ? 24 : 28,
-            fontWeight: FontWeight.w800,
+            fontSize: compact ? 24 : 30,
+            fontWeight: FontWeight.w700,
           ),
         ),
         if (subtitle != null) ...[
           const SizedBox(height: PMSpacing.xs),
           Text(
             subtitle!,
-            maxLines: compact ? 3 : 2,
+            maxLines: 2,
             overflow: TextOverflow.ellipsis,
             style: const TextStyle(
               color: AppColors.textSecondary,
-              fontSize: 15,
+              fontSize: 13,
               fontWeight: FontWeight.w500,
             ),
           ),

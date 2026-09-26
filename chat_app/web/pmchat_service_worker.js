@@ -102,7 +102,7 @@ async function installCompleteRelease() {
   // waiting for tens of megabytes before the new worker can take control.
   const assets = activationAssets(manifest);
   for (const asset of assets) {
-    const assetResponse = await fetch(asset.url, { cache: 'reload' });
+    const assetResponse = await fetch(versionedAssetRequest(asset.url), { cache: 'reload' });
     if (!assetResponse.ok) {
       throw new Error(`Required PM chat asset failed: ${asset.url}`);
     }
@@ -169,9 +169,18 @@ async function cacheFirstAsset(request) {
   const runtime = await caches.open(RUNTIME_CACHE);
   const runtimeCached = await runtime.match(request, { ignoreSearch: true });
   if (runtimeCached) return runtimeCached;
-  const response = await fetch(request);
+  const response = await fetch(versionedAssetRequest(request));
   if (response.ok) await runtime.put(path, response.clone());
   return response;
+}
+
+function versionedAssetRequest(request) {
+  const url = new URL(typeof request === 'string' ? request : request.url,
+    self.location.origin);
+  // Also separate proxy/browser caches for legacy assets and the bootstrap.
+  // Explicit versions belong to that request and must never be overwritten.
+  if (!url.searchParams.has('v')) url.searchParams.set('v', BUILD_ID);
+  return typeof request === 'string' ? url.href : new Request(url.href, request);
 }
 
 async function retainCurrentAndPreviousRelease() {
@@ -212,6 +221,7 @@ function isCacheableAsset(pathname) {
     pathname === '/favicon.png' ||
     pathname.startsWith('/canvaskit/') ||
     pathname.startsWith('/assets/') ||
+    /^\/pmchat-assets\/[a-f0-9]{20}\/assets\//.test(pathname) ||
     pathname.startsWith('/fonts/') ||
     pathname.startsWith('/icons/');
 }

@@ -61,11 +61,35 @@ Future<void> main(List<String> arguments) async {
   final buildId =
       sha256.convert(utf8.encode(seed.toString())).toString().substring(0, 20);
 
-  for (final path in ['index.html', 'pmchat_service_worker.js']) {
+  for (final path in [
+    'index.html',
+    'pmchat_service_worker.js',
+    'flutter_bootstrap.js'
+  ]) {
     final file = File('${root.path}/$path');
     final content = await file.readAsString();
     await file.writeAsString(content.replaceAll(_buildIdMarker, buildId));
   }
+
+  // Keep Flutter's asset layout under an immutable release prefix. This uses
+  // the engine's assetBase setting; no proxy reconfiguration or fetch shim.
+  final versionedAssets = Directory('${root.path}/pmchat-assets');
+  if (versionedAssets.existsSync()) {
+    await versionedAssets.delete(recursive: true);
+  }
+  final sourceAssets = Directory('${root.path}/assets');
+  final versionedPaths = <String>[];
+  await for (final entity
+      in sourceAssets.list(recursive: true, followLinks: false)) {
+    if (entity is! File) continue;
+    final relative = entity.path.substring(sourceAssets.path.length + 1);
+    final path = 'pmchat-assets/$buildId/assets/$relative';
+    final destination = File('${root.path}/$path');
+    await destination.parent.create(recursive: true);
+    await entity.copy(destination.path);
+    versionedPaths.add(path);
+  }
+  versionedPaths.sort();
 
   Future<List<Map<String, Object>>> describe(List<String> paths) async {
     final assets = <Map<String, Object>>[];
@@ -80,7 +104,7 @@ Future<void> main(List<String> arguments) async {
     return assets;
   }
 
-  final commonAssets = await describe(commonPaths);
+  final commonAssets = await describe([...commonPaths, ...versionedPaths]);
   final jsAssets = await describe(jsPaths);
   final wasmAssets = await describe(wasmPaths);
   final assets = <Map<String, Object>>[

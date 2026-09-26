@@ -189,8 +189,8 @@ void main() {
       await tester.tap(find.byIcon(Icons.clear));
       await tester.pumpAndSettle();
 
-      expect(find.byKey(const ValueKey('chat-list-search-results')),
-          findsNothing);
+      expect(
+          find.byKey(const ValueKey('chat-list-search-results')), findsNothing);
       expect(find.text('无关会话'), findsOneWidget);
     });
   });
@@ -218,7 +218,7 @@ void main() {
     await tester.pumpWidget(build());
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byIcon(Icons.more_vert));
+    await tester.tap(find.byTooltip('消息选项'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('已移出的聊天'));
     await tester.pumpAndSettle();
@@ -307,8 +307,7 @@ class _ListService extends ChatDataService {
     int size = 20,
   }) async {
     globalQueries.add(keyword);
-    final hits =
-        messageHits.where((m) => m.content.contains(keyword)).toList();
+    final hits = messageHits.where((m) => m.content.contains(keyword)).toList();
     return MessagePage(
       messages: hits,
       currentPage: 0,

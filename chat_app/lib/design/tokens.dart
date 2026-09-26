@@ -26,22 +26,22 @@ class PMElevation {
   const PMElevation._();
 
   static const subtle = BoxShadow(
-    color: Color(0x0A0B1F3A),
+    color: Color(0x0624253D),
     blurRadius: 8,
     offset: Offset(0, 2),
   );
   static const card = BoxShadow(
-    color: Color(0x120B1F3A),
+    color: Color(0x0924253D),
     blurRadius: 14,
     offset: Offset(0, 6),
   );
   static const hover = BoxShadow(
-    color: Color(0x1A0B1F3A),
+    color: Color(0x1424253D),
     blurRadius: 24,
     offset: Offset(0, 10),
   );
   static const float = BoxShadow(
-    color: Color(0x220B1F3A),
+    color: Color(0x1C24253D),
     blurRadius: 32,
     offset: Offset(0, 16),
   );
@@ -49,6 +49,9 @@ class PMElevation {
 
 class PMMotion {
   const PMMotion._();
+
+  static Duration duration(BuildContext context, Duration value) =>
+      MediaQuery.disableAnimationsOf(context) ? Duration.zero : value;
 
   static const fast = Duration(milliseconds: 120);
   static const medium = Duration(milliseconds: 220);

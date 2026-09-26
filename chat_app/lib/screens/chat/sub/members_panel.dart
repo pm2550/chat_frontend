@@ -22,47 +22,6 @@ extension _ChatScreenMembersPanelParts on _ChatScreenState {
     // falls back to the first tab (资料) when viewing a 2-tab private panel.
     final selectedTab =
         _desktopInfoPanelTab <= (tabs.length - 1) ? _desktopInfoPanelTab : 0;
-    if (_desktopInfoPanelCollapsed) {
-      return Container(
-        width: 64,
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          border: Border(left: BorderSide(color: AppColors.borderLight)),
-        ),
-        child: SafeArea(
-          child: Column(
-            children: [
-              IconButton(
-                tooltip: '展开房间信息',
-                icon: const Icon(Icons.chevron_left),
-                onPressed: () =>
-                    _setViewState(() => _desktopInfoPanelCollapsed = false),
-              ),
-              const SizedBox(height: 8),
-              for (var i = 0; i < tabs.length; i++)
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 4),
-                  child: IconButton.filledTonal(
-                    tooltip: tabs[i].$2,
-                    icon: PMSymbolIcon(tabs[i].$1, size: 18),
-                    color:
-                        selectedTab == i ? tabs[i].$3 : AppColors.textSecondary,
-                    style: IconButton.styleFrom(
-                      backgroundColor: selectedTab == i
-                          ? tabs[i].$3.withValues(alpha: 0.12)
-                          : AppColors.cloud,
-                    ),
-                    onPressed: () => _setViewState(() {
-                      _desktopInfoPanelTab = i;
-                      _desktopInfoPanelCollapsed = false;
-                    }),
-                  ),
-                ),
-            ],
-          ),
-        ),
-      );
-    }
     return Container(
       width: 340,
       decoration: const BoxDecoration(
@@ -96,7 +55,7 @@ extension _ChatScreenMembersPanelParts on _ChatScreenState {
                     tooltip: '收起',
                     icon: const Icon(Icons.chevron_right),
                     onPressed: () =>
-                        _setViewState(() => _desktopInfoPanelCollapsed = true),
+                        _desktopScaffoldKey.currentState?.closeEndDrawer(),
                   ),
                 ],
               ),

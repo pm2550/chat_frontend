@@ -20,12 +20,12 @@ class ChatCustomizationCatalog {
     ChatCustomizationOption(
       id: 'cloud_gradient',
       label: '云端渐变',
-      description: '清爽蓝绿渐变，适合日常办公聊天。',
+      description: '柔和的淡紫底色，适合长时间阅读。',
     ),
     ChatCustomizationOption(
       id: 'pixel_mint',
       label: '像素薄荷',
-      description: '细点阵和浅绿色，延续 PM chat 品牌感。',
+      description: '细点阵与薄荷绿，给聊天一点清新气息。',
     ),
     ChatCustomizationOption(
       id: 'sunset_warm',

@@ -60,7 +60,7 @@ class _PMListRowState extends State<PMListRow> {
   @override
   Widget build(BuildContext context) {
     final content = AnimatedContainer(
-      duration: PMMotion.fast,
+      duration: PMMotion.duration(context, PMMotion.medium),
       curve: PMMotion.curveStandard,
       padding: EdgeInsets.symmetric(
         horizontal: widget.dense ? PMSpacing.m : PMSpacing.l,
@@ -140,18 +140,21 @@ class _PMListRowState extends State<PMListRow> {
       ),
     );
 
-    return MouseRegion(
-      cursor: _interactive ? SystemMouseCursors.click : MouseCursor.defer,
-      onEnter: (_) => setState(() => _hovered = true),
-      onExit: (_) => setState(() => _hovered = false),
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
+    return Semantics(
+        button: widget.onTap != null,
         onTap: widget.onTap,
-        onSecondaryTap: widget.onSecondaryTap,
-        onLongPress: widget.onLongPress,
-        child: content,
-      ),
-    );
+        child: MouseRegion(
+          cursor: _interactive ? SystemMouseCursors.click : MouseCursor.defer,
+          onEnter: (_) => setState(() => _hovered = true),
+          onExit: (_) => setState(() => _hovered = false),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(PMRadius.m),
+            onTap: widget.onTap,
+            onSecondaryTap: widget.onSecondaryTap,
+            onLongPress: widget.onLongPress,
+            child: content,
+          ),
+        ));
   }
 }
 

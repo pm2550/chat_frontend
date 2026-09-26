@@ -24,7 +24,8 @@ class PMChatBackgroundLayer extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final url = customUrl?.trim();
-    return Stack(
+    return ClipRect(
+        child: Stack(
       fit: StackFit.expand,
       children: [
         _PresetBackground(preset: preset),
@@ -47,7 +48,7 @@ class PMChatBackgroundLayer extends StatelessWidget {
         Container(color: Colors.white.withValues(alpha: 0.30)),
         child,
       ],
-    );
+    ));
   }
 }
 
@@ -392,6 +393,7 @@ class _BackgroundPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final rect = Offset.zero & size;
     final colors = switch (preset) {
+      'cloud_gradient' => [AppColors.cloud, AppColors.pixelBlue],
       'pixel_mint' => [const Color(0xFFE9FFF7), const Color(0xFFDDF7FF)],
       'sunset_warm' => [const Color(0xFFFFF1E6), const Color(0xFFFFE3F0)],
       'cyber_dark' => [const Color(0xFF111827), const Color(0xFF0F766E)],
@@ -421,8 +423,9 @@ class _BackgroundPainter extends CustomPainter {
         _diagonalLines(canvas, size, const Color(0x160F172A), 22);
       case 'aurora':
         _aurora(canvas, size);
-      case 'pixel_mint':
       case 'cloud_gradient':
+        break;
+      case 'pixel_mint':
         _diagonalLines(canvas, size, const Color(0x143B82F6), 24);
         _dots(canvas, size, const Color(0x3321B8A6), 38);
         _dots(canvas, size, const Color(0x22FF7A45), 72);

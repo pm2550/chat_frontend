@@ -1,3 +1,4 @@
+import 'dart:ui' show SemanticsAction;
 import 'package:chat_app/models/message.dart';
 import 'package:chat_app/screens/chat/chat_file_center_screen.dart';
 import 'package:chat_app/services/chat_data_service.dart';
@@ -7,8 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  testWidgets('renders file messages and saves selected file',
-      (tester) async {
+  testWidgets('renders file messages and saves selected file', (tester) async {
     final service = FakeFileCenterChatService();
     final saved = <String>[];
 
@@ -39,7 +39,8 @@ void main() {
     expect(find.text('已保存到 /home/me/doc.pdf'), findsOneWidget);
   });
 
-  testWidgets('says so when the platform cannot save, instead of claiming '
+  testWidgets(
+      'says so when the platform cannot save, instead of claiming '
       'the file was fetched', (tester) async {
     final service = FakeFileCenterChatService();
 
@@ -103,7 +104,8 @@ void main() {
     expect(find.textContaining('已保存'), findsNothing);
   });
 
-  testWidgets('saving from the image preview reports the result on top of '
+  testWidgets(
+      'saving from the image preview reports the result on top of '
       'the preview', (tester) async {
     final service = FakeFileCenterChatService();
     final saved = <String>[];
@@ -127,13 +129,14 @@ void main() {
     // TalkBack (and UI automation) must see the button's name on the
     // tappable node itself, not merged into the surrounding dialog.
     final semantics = tester.ensureSemantics();
-    expect(
-      tester.getSemantics(find.descendant(
-        of: find.byTooltip('保存图片'),
-        matching: find.byType(IconButton),
-      )),
-      containsSemantics(label: '保存图片', isButton: true, hasTapAction: true),
-    );
+    final saveSemantics = tester.getSemantics(find.descendant(
+      of: find.byTooltip('保存图片'),
+      matching: find.byType(IconButton),
+    ));
+    expect(saveSemantics.label, '保存图片');
+    expect(saveSemantics.getSemanticsData().hasAction(SemanticsAction.tap),
+        isTrue);
+    expect(saveSemantics.getSemanticsData().flagsCollection.isButton, isTrue);
     semantics.dispose();
 
     await tester.tap(find.byTooltip('保存图片'));

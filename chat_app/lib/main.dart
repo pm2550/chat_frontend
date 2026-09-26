@@ -16,6 +16,7 @@ import 'services/friend_code.dart';
 import 'screens/settings/settings_screen.dart';
 import 'screens/settings/points_screen.dart';
 import 'constants/app_brand.dart';
+import 'design/pm_theme.dart';
 import 'constants/app_colors.dart';
 import 'services/agent_client_tools.dart';
 import 'services/encryption_service.dart';
@@ -25,6 +26,8 @@ import 'services/websocket_service.dart';
 import 'widgets/app_update_listener.dart';
 import 'widgets/authenticated_image.dart';
 import 'widgets/auth_guard.dart';
+import 'widgets/pm_responsive.dart';
+import 'widgets/pm_section_route.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -70,88 +73,11 @@ class ChatApp extends StatelessWidget {
         GlobalWidgetsLocalizations.delegate,
         GlobalCupertinoLocalizations.delegate,
       ],
-      theme: ThemeData(
-        useMaterial3: true,
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: AppColors.primary,
-          brightness: Brightness.light,
-        ),
-        scaffoldBackgroundColor: AppColors.background,
-        elevatedButtonTheme: ElevatedButtonThemeData(
-          style: ElevatedButton.styleFrom(
-            backgroundColor: AppColors.primary,
-            foregroundColor: Colors.white,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(8),
-            ),
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-          ),
-        ),
-        filledButtonTheme: FilledButtonThemeData(
-          style: FilledButton.styleFrom(
-            backgroundColor: AppColors.primary,
-            foregroundColor: Colors.white,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(8),
-            ),
-            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-          ),
-        ),
-        inputDecorationTheme: InputDecorationTheme(
-          filled: true,
-          fillColor: Colors.white,
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(8),
-            borderSide: const BorderSide(color: AppColors.border),
-          ),
-          enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(8),
-            borderSide: const BorderSide(color: AppColors.border),
-          ),
-          focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(8),
-            borderSide: const BorderSide(color: AppColors.primary, width: 2),
-          ),
-          contentPadding:
-              const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-        ),
-        cardTheme: CardThemeData(
-          color: AppColors.card,
-          elevation: 0,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(8),
-            side: const BorderSide(color: AppColors.borderLight),
-          ),
-        ),
-        navigationBarTheme: NavigationBarThemeData(
-          backgroundColor: Colors.white,
-          indicatorColor: AppColors.pixelBlue,
-          labelTextStyle: WidgetStateProperty.resolveWith((states) {
-            final selected = states.contains(WidgetState.selected);
-            return TextStyle(
-              color: selected ? AppColors.primary : AppColors.textSecondary,
-              fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-            );
-          }),
-        ),
-        appBarTheme: const AppBarTheme(
-          backgroundColor: AppColors.surface,
-          elevation: 0,
-          scrolledUnderElevation: 1,
-          titleTextStyle: TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.w800,
-            color: AppColors.textPrimary,
-          ),
-          iconTheme: IconThemeData(color: AppColors.textPrimary),
-        ),
-      ),
+      theme: PMTheme.light,
       darkTheme: ThemeData(
         useMaterial3: true,
         colorScheme: ColorScheme.fromSeed(
-          seedColor: AppColors.primary,
-          brightness: Brightness.dark,
-        ),
+            seedColor: AppColors.primary, brightness: Brightness.dark),
       ),
       initialRoute: '/',
       // 冷启动只建启动页一层，深链接由启动页登录检查完再跳。
@@ -171,21 +97,21 @@ class ChatApp extends StatelessWidget {
         '/login': (context) => const LoginScreen(),
         '/register': (context) => const RegisterScreen(),
         '/downloads': (context) => const DownloadsScreen(),
-        '/home': (context) => const AuthGuard(child: HomeScreen()),
-        '/chat': (context) => const AuthGuard(child: ChatScreen()),
         '/settings': (context) => const AuthGuard(child: SettingsScreen()),
         '/points': (context) => const AuthGuard(child: PointsScreen()),
       },
       onGenerateRoute: (settings) {
         final routeName = settings.name ?? '';
         if (_isHomeRoute(routeName)) {
-          return MaterialPageRoute(
+          return PMSectionRoute(
+            stationary: PMBreakpoints.isDesktop(navigatorKey.currentContext!),
             settings: settings,
             builder: (context) => const AuthGuard(child: HomeScreen()),
           );
         }
         if (_isChatRoute(routeName)) {
-          return MaterialPageRoute(
+          return PMSectionRoute(
+            stationary: PMBreakpoints.isDesktop(navigatorKey.currentContext!),
             settings: settings,
             builder: (context) => const AuthGuard(child: ChatScreen()),
           );

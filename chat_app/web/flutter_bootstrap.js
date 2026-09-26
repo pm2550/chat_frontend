@@ -23,5 +23,12 @@
     });
   }
 
-  _flutter.loader.load();
+  // Asset URLs must change with the compiled app: tree-shaken icon fonts from
+  // another release can omit glyphs even when the JavaScript itself is fresh.
+  var assetBuild = '__PMCHAT_BUILD_ID__';
+  var config = {};
+  if (/^[a-f0-9]{20}$/.test(assetBuild)) {
+    config.assetBase = 'pmchat-assets/' + assetBuild + '/';
+  }
+  _flutter.loader.load({config: config});
 })();

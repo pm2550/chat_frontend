@@ -55,33 +55,35 @@ class _PMCardState extends State<PMCard> {
         _hovered = false;
         _pressed = false;
       }),
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTapDown:
-            _isInteractive ? (_) => setState(() => _pressed = true) : null,
-        onTapCancel:
-            _isInteractive ? () => setState(() => _pressed = false) : null,
-        onTapUp:
-            _isInteractive ? (_) => setState(() => _pressed = false) : null,
-        onTap: widget.onTap,
-        child: AnimatedScale(
-          duration: PMMotion.fast,
-          curve: PMMotion.curveStandard,
-          scale: _pressed ? 0.99 : 1,
-          child: AnimatedContainer(
-            duration: PMMotion.fast,
-            curve: PMMotion.curveStandard,
-            padding: widget.padding,
-            decoration: BoxDecoration(
-              color: hoverTint,
-              borderRadius: BorderRadius.circular(widget.radius),
-              border: Border.all(color: AppColors.borderLight),
-              boxShadow: shadow,
+      child: Material(
+          type: MaterialType.transparency,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(widget.radius),
+            onTapDown:
+                _isInteractive ? (_) => setState(() => _pressed = true) : null,
+            onTapCancel:
+                _isInteractive ? () => setState(() => _pressed = false) : null,
+            onTapUp:
+                _isInteractive ? (_) => setState(() => _pressed = false) : null,
+            onTap: widget.onTap,
+            child: AnimatedScale(
+              duration: PMMotion.duration(context, PMMotion.medium),
+              curve: PMMotion.curveStandard,
+              scale: _pressed ? 0.99 : 1,
+              child: AnimatedContainer(
+                duration: PMMotion.duration(context, PMMotion.medium),
+                curve: PMMotion.curveStandard,
+                padding: widget.padding,
+                decoration: BoxDecoration(
+                  color: hoverTint,
+                  borderRadius: BorderRadius.circular(widget.radius),
+                  border: Border.all(color: AppColors.borderLight),
+                  boxShadow: shadow,
+                ),
+                child: widget.child,
+              ),
             ),
-            child: widget.child,
-          ),
-        ),
-      ),
+          )),
     );
   }
 }
