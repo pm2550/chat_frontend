@@ -14,8 +14,8 @@ extension _ChatScreenChromeParts on _ChatScreenState {
         SizedBox(
             key: const ValueKey('desktop-conversation-list'),
             width: PMDesktopLayout.conversationListWidth(context),
-            // 私聊属于联系人：中间栏换成联系人列表，群聊 / 频道仍是消息列表。
-            child: _chat.type == ChatType.private
+            // 从联系人打开的私聊：中间栏是联系人列表；其余（含从消息页打开的私聊）是消息列表。
+            child: _showsContactsColumn
                 ? ContactsPage(
                     compact: true,
                     selectedChatId: _chat.id,
@@ -49,7 +49,10 @@ extension _ChatScreenChromeParts on _ChatScreenState {
     ));
   }
 
-  /// 导航栏高亮当前会话所属的 tab（私聊在联系人），角标跟着未读实时变化。
+  bool get _showsContactsColumn =>
+      _chat.type == ChatType.private && _openedFromContacts;
+
+  /// 导航栏高亮中间栏对应的 tab，消息角标跟着未读实时变化。
   Widget _buildDesktopRail() {
     final directory = ChatRoomDirectory.of(
       chatService: widget.chatService,
@@ -59,11 +62,8 @@ extension _ChatScreenChromeParts on _ChatScreenState {
     return ListenableBuilder(
         listenable: directory.changes,
         builder: (context, _) => PMNavigationRail(
-            selectedIndex: _chat.type == ChatType.private ? 1 : 0,
-            badgeCounts: [
-              directory.conversationUnread,
-              directory.privateUnread,
-            ],
+            selectedIndex: _showsContactsColumn ? 1 : 0,
+            badgeCounts: [directory.totalUnread],
             onSelected: (index) {
               Navigator.of(context).pushNamedAndRemoveUntil(
                   PMNavigationRail.routes[index], (_) => false);

@@ -64,7 +64,7 @@ void _chatListCases2() {
   });
 
   testWidgets(
-      'lists only group chats; private unread and notices still count',
+      'lists private chats with groups by peer name; hidden or blocked ones stay out',
       (tester) async {
     final realtime = FakeRealtimeService();
     final backend = StubDesktopNotificationBackend(
@@ -72,13 +72,13 @@ void _chatListCases2() {
       permissionGranted: true,
       visible: false,
     );
-    final alice = User(
-      id: 'alice',
-      username: 'alice',
-      email: 'alice@test.com',
-      displayName: 'Alice',
-      createdAt: DateTime.parse('2024-01-01T10:00:00'),
-    );
+    User peer(String id, String name) => User(
+          id: id,
+          username: id,
+          email: '$id@test.com',
+          displayName: name,
+          createdAt: DateTime.parse('2024-01-01T10:00:00'),
+        );
     final service = FakeChatListService(chats: [
       Chat(
         id: 'g1',
@@ -98,8 +98,24 @@ void _chatListCases2() {
         name: 'Me & Alice',
         type: ChatType.private,
         createdAt: DateTime.parse('2024-01-01T10:00:00'),
-        participants: [alice],
+        participants: [peer('alice', 'Alice')],
         unreadCount: 3,
+      ),
+      Chat(
+        id: 'p2',
+        name: 'Me & Bob',
+        type: ChatType.private,
+        createdAt: DateTime.parse('2024-01-01T10:00:00'),
+        participants: [peer('bob', 'Bob')],
+        hiddenAt: DateTime.parse('2024-01-01T10:00:00'),
+      ),
+      Chat(
+        id: 'p3',
+        name: 'Me & Carol',
+        type: ChatType.private,
+        createdAt: DateTime.parse('2024-01-01T10:00:00'),
+        participants: [peer('carol', 'Carol')],
+        isBlocked: true,
       ),
     ]);
 
@@ -112,11 +128,13 @@ void _chatListCases2() {
 
     expect(find.text('项目群'), findsOneWidget);
     expect(find.text('公告频道'), findsOneWidget);
+    // 私聊显示对方的名字，不显示 "A & B"。
+    expect(find.text('Alice'), findsOneWidget);
     expect(find.text('Me & Alice'), findsNothing);
-    expect(find.text('Alice'), findsNothing);
-    // "未读"只数消息页里的群聊 / 频道。
-    expect(find.text('未读 2'), findsOneWidget);
-    // 系统 / 桌面角标两边都算。
+    // 移出 / 屏蔽的私聊不在消息页（仍在联系人里）。
+    expect(find.text('Bob'), findsNothing);
+    expect(find.text('Carol'), findsNothing);
+    expect(find.text('未读 5'), findsOneWidget);
     expect(backend.lastUnreadCount, 5);
 
     realtime.emitMessage(Message(
@@ -128,16 +146,14 @@ void _chatListCases2() {
       timestamp: DateTime.parse('2024-01-01T10:05:00'),
     ));
     await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
 
     expect(backend.lastUnreadCount, 6);
-    expect(find.text('未读 2'), findsOneWidget);
-    expect(find.text('私聊新消息'), findsNothing);
-    // 私聊的提醒标题是对方的名字，不是 "A & B"。
+    expect(find.text('未读 6'), findsOneWidget);
+    expect(find.text('私聊新消息'), findsOneWidget);
     expect(backend.shownNotifications.single.title, 'Alice');
-    await tester.pump(const Duration(milliseconds: 100));
-    expect(find.text('Alice: 私聊新消息'), findsOneWidget);
     // 认识的私聊来消息不会让消息页整页重拉。
-    expect(service.forceRefreshRequests, [false]);
+    expect(service.forceRefreshRequests, everyElement(isFalse));
   });
 
   testWidgets('room_updated event refreshes group avatar in list',

@@ -127,8 +127,8 @@ class _ChatListPageState extends State<ChatListPage>
     _connectRealtime();
   }
 
-  /// 消息页那一份会话（群聊 + 频道）。
-  List<Chat> get _chats => _directory.conversations.rooms;
+  /// 消息页的会话：群聊、频道和私聊（移出 / 屏蔽的除外）。
+  List<Chat> get _chats => _directory.inboxRooms;
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {

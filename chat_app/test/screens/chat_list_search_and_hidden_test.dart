@@ -140,16 +140,23 @@ void main() {
         (tester) async {
       await tester.pumpWidget(build());
       await tester.pumpAndSettle();
-      // 私聊不在消息页的会话列表里。
+      // 私聊在消息页里，显示对方的名字，不显示会话名。
+      expect(find.text('王小明'), findsOneWidget);
       expect(find.text('老王'), findsNothing);
-      expect(find.text('王小明'), findsNothing);
 
       await tester.enterText(find.byType(TextField).first, '王小明');
       await tester.pump(const Duration(milliseconds: 400));
       await tester.pumpAndSettle();
 
-      // 非好友的私聊对方也出现在"联系人"里，显示对方的名字而不是会话名。
+      // 非好友的私聊对方出现在"联系人"里，显示对方的名字而不是会话名；
+      // "聊天"结果不重复列这个私聊。
       expect(find.byKey(const ValueKey('search-friend-30')), findsOneWidget);
+      expect(
+          find.descendant(
+            of: find.byKey(const ValueKey('chat-list-search-results')),
+            matching: find.text('王小明'),
+          ),
+          findsOneWidget);
       expect(find.text('老王'), findsNothing);
 
       await tester.tap(find.byKey(const ValueKey('search-friend-30')));
@@ -225,6 +232,27 @@ void main() {
     expect(find.text('设计评审群'), findsOneWidget);
   });
 
+  testWidgets('移出列表 on a private chat hides it from 消息 and can be undone',
+      (tester) async {
+    await tester.pumpWidget(build());
+    await tester.pumpAndSettle();
+
+    await tester.longPress(find.text('王小明'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('移出列表'));
+    await tester.pumpAndSettle();
+    expect(service.hiddenIds, ['2']);
+    // 服务器刷新后仍是隐藏状态：不会又冒回消息页。
+    expect(find.text('王小明'), findsNothing);
+    expect(find.text('已从消息列表移出 王小明'), findsOneWidget);
+
+    await tester.tap(find.text('撤销'));
+    await tester.pumpAndSettle();
+
+    expect(service.restoredIds, ['2']);
+    expect(find.text('王小明'), findsOneWidget);
+  });
+
   testWidgets('已移出的聊天 lists hidden and blocked chats and restores them',
       (tester) async {
     await tester.pumpWidget(build());
@@ -237,8 +265,7 @@ void main() {
 
     expect(find.byType(HiddenChatsScreen), findsOneWidget);
     expect(find.text('被移出的群'), findsOneWidget);
-    // 屏蔽的私聊在联系人里（带"已屏蔽"标记）解除，不在消息页的已移出列表里。
-    expect(find.text('被屏蔽的人'), findsNothing);
+    expect(find.text('被屏蔽的人'), findsOneWidget);
     expect(find.text('设计评审群'), findsNothing);
 
     await tester.tap(find.descendant(
@@ -246,9 +273,14 @@ void main() {
       matching: find.text('恢复'),
     ));
     await tester.pumpAndSettle();
+    await tester.tap(find.descendant(
+      of: find.byKey(const ValueKey('hidden-chat-9')),
+      matching: find.text('取消屏蔽'),
+    ));
+    await tester.pumpAndSettle();
 
     expect(service.restoredIds, ['8']);
-    expect(service.unblockedIds, isEmpty);
+    expect(service.unblockedIds, ['9']);
     expect(find.text('没有被移出或屏蔽的聊天'), findsOneWidget);
 
     final refreshesBefore = service.forceRefreshCount;
@@ -257,7 +289,7 @@ void main() {
 
     expect(service.forceRefreshCount, greaterThan(refreshesBefore));
     expect(find.text('被移出的群'), findsOneWidget);
-    expect(find.text('被屏蔽的人'), findsNothing);
+    expect(find.text('被屏蔽的人'), findsOneWidget);
   });
 }
 
@@ -344,15 +376,14 @@ class _ListService extends ChatDataService {
   @override
   Future<void> restoreChatRoom(String chatRoomId) async {
     restoredIds.add(chatRoomId);
-    _move(_hidden, _visible, chatRoomId,
-        (c) => Chat(id: c.id, name: c.name, type: c.type, createdAt: _created));
+    _move(_hidden, _visible, chatRoomId, (c) => c.copyWith(clearHiddenAt: true));
   }
 
   @override
   Future<void> unblockChatRoom(String chatRoomId) async {
     unblockedIds.add(chatRoomId);
     _move(_hidden, _visible, chatRoomId,
-        (c) => Chat(id: c.id, name: c.name, type: c.type, createdAt: _created));
+        (c) => c.copyWith(clearHiddenAt: true, isBlocked: false));
   }
 }
 

@@ -39,18 +39,26 @@ void main() {
     });
   }
 
-  testWidgets('desktop private chat puts contacts in the middle column',
+  testWidgets('desktop middle column follows where a private chat was opened',
       (tester) async {
     tester.view.physicalSize = const Size(1440, 900);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
+    final middle = find.byKey(const ValueKey('desktop-conversation-list'));
+    int railIndex() =>
+        tester.widget<PMNavigationRail>(find.byType(PMNavigationRail))
+            .selectedIndex;
 
+    // 从联系人打开的私聊：中间栏是联系人，导航高亮联系人。
     await tester.pumpWidget(buildTestWidget(
       createTestChat(),
       contactService: contacts.FakeContactService(),
+      routeArguments: ChatScreenArguments(
+        chat: createTestChat(),
+        openedFromContacts: true,
+      ),
     ));
     await tester.pumpAndSettle();
-    final middle = find.byKey(const ValueKey('desktop-conversation-list'));
     expect(
         find.descendant(of: middle, matching: find.byType(ContactsPage)),
         findsOneWidget);
@@ -59,25 +67,25 @@ void main() {
         tester.widget<ContactsPage>(find.byType(ContactsPage));
     expect(contactsPage.compact, isTrue);
     expect(contactsPage.selectedChatId, 'chat1');
-    expect(
-        tester.widget<PMNavigationRail>(find.byType(PMNavigationRail))
-            .selectedIndex,
-        1);
+    expect(railIndex(), 1);
 
-    await tester.pumpWidget(const SizedBox.shrink());
-    await tester.pumpWidget(buildTestWidget(
+    // 从消息页（或通知、链接）打开的私聊：中间栏是消息列表。
+    for (final chat in [
+      createTestChat(),
       createTestChat(id: 'group1', type: ChatType.group),
-      contactService: contacts.FakeContactService(),
-    ));
-    await tester.pumpAndSettle();
-    expect(
-        find.descendant(of: middle, matching: find.byType(ChatListPage)),
-        findsOneWidget);
-    expect(find.byType(ContactsPage), findsNothing);
-    expect(
-        tester.widget<PMNavigationRail>(find.byType(PMNavigationRail))
-            .selectedIndex,
-        0);
+    ]) {
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pumpWidget(buildTestWidget(
+        chat,
+        contactService: contacts.FakeContactService(),
+      ));
+      await tester.pumpAndSettle();
+      expect(
+          find.descendant(of: middle, matching: find.byType(ChatListPage)),
+          findsOneWidget);
+      expect(find.byType(ContactsPage), findsNothing);
+      expect(railIndex(), 0);
+    }
     expect(tester.takeException(), isNull);
   });
 

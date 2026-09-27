@@ -8,7 +8,7 @@ extension _ChatListActions2Parts on _ChatListPageState {
         pinned: !chat.isPinned,
       );
       if (!mounted) return;
-      _directory.conversations.updateRoom(
+      _directory.listFor(chat).updateRoom(
         chat.id,
         (room) => room.copyWith(isPinned: !chat.isPinned),
       );
@@ -28,7 +28,14 @@ extension _ChatListActions2Parts on _ChatListPageState {
     try {
       await action();
       if (!mounted) return;
-      if (removeFromList) {
+      if (removeFromList && chat.type == ChatType.private) {
+        // 私聊移出 / 屏蔽后仍是联系人：先从消息页拿掉，再从服务器取准确状态。
+        _directory.privateChats.updateRoom(
+          chat.id,
+          (room) => room.copyWith(hiddenAt: room.hiddenAt ?? DateTime.now()),
+        );
+        unawaited(_loadPrivateChatsQuietly(forceRefresh: true));
+      } else if (removeFromList) {
         _directory.conversations.removeRoom(chat.id);
       } else {
         unawaited(_loadChats(showLoading: false));
@@ -59,9 +66,10 @@ extension _ChatListActions2Parts on _ChatListPageState {
       await undo();
       await _loadChats(showLoading: false, forceRefresh: true);
       if (!mounted) return;
-      if (!_directory.conversations.contains(chat.id)) {
+      final list = _directory.listFor(chat);
+      if (!list.contains(chat.id) || !_directory.inboxContains(chat.id)) {
         // 刷新失败时至少把本地这一项放回去。
-        _directory.conversations.upsert(chat);
+        list.upsert(chat);
       }
     } catch (e) {
       _showSnackBar('撤销失败: $e');

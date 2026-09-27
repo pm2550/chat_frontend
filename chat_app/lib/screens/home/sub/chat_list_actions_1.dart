@@ -367,14 +367,14 @@ extension _ChatListActions1Parts on _ChatListPageState {
       case _ChatRoomMenuAction.clearHistory:
         final confirmed = await _confirmChatAction(
           title: '清空聊天记录',
-          message: '只会清空你在「${chat.name}」里的本地可见历史，不影响其他成员。',
+          message: '只会清空你在「${chat.titleFor(_currentUserId)}」里的本地可见历史，不影响其他成员。',
           confirmLabel: '清空',
         );
         if (confirmed) {
           await _runChatStateAction(
             chat,
             () => _chatService.clearChatHistory(chat.id),
-            successMessage: '已清空 ${chat.name} 的聊天记录',
+            successMessage: '已清空 ${chat.titleFor(_currentUserId)} 的聊天记录',
             removeFromList: false,
           );
         }
@@ -382,7 +382,7 @@ extension _ChatListActions1Parts on _ChatListPageState {
         await _runChatStateAction(
           chat,
           () => _chatService.hideChatRoom(chat.id),
-          successMessage: '已从消息列表移出 ${chat.name}',
+          successMessage: '已从消息列表移出 ${chat.titleFor(_currentUserId)}',
           removeFromList: true,
           undo: () => _chatService.restoreChatRoom(chat.id),
         );
@@ -397,7 +397,7 @@ extension _ChatListActions1Parts on _ChatListPageState {
           await _runChatStateAction(
             chat,
             () => _chatService.blockChatRoom(chat.id),
-            successMessage: '已屏蔽 ${chat.name}',
+            successMessage: '已屏蔽 ${chat.titleFor(_currentUserId)}',
             removeFromList: true,
           );
         }

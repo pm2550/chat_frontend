@@ -190,7 +190,7 @@ void main() {
     Finder badge(String label) =>
         find.descendant(of: find.byType(Badge), matching: find.text(label));
 
-    testWidgets('mobile tabs split group and private unread and stay live',
+    testWidgets('消息 tab counts all unread incl. private chats and stays live',
         (tester) async {
       tester.view.physicalSize = const Size(390, 844);
       tester.view.devicePixelRatio = 1;
@@ -207,12 +207,14 @@ void main() {
       await tester.pump();
 
       expect(directory.totalUnread, 5);
-      expect(badge('2'), findsOneWidget);
-      expect(badge('3'), findsOneWidget);
+      final chatsTab = find.ancestor(
+          of: find.text('消息'), matching: find.byType(NavigationDestination));
       final contactsTab = find.ancestor(
           of: find.text('联系人'), matching: find.byType(NavigationDestination));
-      expect(
-          find.descendant(of: contactsTab, matching: badge('3')), findsOneWidget);
+      // 私聊在消息页里：消息 tab 算全部未读（屏蔽的不算），联系人 tab 不重复计。
+      expect(find.descendant(of: chatsTab, matching: badge('5')), findsOneWidget);
+      expect(find.descendant(of: contactsTab, matching: find.byType(Badge)),
+          findsNothing);
 
       realtime.emitMessage(Message(
         id: 'pm',
@@ -225,8 +227,9 @@ void main() {
       await tester.pump();
       await tester.pump();
 
-      expect(badge('4'), findsOneWidget);
-      expect(badge('2'), findsOneWidget);
+      expect(find.descendant(of: chatsTab, matching: badge('6')), findsOneWidget);
+      expect(find.descendant(of: contactsTab, matching: find.byType(Badge)),
+          findsNothing);
       expect(directory.totalUnread, 6);
     });
 
@@ -250,10 +253,10 @@ void main() {
           expect(
               tester.widget<PMNavigationRail>(find.byType(PMNavigationRail))
                   .badgeCounts,
-              [2, 3]);
+              [5]);
         }
-        expect(badge('2'), findsOneWidget);
-        expect(badge('3'), findsOneWidget);
+        expect(badge('5'), findsOneWidget);
+        expect(find.byType(Badge), findsOneWidget);
       }
     });
   });

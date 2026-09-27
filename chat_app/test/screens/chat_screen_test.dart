@@ -86,6 +86,7 @@ Widget buildTestWidget(
   WebSocketService? webSocketService,
   ChatAttachmentPicker? imagePicker,
   ChatAttachmentPicker? filePicker,
+  Object? routeArguments,
 }) {
   final effectiveWebSocketService = webSocketService ??
       WebSocketService.forTesting(authService: _NoSocketAuthService());
@@ -97,7 +98,7 @@ Widget buildTestWidget(
         return Navigator(
           onGenerateRoute: (settings) {
             return MaterialPageRoute(
-              settings: RouteSettings(arguments: chat),
+              settings: RouteSettings(arguments: routeArguments ?? chat),
               builder: (context) => ChatScreen(
                 chatService:
                     chatService ?? FakeChatDataService(messages: testMessages),

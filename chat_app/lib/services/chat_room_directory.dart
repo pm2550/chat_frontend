@@ -426,14 +426,39 @@ class ChatRoomDirectory {
 
   Stream<ChatRoomMessageActivity> get messageActivity => _activity.stream;
 
-  /// 联系人 tab 的角标：私聊未读。
   int get privateUnread => privateChats.totalUnread;
 
-  /// 消息 tab 的角标：群聊 + 频道未读。
   int get conversationUnread => conversations.totalUnread;
 
-  /// 系统 / 桌面 / 图标角标：两边都算。
+  /// 消息 tab、系统 / 桌面 / 图标角标：群聊、频道和私聊都算。
   int get totalUnread => conversationUnread + privateUnread;
+
+  /// 消息页显示的会话：群聊、频道，加上没被移出 / 屏蔽的私聊，按最近消息排。
+  /// 私聊仍由 [privateChats] 管（联系人页也用它），这里只是合起来看。
+  List<Chat> get inboxRooms {
+    final rooms = [
+      ...conversations.rooms,
+      ...privateChats.rooms.where(_showsInInbox),
+    ];
+    rooms.sort((a, b) {
+      final aTime = a.lastMessage?.timestamp ?? a.updatedAt ?? a.createdAt;
+      final bTime = b.lastMessage?.timestamp ?? b.updatedAt ?? b.createdAt;
+      return bTime.compareTo(aTime);
+    });
+    return rooms;
+  }
+
+  bool inboxContains(String roomId) {
+    if (conversations.contains(roomId)) return true;
+    final chat = privateChats.roomById(roomId);
+    return chat != null && _showsInInbox(chat);
+  }
+
+  static bool _showsInInbox(Chat chat) => chat.hiddenAt == null && !chat.isBlocked;
+
+  /// 这个会话由哪份列表管：私聊在 [privateChats]，其余在 [conversations]。
+  ChatRoomListController listFor(Chat chat) =>
+      chat.type == ChatType.private ? privateChats : conversations;
 
   /// 任一份列表变化（含未读数）都会通知。
   Listenable get changes => Listenable.merge([conversations, privateChats]);

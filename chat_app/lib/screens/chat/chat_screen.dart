@@ -101,10 +101,14 @@ class ChatScreenArguments {
     required this.chat,
     this.startCall,
     this.focusMessage,
+    this.openedFromContacts = false,
   });
 
   final Chat chat;
   final CallMediaKind? startCall;
+
+  /// 从联系人页打开：桌面三栏的中间栏放联系人列表、导航高亮联系人；否则是消息列表。
+  final bool openedFromContacts;
 
   /// 打开后定位并高亮这条消息（例如从“我的收藏”跳转过来）。
   final Message? focusMessage;
@@ -220,6 +224,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   final Set<String> _openingPrivateChatUserIds = {};
   int _pollRefreshEpoch = 0;
   List<BotConfig> _roomBots = [];
+  bool _openedFromContacts = false;
   bool _isTyping = false;
   bool _isLoadingMessages = true;
   bool _isLoadingOlderMessages = false;
@@ -318,6 +323,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     final route = ModalRoute.of(context);
     final routeArgs = route?.settings.arguments;
     if (routeArgs is ChatScreenArguments) {
+      _openedFromContacts = routeArgs.openedFromContacts;
       _initializeResolvedChat(
         routeArgs.chat,
         startCall: routeArgs.startCall,

@@ -17,9 +17,10 @@ extension _ChatListData1Parts on _ChatListPageState {
         });
       }
     }
+    if (widget.chatService == null) {
+      await _directory.privateChats.restorePersisted();
+    }
     await _loadChats(showLoading: _chats.isEmpty);
-    // 私聊不在这里显示，但系统角标和私聊的新消息提醒要用到。
-    unawaited(_directory.privateChats.ensureLoaded());
   }
 
   Future<void> _loadChats({
@@ -39,7 +40,10 @@ extension _ChatListData1Parts on _ChatListPageState {
     }
 
     try {
-      await _directory.conversations.load(forceRefresh: forceRefresh);
+      await Future.wait<void>([
+        _directory.conversations.load(forceRefresh: forceRefresh),
+        _loadPrivateChatsQuietly(forceRefresh: forceRefresh),
+      ]);
       if (!mounted) return;
       _setViewState(() {
         _isLoading = false;
@@ -102,21 +106,21 @@ extension _ChatListData1Parts on _ChatListPageState {
     runOutsideBuild(() {
       if (!mounted) return;
       _setViewState(() {
-        final conversations = _directory.conversations;
-        _mentionHits.removeWhere((hit) => !conversations.contains(hit.chat.id));
-        if (conversations.hasLoaded && _chats.isNotEmpty) _isLoading = false;
+        _mentionHits
+            .removeWhere((hit) => !_directory.inboxContains(hit.chat.id));
+        if (_directory.conversations.hasLoaded && _chats.isNotEmpty) _isLoading = false;
       });
       _syncDesktopUnreadBadge();
     });
   }
 
-  /// 新消息已经记进目录：消息页负责弹提醒（私聊的也在这里提醒）。
+  /// 新消息已经记进目录：消息页负责弹提醒。
   void _handleMessageActivity(ChatRoomMessageActivity activity) {
     if (!mounted) return;
     final message = activity.message;
     final currentUserId = _currentUserId;
     final mentionsMe = message.mentionsUser(currentUserId);
-    if (activity.scope == ChatRoomScope.conversations) {
+    if (_directory.inboxContains(activity.chat.id)) {
       _setViewState(() {
         _isShowingCachedData = false;
         if (_showMentionsOnly && mentionsMe) {
@@ -145,19 +149,17 @@ extension _ChatListData1Parts on _ChatListPageState {
       await Future.wait<void>([
         reconnect,
         _loadChats(showLoading: false, forceRefresh: true),
-        _refreshPrivateChatsQuietly(),
       ]);
     } finally {
       _isRefreshingAfterResume = false;
     }
   }
 
-  Future<void> _refreshPrivateChatsQuietly() async {
+  /// 私聊拉不到时不让整页报错：群聊照常显示，下次事件或回到前台再试。
+  Future<void> _loadPrivateChatsQuietly({bool forceRefresh = false}) async {
     try {
-      await _directory.privateChats.load(forceRefresh: true);
-    } catch (_) {
-      // 私聊只影响角标和提醒；拉不到时下次事件或回到前台再试。
-    }
+      await _directory.privateChats.load(forceRefresh: forceRefresh);
+    } catch (_) {}
   }
 
   String? get _currentUserId =>
@@ -172,7 +174,7 @@ extension _ChatListData1Parts on _ChatListPageState {
         message.contains('authentication');
   }
 
-  /// 系统 / 桌面 / 图标角标算全部未读：消息页不再显示私聊，但私聊未读不能丢。
+  /// 系统 / 桌面 / 图标角标：全部未读。
   void _syncDesktopUnreadBadge() {
     _notificationService.syncUnreadCount(_directory.totalUnread);
   }
@@ -184,9 +186,12 @@ extension _ChatListData1Parts on _ChatListPageState {
     }
     bool matches(String? value) =>
         value != null && value.toLowerCase().contains(query);
+    // 私聊按人出现在下面的"联系人"结果里，这里只搜群聊和频道，免得同一个人出现两次。
     return _chats
         .where((chat) =>
-            matches(chat.name) || matches(chat.lastMessage?.resolvedFileLabel))
+            chat.type != ChatType.private &&
+            (matches(chat.name) ||
+                matches(chat.lastMessage?.resolvedFileLabel)))
         .toList();
   }
 

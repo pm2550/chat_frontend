@@ -210,17 +210,17 @@ extension _ContactsPeopleParts on _ContactsPageState {
       }
       if (!mounted) return;
     }
-    final arguments = ChatScreenArguments(chat: chat, startCall: startCall);
+    final arguments = ChatScreenArguments(
+      chat: chat,
+      startCall: startCall,
+      openedFromContacts: true,
+    );
     final open = widget.onOpenChat;
     if (open != null) {
       await open(arguments);
       return;
     }
-    await Navigator.pushNamed(
-      context,
-      '/chat/${chat.id}',
-      arguments: startCall == null ? chat : arguments,
-    );
+    await Navigator.pushNamed(context, '/chat/${chat.id}', arguments: arguments);
     if (mounted) unawaited(_refreshPrivateChatsQuietly());
   }
 

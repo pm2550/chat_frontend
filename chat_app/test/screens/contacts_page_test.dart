@@ -490,7 +490,10 @@ void main() {
 
       expect(service.privateChatUserIds, isEmpty);
       expect(openedRoute?.name, '/chat/p1');
-      expect((openedRoute?.arguments as Chat).id, 'p1');
+      final arguments = openedRoute?.arguments as ChatScreenArguments;
+      expect(arguments.chat.id, 'p1');
+      // 从联系人打开：桌面中间栏留在联系人列表。
+      expect(arguments.openedFromContacts, isTrue);
 
       Navigator.of(tester.element(find.text('Chat Page'))).pop();
       await tester.pumpAndSettle();

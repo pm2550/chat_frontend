@@ -58,14 +58,12 @@ class _HomeScreenState extends State<HomeScreen> {
   Timer? _cacheWarmupTimer;
   late final ChatRoomDirectory _directory =
       widget.directory ?? ChatRoomDirectory.shared;
-  int _conversationUnread = 0;
-  int _privateUnread = 0;
+  int _unread = 0;
 
   @override
   void initState() {
     super.initState();
-    _conversationUnread = _directory.conversationUnread;
-    _privateUnread = _directory.privateUnread;
+    _unread = _directory.totalUnread;
     _directory.changes.addListener(_onUnreadChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
@@ -78,28 +76,16 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
-  /// 消息 tab 显示群聊 / 频道未读，联系人 tab 显示私聊未读。
+  /// 消息 tab 的角标：全部会话（含私聊）的未读；私聊也在消息页里，联系人 tab 不再重复计。
   void _onUnreadChanged() {
-    final conversations = _directory.conversationUnread;
-    final privateChats = _directory.privateUnread;
-    if (conversations == _conversationUnread &&
-        privateChats == _privateUnread) {
-      return;
-    }
+    if (_directory.totalUnread == _unread) return;
     runOutsideBuild(() {
       if (!mounted) return;
-      setState(() {
-        _conversationUnread = _directory.conversationUnread;
-        _privateUnread = _directory.privateUnread;
-      });
+      setState(() => _unread = _directory.totalUnread);
     });
   }
 
-  int _unreadForTab(int index) => switch (index) {
-        0 => _conversationUnread,
-        1 => _privateUnread,
-        _ => 0,
-      };
+  int _unreadForTab(int index) => index == 0 ? _unread : 0;
 
   Future<void> _warmHiddenHomeCaches() async {
     // 两个 tab 的角标不依赖用户是否点开过那一页。
@@ -412,7 +398,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _buildDesktopSidebar(BuildContext context) => PMNavigationRail(
         selectedIndex: _currentIndex,
         onSelected: _selectTab,
-        badgeCounts: [_conversationUnread, _privateUnread],
+        badgeCounts: [_unread],
       );
 
   _HomeRouteState _tabFromRoute(String routeName) {

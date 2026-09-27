@@ -35,8 +35,8 @@ void _chatListCases1() {
     await tester.pumpWidget(buildTestWidget(service));
     await tester.pump();
 
-    expect(find.text('暂无群聊'), findsOneWidget);
-    // 没有右下角按钮了：空状态指向联系人和"发起聊天"。
+    expect(find.text('暂无聊天'), findsOneWidget);
+    // 没有右下角按钮了：空状态指向"发起聊天"和联系人。
     expect(find.textContaining('右下角'), findsNothing);
     expect(find.textContaining('「联系人」'), findsOneWidget);
   });

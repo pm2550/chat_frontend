@@ -200,7 +200,7 @@ extension _ChatListView1Parts on _ChatListPageState {
           const PMChatMark(size: 78),
           const SizedBox(height: 16),
           Text(
-            _searchQuery.isEmpty ? '暂无群聊' : '没有找到相关聊天',
+            _searchQuery.isEmpty ? '暂无聊天' : '没有找到相关聊天',
             style: const TextStyle(
               color: AppColors.textSecondary,
               fontSize: 16,
@@ -209,7 +209,7 @@ extension _ChatListView1Parts on _ChatListPageState {
           if (_searchQuery.isEmpty) ...[
             const SizedBox(height: 8),
             Text(
-              '和好友的私聊都在「联系人」里，点右上角的“发起聊天”找人聊聊',
+              '点右上角的“发起聊天”，或到「联系人」里找人聊聊',
               textAlign: TextAlign.center,
               style: TextStyle(
                 color: AppColors.textSecondary.withValues(alpha: 0.7),
@@ -390,7 +390,7 @@ extension _ChatListView1Parts on _ChatListPageState {
         final hit = _mentionHits[index];
         return PMListRow(
           leading: _buildChatAvatar(hit.chat),
-          title: Text(hit.chat.name),
+          title: Text(hit.chat.titleFor(_currentUserId)),
           subtitle: Text(
             hit.message.content,
             maxLines: 2,
@@ -437,7 +437,7 @@ extension _ChatListView1Parts on _ChatListPageState {
             leading: _buildChatAvatar(chat),
             title: Row(children: [
               Expanded(
-                  child: Text(chat.name,
+                  child: Text(chat.titleFor(_currentUserId),
                       maxLines: 1, overflow: TextOverflow.ellipsis)),
               if (chat.isPinned)
                 const Padding(
