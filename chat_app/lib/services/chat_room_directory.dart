@@ -490,9 +490,11 @@ class ChatRoomDirectory {
       list._applyMessage(message);
       return;
     }
-    // 不认识的会话：新建 / 被恢复的群、排在第一页之外的群，或者私聊还没拉到。
+    // 不认识的会话：新建 / 被恢复的群、排在第一页之外的群，或者刚建的私聊。
+    // 两份都刷新：新私聊的"加入会话"事件触发的那一轮可能早于这条消息，
+    // load() 会在进行中的那一轮后补拉，最后一条消息和未读才不会丢。
     unawaited(conversations._reloadQuietly());
-    if (!privateChats.hasLoaded) unawaited(privateChats.ensureLoaded());
+    unawaited(privateChats._reloadQuietly());
   }
 
   void _handleMessageUpdate(Message message) {

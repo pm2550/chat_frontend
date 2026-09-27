@@ -89,7 +89,7 @@ void main() {
     expect(activities.single.scope, ChatRoomScope.privateChats);
   });
 
-  test('messages for unknown rooms refresh the message tab list only',
+  test('messages for unknown rooms refresh the lists; known ones apply in place',
       () async {
     final (directory, realtime, service) = await loaded([
       Chat(id: 'g', name: 'G', type: ChatType.group, createdAt: created),
@@ -111,6 +111,34 @@ void main() {
     await pumpEventQueue();
     expect(service.forceRefreshRequests, [false, true]);
     expect(directory.conversations.contains('g2'), isTrue);
+  });
+
+  test('first message of a brand-new private chat brings it in with unread',
+      () async {
+    final (directory, realtime, service) = await loaded([
+      Chat(id: 'g', name: 'G', type: ChatType.group, createdAt: created),
+    ]);
+    expect(directory.privateChats.hasLoaded, isTrue);
+
+    // 对方刚建的私聊：私聊列表早已加载过，这个会话还不认识。
+    service.chats = [
+      ...service.chats,
+      Chat(
+        id: 'p-new',
+        name: 'Me & Bob',
+        type: ChatType.private,
+        createdAt: created,
+        unreadCount: 1,
+        lastMessage: message('m-new', 'p-new', senderId: 'bob'),
+      ),
+    ];
+    realtime.emitMessage(message('m-new', 'p-new', senderId: 'bob'));
+    await pumpEventQueue();
+
+    expect(directory.privateChats.contains('p-new'), isTrue);
+    expect(directory.privateChats.roomById('p-new')?.lastMessage?.id, 'm-new');
+    expect(directory.inboxContains('p-new'), isTrue);
+    expect(directory.totalUnread, 1);
   });
 
   test('concurrent loads are merged into one follow-up request', () async {
