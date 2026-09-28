@@ -4,6 +4,7 @@ import 'package:chat_app/models/user.dart';
 import 'package:chat_app/screens/chat/chat_screen.dart';
 import 'package:chat_app/services/auth_service.dart';
 import 'package:chat_app/services/bot_service.dart';
+import 'package:chat_app/services/image_prompt_helper.dart';
 import 'package:chat_app/services/websocket_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -469,6 +470,7 @@ class _ImageRecordingChatService extends FakeChatDataService {
     required String prompt,
     String size = '1024*1024',
     bool expand = true,
+    ImagePromptHelper? promptHelper,
   }) async {
     imagePrompts.add(prompt);
     return Message(

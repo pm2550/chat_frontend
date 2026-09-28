@@ -260,21 +260,7 @@ extension _AiHubView1Parts on _AiHubPageState {
                 ),
               ),
               const SizedBox(height: PMSpacing.m),
-              PMListRow(
-                leading: const _AiAvatar(
-                  icon: Icons.speed,
-                  label: '快出图',
-                  color: AppColors.warning,
-                ),
-                title: const Text('快出图'),
-                subtitle: const Text('关闭自动扩写，直接按你写的描述出图。'),
-                trailing: Switch(
-                  value: _imageFastMode,
-                  onChanged: _imageSubmitting
-                      ? null
-                      : (value) => _setViewState(() => _imageFastMode = value),
-                ),
-              ),
+              ImagePromptHelperSelector(enabled: !_imageSubmitting),
               if (_imageError != null) ...[
                 const SizedBox(height: PMSpacing.m),
                 Container(

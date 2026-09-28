@@ -10,7 +10,9 @@ import '../../models/message.dart';
 import '../../services/auth_service.dart';
 import '../../services/bot_service.dart';
 import '../../services/chat_data_service.dart';
+import '../../services/image_prompt_helper.dart';
 import '../../widgets/cost_preview_chip.dart';
+import '../../widgets/image_prompt_helper_selector.dart';
 import '../../widgets/message_bubble.dart';
 import '../../widgets/pm_brand.dart';
 import '../../widgets/pm_welcome_art.dart';
@@ -96,7 +98,6 @@ class _AiHubPageState extends State<AiHubPage>
   List<Chat> _rooms = const [];
   Chat? _selectedImageRoom;
   final TextEditingController _imagePromptController = TextEditingController();
-  bool _imageFastMode = false;
   bool _imageSubmitting = false;
   String? _imageError;
   _ImageGenerationJob? _latestImageJob;

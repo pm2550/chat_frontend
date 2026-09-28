@@ -2,9 +2,6 @@ part of '../chat_screen.dart';
 
 extension _ChatComposer3Parts on _ChatScreenState {
   void _showImageGenerationSheet() {
-    final promptController =
-        TextEditingController(text: _messageController.text);
-    var submitting = false;
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
@@ -16,81 +13,15 @@ extension _ChatComposer3Parts on _ChatScreenState {
           bottom: MediaQuery.viewInsetsOf(sheetContext).bottom + 16,
           top: 16,
         ),
-        child: StatefulBuilder(
-          builder: (context, setModalState) {
-            Future<void> submit() async {
-              final prompt = promptController.text.trim();
-              if (prompt.isEmpty || submitting) return;
-              setModalState(() => submitting = true);
-              Navigator.pop(sheetContext);
-              await _generateImageMessage(prompt);
-            }
-
-            return PMCard(
-              padding: const EdgeInsets.all(18),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'AI 图片生成',
-                    style: TextStyle(
-                      color: AppColors.textPrimary,
-                      fontSize: 18,
-                      fontWeight: FontWeight.w900,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  const Text(
-                    '本次 10 积分。生成完成后会作为图片消息发到当前会话。',
-                    style: TextStyle(
-                      color: AppColors.textSecondary,
-                      fontSize: 13,
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-                  TextField(
-                    controller: promptController,
-                    minLines: 3,
-                    maxLines: 6,
-                    autofocus: true,
-                    decoration: InputDecoration(
-                      hintText: '描述你想生成的图片',
-                      filled: true,
-                      fillColor: AppColors.cloud,
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8),
-                        borderSide: const BorderSide(color: AppColors.border),
-                      ),
-                    ),
-                    onSubmitted: (_) => submit(),
-                  ),
-                  const SizedBox(height: 14),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: [
-                      PMButton(
-                        label: '取消',
-                        variant: PMButtonVariant.secondary,
-                        onPressed: submitting
-                            ? null
-                            : () => Navigator.pop(sheetContext),
-                      ),
-                      const SizedBox(width: 10),
-                      PMButton(
-                        label: '生成',
-                        loading: submitting,
-                        onPressed: submitting ? null : () => submit(),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            );
+        child: _ImageGenerationSheet(
+          initialPrompt: _messageController.text,
+          onSubmit: (prompt) {
+            Navigator.pop(sheetContext);
+            unawaited(_generateImageMessage(prompt));
           },
         ),
       ),
-    ).whenComplete(promptController.dispose);
+    );
   }
 
   void _showEmojiPanel() {
@@ -501,5 +432,107 @@ extension _ChatComposer3Parts on _ChatScreenState {
         SnackBar(content: Text('投票创建失败: $e')),
       );
     }
+  }
+}
+
+/// "更多工具 → AI 图片"面板。输入框的控制器归它自己管：面板收起的动画里还在用，
+/// 不能在 showModalBottomSheet 返回时就销毁。
+class _ImageGenerationSheet extends StatefulWidget {
+  const _ImageGenerationSheet({
+    required this.initialPrompt,
+    required this.onSubmit,
+  });
+
+  final String initialPrompt;
+  final ValueChanged<String> onSubmit;
+
+  @override
+  State<_ImageGenerationSheet> createState() => _ImageGenerationSheetState();
+}
+
+class _ImageGenerationSheetState extends State<_ImageGenerationSheet> {
+  late final TextEditingController _promptController =
+      TextEditingController(text: widget.initialPrompt);
+  bool _submitted = false;
+
+  @override
+  void dispose() {
+    _promptController.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    final prompt = _promptController.text.trim();
+    if (prompt.isEmpty || _submitted) return;
+    setState(() => _submitted = true);
+    widget.onSubmit(prompt);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return PMCard(
+      padding: const EdgeInsets.all(18),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'AI 图片生成',
+              style: TextStyle(
+                color: AppColors.textPrimary,
+                fontSize: 18,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            const SizedBox(height: 6),
+            const Text(
+              '$kDrawPriceHint。生成完成后会作为图片消息发到当前会话。',
+              style: TextStyle(
+                color: AppColors.textSecondary,
+                fontSize: 13,
+              ),
+            ),
+            const SizedBox(height: 14),
+            TextField(
+              controller: _promptController,
+              minLines: 3,
+              maxLines: 6,
+              autofocus: true,
+              decoration: InputDecoration(
+                hintText: '描述你想生成的图片',
+                filled: true,
+                fillColor: AppColors.cloud,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: const BorderSide(color: AppColors.border),
+                ),
+              ),
+              onSubmitted: (_) => _submit(),
+            ),
+            const SizedBox(height: 14),
+            const ImagePromptHelperSelector(),
+            const SizedBox(height: 14),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                PMButton(
+                  label: '取消',
+                  variant: PMButtonVariant.secondary,
+                  onPressed:
+                      _submitted ? null : () => Navigator.pop(context),
+                ),
+                const SizedBox(width: 10),
+                PMButton(
+                  label: '生成',
+                  loading: _submitted,
+                  onPressed: _submitted ? null : _submit,
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }

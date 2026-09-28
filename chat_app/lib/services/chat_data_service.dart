@@ -18,6 +18,7 @@ import 'auth_service.dart';
 import 'chat_upload.dart';
 import 'encryption_service.dart';
 import 'image_upload/image_upload_preparer.dart';
+import 'image_prompt_helper.dart';
 import 'persistent_data_cache.dart';
 import 'request_coordinator.dart';
 
@@ -968,11 +969,13 @@ class ChatDataService {
     return Message.fromJson(messageJson, fallbackChatRoomId: chatRoomId);
   }
 
+  /// [promptHelper] 是扩写档位；同时带上 expand（关闭 = false），老服务器只认它。
   Future<Message> generateImageMessage(
     String chatRoomId, {
     required String prompt,
     String size = '1024*1024',
     bool expand = true,
+    ImagePromptHelper? promptHelper,
   }) async {
     final roomId = _parseRoomId(chatRoomId);
     final response = await _request(
@@ -983,7 +986,9 @@ class ChatDataService {
         'prompt': prompt,
         'n': 1,
         'size': size,
-        'expand': expand,
+        'expand':
+            promptHelper == null ? expand : promptHelper != ImagePromptHelper.off,
+        if (promptHelper != null) 'promptHelper': promptHelper.apiValue,
       },
     );
     final data = _decodeResponse(response);

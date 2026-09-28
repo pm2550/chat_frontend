@@ -154,7 +154,7 @@ extension _AiHubActions1Parts on _AiHubPageState {
       final message = await _chatDataService.generateImageMessage(
         room.id,
         prompt: prompt,
-        expand: !_imageFastMode,
+        promptHelper: ImagePromptHelperPreference.current.value,
       );
       if (!mounted) return;
       _setViewState(() {

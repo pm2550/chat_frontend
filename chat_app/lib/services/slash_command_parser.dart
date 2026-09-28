@@ -81,7 +81,9 @@ class SlashBotEntry {
   final String? avatarUrl;
 }
 
-const String kSlashDrawDescription = 'AI 画图 · 每天免费 3 次，之后每次 10 积分';
+/// AI 画图的计费说明（每天有免费次数，不是每次都扣积分）。
+const String kDrawPriceHint = '每天免费 3 次，之后每次 10 积分';
+const String kSlashDrawDescription = 'AI 画图 · $kDrawPriceHint';
 const String kSlashAskDescription = '问 AI 助手（能联网搜索、看本群记录）';
 const String kSlashBotDescription = '召唤机器人';
 

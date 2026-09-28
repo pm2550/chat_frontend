@@ -311,13 +311,17 @@ extension _ChatScreenSlashCommandParts on _ChatScreenState {
           child: Text(
             blocked
                 ? _kE2eeAiBlockedReason
-                : 'AI 画图：写好描述直接发送 · 每天免费 3 次，之后每次 10 积分',
-            maxLines: 1,
+                : 'AI 画图：写好描述直接发送 · $kDrawPriceHint',
+            maxLines: 2,
             overflow: TextOverflow.ellipsis,
             style:
                 const TextStyle(fontSize: 12, color: AppColors.textSecondary),
           ),
         ),
+        if (!blocked) ...[
+          const SizedBox(width: 6),
+          const ImagePromptHelperSelector(compact: true),
+        ],
       ]),
     );
   }
