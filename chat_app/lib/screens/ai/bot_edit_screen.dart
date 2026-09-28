@@ -1232,7 +1232,7 @@ class _BotEditScreenState extends State<BotEditScreen> {
 规则：
 - 不要假装已经画完；工具提交成功后告诉用户图片正在生成。
 - 如果用户没有说明比例，默认 1:1。
-- 如果用户要求快一点，可以把 expand 设为 false；否则默认 expand true。
+- 如果用户要求严格按原文画、不要自动补充细节，把 expand 设为 false；否则默认 expand true。
 - 如果不是画图请求，正常简短回复。''';
     setState(() {
       final hermes =
