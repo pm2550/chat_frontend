@@ -312,16 +312,12 @@ extension _ChatScreenSlashCommandParts on _ChatScreenState {
             blocked
                 ? _kE2eeAiBlockedReason
                 : 'AI 画图：写好描述直接发送 · $kDrawPriceHint',
-            maxLines: 2,
+            maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style:
                 const TextStyle(fontSize: 12, color: AppColors.textSecondary),
           ),
         ),
-        if (!blocked) ...[
-          const SizedBox(width: 6),
-          const ImagePromptHelperSelector(compact: true),
-        ],
       ]),
     );
   }

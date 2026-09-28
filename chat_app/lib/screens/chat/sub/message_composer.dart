@@ -144,7 +144,7 @@ extension _ChatScreenComposerParts on _ChatScreenState {
     return _runOutgoingUpload(upload);
   }
 
-  /// 按本机记住的扩写档位出图（/画图 和"AI 图片"面板都走这里）。
+  /// /画图 和"AI 图片"面板都走这里。
   Future<void> _generateImageMessage(String prompt) async {
     final normalized = prompt.trim();
     if (normalized.isEmpty || _refuseAiInE2eeChat()) return;
@@ -152,7 +152,6 @@ extension _ChatScreenComposerParts on _ChatScreenState {
       final message = await _chatService.generateImageMessage(
         _chat.id,
         prompt: normalized,
-        promptHelper: ImagePromptHelperPreference.current.value,
       );
       _upsertMessage(message);
       _scrollToBottom();

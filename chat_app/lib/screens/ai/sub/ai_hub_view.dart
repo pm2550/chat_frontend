@@ -259,8 +259,6 @@ extension _AiHubView1Parts on _AiHubPageState {
                   ),
                 ),
               ),
-              const SizedBox(height: PMSpacing.m),
-              ImagePromptHelperSelector(enabled: !_imageSubmitting),
               if (_imageError != null) ...[
                 const SizedBox(height: PMSpacing.m),
                 Container(

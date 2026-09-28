@@ -5,7 +5,6 @@ import 'package:chat_app/models/chat.dart';
 import 'package:chat_app/models/message.dart';
 import 'package:chat_app/services/chat_data_service.dart';
 import 'package:chat_app/services/e2ee/e2ee_constants.dart';
-import 'package:chat_app/services/image_prompt_helper.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 
@@ -1199,40 +1198,19 @@ void main() {
       final message = await service.generateImageMessage(
         '42',
         prompt: '画蓝色机器人',
-        expand: false,
       );
 
+      // 画图一律自动扩写：不再有档位选择。
       expect(sentBody, {
         'roomId': 42,
         'prompt': '画蓝色机器人',
         'n': 1,
         'size': '1024*1024',
-        'expand': false,
+        'expand': true,
       });
       expect(message.id, '88');
       expect(message.type, MessageType.imageGeneration);
       expect(message.imageGenStatus, 'QUEUED');
-
-      // 新的扩写档位：带上 promptHelper，并给老服务器配一个 expand。
-      for (final (level, expand) in [
-        (ImagePromptHelper.off, false),
-        (ImagePromptHelper.low, true),
-        (ImagePromptHelper.medium, true),
-      ]) {
-        await service.generateImageMessage(
-          '42',
-          prompt: '画蓝色机器人',
-          promptHelper: level,
-        );
-        expect(sentBody, {
-          'roomId': 42,
-          'prompt': '画蓝色机器人',
-          'n': 1,
-          'size': '1024*1024',
-          'expand': expand,
-          'promptHelper': level.apiValue,
-        });
-      }
     });
 
     test('group member management calls backend endpoints', () async {

@@ -511,8 +511,6 @@ class _ImageGenerationSheetState extends State<_ImageGenerationSheet> {
               onSubmitted: (_) => _submit(),
             ),
             const SizedBox(height: 14),
-            const ImagePromptHelperSelector(),
-            const SizedBox(height: 14),
             Row(
               mainAxisAlignment: MainAxisAlignment.end,
               children: [

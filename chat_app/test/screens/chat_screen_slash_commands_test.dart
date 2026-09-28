@@ -4,7 +4,6 @@ import 'package:chat_app/models/user.dart';
 import 'package:chat_app/screens/chat/chat_screen.dart';
 import 'package:chat_app/services/auth_service.dart';
 import 'package:chat_app/services/bot_service.dart';
-import 'package:chat_app/services/image_prompt_helper.dart';
 import 'package:chat_app/services/websocket_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -217,6 +216,10 @@ void main() {
     expect(selection.baseOffset, '/画图 '.length);
     expect(panel, findsNothing);
     expect(drawHint, findsOneWidget);
+    // 只有扩写，不给选项：提示条里不出现扩写相关的字样或选择。
+    expect(
+        find.descendant(of: drawHint, matching: find.textContaining('扩写')),
+        findsNothing);
     expect(service.sentTexts, isEmpty);
   });
 
@@ -469,8 +472,6 @@ class _ImageRecordingChatService extends FakeChatDataService {
     String chatRoomId, {
     required String prompt,
     String size = '1024*1024',
-    bool expand = true,
-    ImagePromptHelper? promptHelper,
   }) async {
     imagePrompts.add(prompt);
     return Message(

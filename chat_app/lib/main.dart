@@ -20,7 +20,6 @@ import 'design/pm_theme.dart';
 import 'constants/app_colors.dart';
 import 'services/agent_client_tools.dart';
 import 'services/encryption_service.dart';
-import 'services/image_prompt_helper.dart';
 import 'services/notification_launch.dart';
 import 'services/update_service.dart';
 import 'services/websocket_service.dart';
@@ -42,8 +41,6 @@ void main() {
   WebSocketService().enableMobileWebBackgroundHandoff();
   unawaited(initNotificationLaunchRouting(ChatApp.navigatorKey));
   unawaited(UpdateService.cleanupAfterUpdate());
-  // AI 画图的扩写档位：先读出来，发 /画图 时直接用。
-  unawaited(ImagePromptHelperPreference.load());
   // desktop_drop 的网页实现从插件注册起就在 window 上转发拖放事件；
   // 先接好接收端，免得没有 DropTarget 的页面上每次拖动都报 MissingPlugin。
   DesktopDrop.instance.init();
