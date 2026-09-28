@@ -44,8 +44,8 @@ class _BotEditScreenState extends State<BotEditScreen> {
   static const List<_ProviderOption> _providerOptions = [
     _ProviderOption(
       value: 'HERMES',
-      label: 'Hermes / Grok',
-      defaultModel: 'grok-4.3',
+      label: 'Hermes（Kimi 2.6）',
+      defaultModel: 'kimi-k2.6',
       icon: Icons.auto_awesome,
     ),
     _ProviderOption(
@@ -512,7 +512,7 @@ class _BotEditScreenState extends State<BotEditScreen> {
           ),
           const SizedBox(height: PMSpacing.s),
           const Text(
-            '选择模型供应商，不需要手填枚举名。Hermes/Grok 支持当前 Agent 工具调用。',
+            '选择模型供应商，不需要手填枚举名。Hermes 现用 Kimi 2.6，支持当前 Agent 工具调用。',
             style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
           ),
           const SizedBox(height: PMSpacing.m),
@@ -1084,7 +1084,7 @@ class _BotEditScreenState extends State<BotEditScreen> {
             icon: Icons.image_outlined,
             title: 'AI 画图',
             subtitle:
-                'generate_image · 可选平台 Hermes 或 Bot 自己的图片 API，图片以 Bot 身份发回会话。',
+                'generate_image · 可选平台画图（PixAI）或 Bot 自己的图片 API，图片以 Bot 身份发回会话。',
             value: _imageGenerationEnabled,
             key: const Key('bot-edit-image-generation-switch'),
             onChanged: (value) =>

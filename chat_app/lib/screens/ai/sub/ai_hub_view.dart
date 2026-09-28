@@ -267,7 +267,7 @@ extension _AiHubView1Parts on _AiHubPageState {
                   color: AppColors.warning,
                 ),
                 title: const Text('快出图'),
-                subtitle: const Text('关闭 Grok prompt 扩写，直接把原始描述交给画图服务。'),
+                subtitle: const Text('关闭自动扩写，直接按你写的描述出图。'),
                 trailing: Switch(
                   value: _imageFastMode,
                   onChanged: _imageSubmitting

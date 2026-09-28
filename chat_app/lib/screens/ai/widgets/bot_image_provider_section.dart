@@ -108,7 +108,7 @@ class BotImageProviderSection extends StatelessWidget {
             spacing: PMSpacing.s,
             runSpacing: PMSpacing.s,
             children: [
-              _providerChip('HERMES', '平台 Hermes'),
+              _providerChip('HERMES', '平台画图（PixAI）'),
               _providerChip('OPENAI_COMPATIBLE', 'OpenAI 兼容'),
               _providerChip('NOVELAI', 'NovelAI'),
             ],

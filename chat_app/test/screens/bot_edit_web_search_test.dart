@@ -193,7 +193,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(service.savedConfig!.llmProvider, 'HERMES');
-    expect(service.savedConfig!.modelName, 'grok-4.3');
+    expect(service.savedConfig!.modelName, 'kimi-k2.6');
     expect(service.savedConfig!.enabledTools, contains('generate_image'));
     expect(service.savedConfig!.systemPrompt, contains('generate_image'));
   });
